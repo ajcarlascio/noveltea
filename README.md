@@ -10,13 +10,33 @@ schema. This repository owns the interface and nothing else.
 
 ## Status
 
-**Founding documentation only.** Nothing is scaffolded: no build, no dependencies, no
-source. The stack described below is a decision, not an observation — verify before you
-rely on any path or command in these documents.
+**Scaffold and theme foundation.** Vite + React + TypeScript build, routing, and the theme
+system are in place and covered by tests. There is no local database, no sync, no editor
+and no binder yet — the routes are placeholders that prove the shell renders and the themes
+switch. Everything below that is not the build, the router or the theme tokens is still a
+decision rather than an observation.
 
 Start with `CLAUDE.md` for the rules, and `docs/architecture.md` for the reasoning behind
 the three structural choices (why not React Native, why TipTap, where the sync engine
 lives).
+
+### Themes
+
+Colour lives in exactly one place: `src/styles/tokens.css`. No component hard-codes a
+colour; if a value is not a `var(--token)`, it cannot follow the theme and it will not be
+accepted.
+
+Light mode is **paper** — a warm off-white page against slightly darker grey chrome, so the
+text column reads as a sheet on a desk rather than a lit panel. Dark mode is a soft
+near-black, never `#000`.
+
+There are three theme states, not two. An explicit choice stamps `data-theme` on `<html>`;
+the default "system" stamps nothing and lets `prefers-color-scheme` decide. That is why the
+dark palette is declared twice — once inside the media query (guarded by
+`:not([data-theme="light"])` so an explicit light choice still wins on a dark OS) and once
+under `[data-theme="dark"]`. A test asserts the two blocks stay identical, and that every
+colour-valued light token has a dark counterpart; a token defined in only one theme renders
+as an unresolved custom property for half the readers and is invisible in review.
 
 ## The constraint that shapes everything
 
@@ -82,13 +102,21 @@ definition belongs in the server repo and this one consumes it.**
 
 ## Running it
 
-Nothing exists yet. The intended shape, so that the first scaffolding commit does not have
-to invent one:
-
 ```bash
 npm install              # Node >= 22.6, matching the server's packages
 npm run dev              # Vite dev server — the browser client
-npm test                 # unit tests
+npm test                 # unit tests (vitest)
+npm run test:watch
+npm run typecheck        # tsc over src and over the Node-side config
+npm run lint             # eslint, zero warnings tolerated
+npm run licenses         # dependency licence audit
+npm run build            # typecheck, then production bundle
+```
+
+Not wired up yet, and documented here so the commit that adds them does not invent a
+different name:
+
+```bash
 npm run test:e2e         # end-to-end, against a seeded local replica
 npm run tauri dev        # desktop shell around the same code
 npm run tauri ios dev    # iOS simulator (macOS host only)
@@ -117,8 +145,12 @@ Check before adding anything:
 
 ```bash
 npm view <package> license
-npx license-checker --production --onlyAllow 'MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD'
+npm run licenses         # fails the moment a disallowed licence appears
 ```
+
+`npm run licenses` is the audit above, pinned to the allowed set. It currently reports
+**MIT for all eight production dependencies**; the root package itself is excluded because
+it is private and carries no licence field.
 
 (`yjs` is licence-clean but is *not* currently wanted — see `docs/architecture.md`; the
 server deliberately does not merge prose, and a CRDT alongside version-based optimistic

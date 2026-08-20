@@ -1,0 +1,25 @@
+.theme-toggle {
+  display: flex;
+  gap: var(--space-4);
+  align-items: center;
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+}
+
+.theme-toggle__legend {
+  padding: 0 var(--space-2);
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.theme-toggle__option {
+  display: inline-flex;
+  gap: var(--space-2);
+  align-items: center;
+  cursor: pointer;
+}

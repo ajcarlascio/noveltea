@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NovelTea</title>
+    <script>
+      // Applied before first paint so a reader who chose dark never sees a white flash.
+      // Deliberately duplicates a few lines of the theme provider: the provider cannot
+      // run early enough to prevent the flash, and a stylesheet cannot read storage.
+      (function () {
+        try {
+          var stored = localStorage.getItem("noveltea.theme");
+          if (stored === "light" || stored === "dark") {
+            document.documentElement.setAttribute("data-theme", stored);
+          }
+        } catch (_) {
+          /* storage unavailable — fall through to the OS preference */
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

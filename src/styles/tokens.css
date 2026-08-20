@@ -1,0 +1,128 @@
+/*
+ * Theme tokens. Every colour, space and radius in the app resolves through one of these —
+ * no component hard-codes a value, or it cannot follow the theme.
+ *
+ * Three states, not two. An explicit choice stamps `data-theme` on <html>; the default
+ * "system" setting stamps nothing and lets `prefers-color-scheme` decide. So the light
+ * palette is defined on bare :root, and the dark values are redefined twice: once under
+ * the media query (guarded so an explicit light choice still wins) and once under
+ * [data-theme="dark"] (so the toggle wins over the OS). A token defined in only one of
+ * those places renders as an unstyled colour in the other — which is why a test asserts
+ * both sets are identical.
+ */
+
+:root {
+  /* ---- Light: paper ------------------------------------------------------
+   * The page is warm off-white rather than #fff, and the chrome around it is a
+   * shade darker, so the text column reads as a sheet of paper on a desk rather
+   * than as a lit panel. Pure white at full-page size is tiring to write against.
+   */
+  --surface-app: #ebe8e2;
+  --surface-page: #faf9f6;
+  --surface-raised: #ffffff;
+  --surface-sunken: #e3dfd7;
+
+  --text-primary: #1c1a17;
+  --text-secondary: #4a453e;
+  --text-muted: #6d675f;
+  --text-inverse: #faf9f6;
+
+  --border: #dcd7cf;
+  --border-strong: #c3bcb1;
+
+  --accent: #3d6b8e;
+  --accent-hover: #325a78;
+  --accent-contrast: #ffffff;
+  --accent-subtle: #e4ecf3;
+
+  --danger: #97362f;
+  --danger-subtle: #f6e5e3;
+  --warning: #8a6320;
+  --warning-subtle: #f7edda;
+  --success: #3d6b45;
+
+  --shadow-raised: 0 1px 2px rgb(28 26 23 / 8%), 0 2px 8px rgb(28 26 23 / 6%);
+  --shadow-overlay: 0 4px 24px rgb(28 26 23 / 14%);
+
+  /* ---- Non-colour tokens: identical in both themes ---------------------- */
+  --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-prose: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-8: 3rem;
+
+  --radius-sm: 3px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+
+  /* The measure of the writing column. Prose past ~70 characters is hard to track. */
+  --measure: 34rem;
+}
+
+/* Dark, when the OS asks for it and the reader has not explicitly chosen light. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --surface-app: #141317;
+    --surface-page: #1c1b1f;
+    --surface-raised: #26242b;
+    --surface-sunken: #0f0e11;
+
+    --text-primary: #e9e6e0;
+    --text-secondary: #b8b3ab;
+    --text-muted: #928c84;
+    --text-inverse: #1c1b1f;
+
+    --border: #34313a;
+    --border-strong: #4a4653;
+
+    --accent: #7aa8cc;
+    --accent-hover: #93bcdb;
+    --accent-contrast: #12212b;
+    --accent-subtle: #1e2b36;
+
+    --danger: #d98b83;
+    --danger-subtle: #33201e;
+    --warning: #d4a75f;
+    --warning-subtle: #2e2517;
+    --success: #86b391;
+
+    --shadow-raised: 0 1px 2px rgb(0 0 0 / 40%), 0 2px 8px rgb(0 0 0 / 30%);
+    --shadow-overlay: 0 4px 24px rgb(0 0 0 / 50%);
+  }
+}
+
+/* Dark, chosen explicitly. Wins over the OS in both directions. */
+:root[data-theme="dark"] {
+  --surface-app: #141317;
+  --surface-page: #1c1b1f;
+  --surface-raised: #26242b;
+  --surface-sunken: #0f0e11;
+
+  --text-primary: #e9e6e0;
+  --text-secondary: #b8b3ab;
+  --text-muted: #928c84;
+  --text-inverse: #1c1b1f;
+
+  --border: #34313a;
+  --border-strong: #4a4653;
+
+  --accent: #7aa8cc;
+  --accent-hover: #93bcdb;
+  --accent-contrast: #12212b;
+  --accent-subtle: #1e2b36;
+
+  --danger: #d98b83;
+  --danger-subtle: #33201e;
+  --warning: #d4a75f;
+  --warning-subtle: #2e2517;
+  --success: #86b391;
+
+  --shadow-raised: 0 1px 2px rgb(0 0 0 / 40%), 0 2px 8px rgb(0 0 0 / 30%);
+  --shadow-overlay: 0 4px 24px rgb(0 0 0 / 50%);
+}
