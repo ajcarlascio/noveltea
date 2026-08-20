@@ -1,0 +1,65 @@
+# Node
+node_modules/
+dist/
+dist-ssr/
+build/
+*.tsbuildinfo
+npm-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.npm/
+
+# Vite / bundler caches
+.vite/
+.cache/
+
+# Test and coverage output
+coverage/
+playwright-report/
+test-results/
+.nyc_output/
+
+# Tauri — the Rust build tree, not the config
+src-tauri/target/
+src-tauri/gen/
+# Signing material must never be committed, whatever this repo's visibility becomes.
+*.keystore
+*.jks
+*.p12
+*.mobileprovision
+*.p8
+*.cer
+
+# Local config and secrets
+.env
+.env.*
+!.env.example
+*.local
+*.pem
+*.key
+
+# Local SQLite replicas — an author's manuscripts, never source
+*.sqlite
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+
+# Compiled manuscripts produced while testing export
+*.epub
+*.docx
+*.odt
+*.rtf
+*.pdf
+
+# Editors / OS
+.idea/
+*.iml
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
+
+# Private notes — mirrors the server repo's convention
+*.local.md
+*.private.md
