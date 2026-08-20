@@ -284,9 +284,30 @@ single most divergent area of the web platform, and this app is a `contenteditab
 - **Android: System WebView**, version varies by device and update state.
 
 Consequences: keep editor behaviour on ProseMirror's abstractions rather than raw DOM
-selection wherever possible, and never assume a keyboard event shape. Per-device layout is
-CSS and container queries first, and Tauri's OS plugin (`@tauri-apps/plugin-os`) only when a
-real platform capability differs — never as a proxy for screen size.
+selection wherever possible, and never assume a keyboard event shape.
+
+### Device detection versus webview divergence
+
+These are two separate problems and only one of them has a library answer.
+
+**Device and platform detection is solved.** `@tauri-apps/plugin-os` covers platform, arch
+and version; community plugins such as `tauri-plugin-device-info` expose more (model, screen
+metrics, battery). Either is fine for deciding *layout*: a phone gets a different binder
+presentation from a desktop, and reading the device is a legitimate way to choose.
+
+**Webview divergence is not solved by detecting the device.** Knowing you are on iOS does not
+make WKWebView handle IME composition, autocorrect or selection the way WebView2 does. The
+only remedy is to stay on ProseMirror's abstractions and to test the editor on real devices.
+Do not reach for a device check to paper over an editor bug — that produces per-platform
+branches in the most delicate code in the app, and they rot.
+
+Rule of thumb: **device info decides what the interface looks like; it never decides how
+the document behaves.** Layout branches on device are fine. Editing, sync and compile
+behaviour must be identical everywhere, because the document is the same document.
+
+Prefer CSS and container queries for anything that is really about size rather than
+platform — a narrow desktop window and a tablet want the same layout, and a device check
+would give them different ones.
 
 ## Open core, and what this client must tolerate
 
@@ -350,6 +371,41 @@ Server side, in a `noveltea-server` checkout: `docker compose up -d` then
 `noveltea.cors.allowed-origins`.
 
 ## Testing
+
+**A failing test is a claim about the code. Investigate the claim before you touch the test.**
+
+This is the rule that matters most here, and it is easy to break under time pressure. When a
+test goes red, the first question is "what is the code doing wrong?", not "how do I get this
+green?". Loosening an assertion, widening an expected range, or deleting a case to restore a
+green run destroys the only evidence you had. Change a test only once you can say precisely
+why the old expectation was wrong — and then say so in the commit message.
+
+**A test that cannot fail is worse than no test**, because it buys confidence it is not
+paying for. The server repo learned this twice, expensively: a test named "trashed items are
+excluded" built its fixture with a tombstone instead of a trashed item, so it passed against
+genuinely broken behaviour that shipped discarded chapters into manuscripts; and an
+authorization sweep silently skipped every route whose parameters it could not fill, while
+its own comment claimed a forgotten check would fail it immediately.
+
+So, before trusting any test you write:
+
+- **Break the code on purpose and confirm the test goes red.** Delete the guard, invert the
+  condition, return the wrong value. If it still passes, it is testing nothing. Do this while
+  writing it, not later.
+- **Check the fixture exercises the case in the name.** The trash bug above was entirely a
+  fixture that did not match its own title.
+- **Assert on the outcome, not on the implementation's own report.** Read the local database
+  back rather than trusting what the function returned. A bug that corrupts writing and
+  reading symmetrically survives any test that only asks the code what it did.
+- **Never assert something that cannot be false** — no `expect(x).toBeDefined()` on a value
+  the type system guarantees, no ranges wide enough to admit the bug.
+
+**Guard deliberately, and test the guard.** Two kinds of failure need it: the ordinary ones
+(offline, an expired token, a server that is down, malformed input) and the ones specific to
+this app (a resync arriving mid-edit, a conflict copy for a document that is open, an
+orphaned comment, a queue entry whose `baseVersion` was overwritten, a compile the user
+navigated away from). Every one of those is a case an author will hit; each deserves a test
+that fails without the guard.
 
 Detail lives in `.claude/skills/noveltea-frontend-conventions/SKILL.md`. The shape:
 

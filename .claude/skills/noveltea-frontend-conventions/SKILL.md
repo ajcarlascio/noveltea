@@ -169,6 +169,54 @@ immediate or that trashed items have left the device.
 
 ## Testing
 
+### When a test fails, suspect the code
+
+A red test is a claim about the code, and the claim is usually right. Investigate it before
+touching the test. Loosening an assertion or deleting a case to get back to green throws away
+the evidence — the bug stays, and now nothing will ever catch it.
+
+Change a test only when you can state exactly why the old expectation was wrong, and put that
+reason in the commit message. "Adjusted the test" is not a reason.
+
+### Prove each test can fail
+
+While writing it, break the thing it covers — delete the guard, invert the condition, return
+the wrong value — and confirm it goes red. A test that survives that is testing nothing, and
+you will not find out later.
+
+Watch for the two shapes that fool people:
+
+- **A fixture that does not match the test's name.** The server repo shipped discarded
+  chapters into manuscripts behind a test called "trashed items are excluded" whose fixture
+  used a tombstone instead of a trashed item.
+- **A test that silently narrows itself.** An authorization sweep there skipped every route
+  whose parameters it could not fill, and claimed in its own comment to catch exactly the
+  thing it was no longer checking. If a test can skip, make skipping fail it.
+
+### Assert on outcomes, not on self-reports
+
+Read the local database back rather than trusting the return value of the function under
+test. A defect that corrupts the write path and the read path together satisfies any
+assertion that just asks the code what it did.
+
+For anything touching the editor, assert on the resulting document JSON — that is what
+syncs and what compiles, and it is what the server and the compiler will see.
+
+### Guards worth writing, and testing
+
+Ordinary: offline, expired token, server unreachable, server 5xx, malformed response,
+storage full or unavailable.
+
+Specific to this app, each of which an author will hit:
+
+- a resync arriving while a document is open and dirty
+- a conflict copy created for the document currently on screen
+- a comment whose anchor text has gone (orphaned, never relocated)
+- a queue entry re-queued while in flight — the payload updates, `baseVersion` must not
+- a compile the user navigated away from before it finished
+- a document larger than the server will accept
+- two windows of the same app open on one local database
+
 **Test against a real SQLite database.** `@noveltea/client-db` runs on `node:sqlite` with no
 build step, so tests get the real schema, the real constraints and the real triggers. Mocking
 the data layer mocks away everything worth testing — coalescing, cascades, FTS triggers,
