@@ -1,10 +1,20 @@
 .project__toolbar {
   display: flex;
-  flex-wrap: wrap;
-  /* Row gap clears the 10px the hit overlays span vertically; the column gap does
-     not have to, because the overlays do not widen the button. */
-  gap: var(--space-4) var(--space-2);
+  /* One row on a pointer device. Wrapping a toolbar of five actions across two lines
+     on a wide screen wastes the dimension there is most of. */
+  flex-wrap: nowrap;
+  gap: var(--space-2);
   margin-bottom: var(--space-4);
+}
+
+@media (max-width: 34rem) {
+  .project__toolbar {
+    /* Two rows at most on a phone, which is what the shortened labels buy. The row
+       gap clears the 12px the hit overlays span vertically; the column gap need not,
+       because the overlays do not widen the button. */
+    flex-wrap: wrap;
+    gap: var(--space-4) var(--space-2);
+  }
 }
 
 .project__error {
@@ -55,3 +65,27 @@
 }
 
 
+
+.project__panes {
+  display: grid;
+  gap: var(--space-5);
+  /* One column on a phone, binder beside manuscript when there is room. The binder
+     is given a fixed share so a long chapter title cannot squeeze the prose. */
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 48rem) {
+  .project__panes {
+    grid-template-columns: minmax(12rem, 18rem) minmax(0, 1fr);
+    align-items: start;
+  }
+}
+
+.project__binder {
+  min-width: 0;
+}
+
+.project__hint {
+  margin: 0;
+  color: var(--text-muted);
+}

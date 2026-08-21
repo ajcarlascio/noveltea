@@ -108,3 +108,33 @@ test("nothing is wider than the screen", async ({ page }) => {
     expect(offenders, `on ${path}`).toEqual([]);
   }
 });
+
+test("keeps the binder toolbar to two rows at most", async ({ page }) => {
+  await page.goto("/projects");
+  await expect(page.locator("html")).toHaveAttribute("data-db-status", "ready", { timeout: 30_000 });
+  await page.getByRole("button", { name: "New project" }).click();
+  await page.getByRole("link", { name: "Untitled project" }).first().click();
+  await expect(page.getByRole("heading", { name: "Binder" })).toBeVisible();
+
+  const layout = await page.evaluate(() => {
+    const toolbar = document.querySelector('[role="toolbar"]');
+    const buttons = [...(toolbar?.querySelectorAll("button") ?? [])];
+    return {
+      buttons: buttons.length,
+      rows: new Set(buttons.map((el) => Math.round(el.getBoundingClientRect().top))).size,
+      // innerText, not textContent: both labels are in the DOM and CSS decides which
+      // is shown, so textContent would report the hidden one too.
+      labels: buttons.map((el) => (el as HTMLElement).innerText.trim()),
+      names: buttons.map((el) => el.getAttribute("aria-label") ?? ""),
+    };
+  });
+
+  expect(layout.buttons).toBe(5);
+  // Five actions across four rows pushes the binder off the screen before an author
+  // has written anything. Short labels are what buy the second row back.
+  expect(layout.rows).toBeLessThanOrEqual(2);
+  expect(layout.labels).toContain("Trash");
+  // The accessible name stays the full wording whatever the screen is doing, so a
+  // screen reader never hears an abbreviation the sighted reader does not see.
+  expect(layout.names).toContain("Move to trash");
+});

@@ -89,6 +89,16 @@ const routes = [
       await rows.first().click();
       await page.getByRole("button", { name: "New folder" }).click();
       await settled(4);
+
+      // Open a document and put prose in it, so the capture shows the editor doing
+      // its job rather than an empty box.
+      await rows.nth(1).click();
+      const surface = page.getByRole("textbox", { name: "Manuscript" });
+      await surface.click();
+      await surface.pressSequentially(
+        "The lighthouse kept its own hours, and the keeper kept them with it.",
+      );
+      await page.getByText("Saved").waitFor({ timeout: 10_000 });
     },
   },
 ];

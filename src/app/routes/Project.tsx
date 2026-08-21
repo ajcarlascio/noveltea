@@ -12,8 +12,10 @@ import {
   type BinderNode,
 } from "@/data/binder";
 import { BinderTree } from "@/features/binder/BinderTree";
+import { DocumentEditor } from "@/features/editor/DocumentEditor";
 import { useBinder } from "@/features/binder/useBinder";
 import { StorageWarning } from "@/ui/StorageWarning";
+import { ToolbarButton } from "@/ui/ToolbarButton";
 import "./Project.css";
 
 export function Project() {
@@ -51,33 +53,34 @@ export function Project() {
       )}
 
       <div className="project__toolbar" role="toolbar" aria-label="Binder actions">
-        <button className="button"
-          type="button"
+        <ToolbarButton
+          label="New folder"
+          short="Folder"
           onClick={() =>
             void run(async (db) => {
               await createFolder(db, projectId, parentForNew, "New folder");
               afterCreate(parentForNew);
             })
           }
-        >
-          New folder
-        </button>
-        <button className="button"
-          type="button"
+        />
+        <ToolbarButton
+          label="New document"
+          short="Document"
           onClick={() =>
             void run(async (db) => {
               await createDocument(db, projectId, parentForNew, "Untitled");
               afterCreate(parentForNew);
             })
           }
-        >
-          New document
-        </button>
-        <button className="button" type="button" disabled={selected === null} onClick={() => setRenaming(true)}>
-          Rename
-        </button>
-        <button className="button"
-          type="button"
+        />
+        <ToolbarButton
+          label="Rename"
+          disabled={selected === null}
+          onClick={() => setRenaming(true)}
+        />
+        <ToolbarButton
+          label="Move to trash"
+          short="Trash"
           disabled={selected === null}
           onClick={() =>
             void run(async (db) => {
@@ -85,20 +88,17 @@ export function Project() {
               setSelectedId(null);
             })
           }
-        >
-          Move to trash
-        </button>
-        <button className="button"
-          type="button"
+        />
+        <ToolbarButton
+          label="Move to top level"
+          short="To top"
           disabled={selected === null || selected.parentId === null}
           onClick={() =>
             void run(async (db) => {
               if (selected) await moveItem(db, projectId, selected.id, null, null);
             })
           }
-        >
-          Move to top level
-        </button>
+        />
       </div>
 
       {renaming && selected !== null && (
@@ -112,15 +112,31 @@ export function Project() {
         />
       )}
 
-      <BinderTree
-        label="Binder"
-        nodes={nodes}
-        selectedId={selectedId}
-        onSelect={setSelectedId}
-        expandedIds={expandedIds}
-        onToggle={toggle}
-        emptyMessage="This binder is empty. Start with a folder or a document."
-      />
+      <div className="project__panes">
+        <div className="project__binder">
+          <BinderTree
+            label="Binder"
+            nodes={nodes}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            expandedIds={expandedIds}
+            onToggle={toggle}
+            emptyMessage="This binder is empty. Start with a folder or a document."
+          />
+        </div>
+
+        {selected?.type === "document" ? (
+          // Keyed on the id so switching documents remounts rather than reusing an
+          // editor still holding the previous one's history and unsaved changes.
+          <DocumentEditor key={selected.id} projectId={projectId} documentId={selected.id} />
+        ) : (
+          <p className="project__hint">
+            {selected === null
+              ? "Select a document to write."
+              : "Folders hold documents. Select one to write."}
+          </p>
+        )}
+      </div>
 
       <h2 className="project__trash-heading">Trash</h2>
       {binder !== null && binder.trash.length === 0 ? (

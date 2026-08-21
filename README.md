@@ -10,9 +10,8 @@ schema. This repository owns the interface and nothing else.
 
 ## Status
 
-**Scaffold, themes, the local replica, and the binder.** The build, routing, theme system,
-offline SQLite replica and the binder tree are in place and covered by tests. There is no
-sync and no editor yet. Everything below that is not the build, the router, the theme
+**Scaffold, themes, the local replica, the binder, and the editor.** All in place and
+covered by tests. There is no sync yet. Everything below that is not the build, the router, the theme
 tokens, the database layer or the binder is still a decision rather than an observation.
 
 Start with `CLAUDE.md` for the rules, and `docs/architecture.md` for the reasoning behind
@@ -291,6 +290,43 @@ npm run screenshots
 Writes `screenshots/` — every route, three device sizes, both themes. Gitignored; regenerate
 rather than commit. It is not a test and asserts nothing; it exists so a change to the
 interface can be looked at instead of described.
+
+## The editor
+
+TipTap (MIT) over ProseMirror, in `src/features/editor/`. `@tiptap-pro/*` is a gated
+commercial registry and must never appear here, even transitively.
+
+- **The schema is a contract, not a preference.** `packages/compile` on the server
+  serialises this same JSON to txt, md and html and recognises a fixed set of node and mark
+  names. Anything else is dropped to plain text with a warning — the words survive, the
+  formatting does not. `schema.node.test.ts` reads compile's own source out of the submodule
+  and fails if the two drift.
+- **Link hrefs are allowlisted, not escaped.** There is nothing in `javascript:alert(1)` to
+  escape. http, https and mailto only, matching the server. Tested through a real editor
+  against `data:`, `vbscript:`, `file:`, mixed case, leading whitespace and a tab inside the
+  scheme — browsers strip those before resolving, so `java<TAB>script:` executes.
+- **`role="textbox"` and `aria-multiline` are set explicitly.** A bare
+  `<div contenteditable>` computes as role `generic` in HTML-AAM, so without them a screen
+  reader never announces the manuscript as somewhere you can type.
+- **`search_text` and `word_count` are computed here** because only the client parses a
+  document — the JVM stores `content` as opaque jsonb and never walks it.
+- **Words break on whitespace and on en/em dashes**, matching Word and Scrivener, so
+  "stopped—then" and "stopped — then" both count as two. Hyphens join: "well-lit" is one.
+
+### Autosave is where a writing app loses work
+
+It loses it silently: nothing fails, the author just finds the last few minutes missing.
+Three flushes guard against that, and each has a test.
+
+- **On a pause** (700ms), so a typing session does not rewrite the body on every keystroke.
+- **On leaving the document** — switching to another one in the binder, or unmounting.
+- **On the page going away**, via `visibilitychange` and `pagehide`. React unmounting is not
+  involved in a reload, a closed tab, or a phone backgrounding the browser; the document
+  simply stops existing, taking anything still inside the debounce with it. `beforeunload` is
+  not used: mobile browsers do not fire it reliably.
+
+A failed save **keeps its payload** and reports the reason, rather than discarding the words
+at exactly the moment they most need keeping.
 
 ## Typography
 

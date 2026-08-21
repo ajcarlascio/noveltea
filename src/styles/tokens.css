@@ -85,18 +85,18 @@
 /* Dark, when the OS asks for it and the reader has not explicitly chosen light. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --surface-app: #141317;
-    --surface-page: #1c1b1f;
-    --surface-raised: #26242b;
-    --surface-sunken: #0f0e11;
+    --surface-app: #1a1b1d;
+    --surface-page: #24262a;
+    --surface-raised: #2e3135;
+    --surface-sunken: #141517;
 
-    --text-primary: #e9e6e0;
-    --text-secondary: #b8b3ab;
-    --text-muted: #928c84;
-    --text-inverse: #1c1b1f;
+    --text-primary: #e7e7e5;
+    --text-secondary: #b4b5b3;
+    --text-muted: #8e908f;
+    --text-inverse: #24262a;
 
-    --border: #34313a;
-    --border-strong: #4a4653;
+    --border: #3b3e43;
+    --border-strong: #565a60;
 
     --accent: #7aa8cc;
     --accent-hover: #93bcdb;
@@ -116,18 +116,18 @@
 
 /* Dark, chosen explicitly. Wins over the OS in both directions. */
 :root[data-theme="dark"] {
-  --surface-app: #141317;
-  --surface-page: #1c1b1f;
-  --surface-raised: #26242b;
-  --surface-sunken: #0f0e11;
+  --surface-app: #1a1b1d;
+  --surface-page: #24262a;
+  --surface-raised: #2e3135;
+  --surface-sunken: #141517;
 
-  --text-primary: #e9e6e0;
-  --text-secondary: #b8b3ab;
-  --text-muted: #928c84;
-  --text-inverse: #1c1b1f;
+  --text-primary: #e7e7e5;
+  --text-secondary: #b4b5b3;
+  --text-muted: #8e908f;
+  --text-inverse: #24262a;
 
-  --border: #34313a;
-  --border-strong: #4a4653;
+  --border: #3b3e43;
+  --border-strong: #565a60;
 
   --accent: #7aa8cc;
   --accent-hover: #93bcdb;

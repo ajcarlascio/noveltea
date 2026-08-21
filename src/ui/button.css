@@ -35,13 +35,27 @@
   color: var(--danger);
 }
 
+/* One label is shown, the other is not; the accessible name comes from aria-label
+   and does not change with the viewport. */
+.button__short {
+  display: none;
+}
+
 @media (max-width: 34rem) {
   .button {
     min-height: 36px;
     padding: var(--space-1) var(--space-3);
     /* Rounded tight to the label rather than a boxy desktop control. */
     border-radius: 999px;
-    font-size: 0.875rem;
+    font-size: 0.8125rem;
+  }
+
+  .button__long {
+    display: none;
+  }
+
+  .button__short {
+    display: inline;
   }
 
   /* Invisible, and 6px past the button on each edge: 36 + 12 = 48, comfortably
