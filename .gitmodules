@@ -1,0 +1,3 @@
+[submodule "vendor/noveltea-server"]
+	path = vendor/noveltea-server
+	url = https://github.com/ajcarlascio/noveltea-server.git

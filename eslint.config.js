@@ -5,7 +5,7 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist", "coverage", "src-tauri/target"] },
+  { ignores: ["dist", "coverage", "src-tauri/target", "vendor"] },
   {
     files: ["**/*.{ts,tsx}"],
     extends: [js.configs.recommended, ...tseslint.configs.recommendedTypeChecked],
@@ -13,7 +13,7 @@ export default tseslint.config(
       ecmaVersion: 2022,
       globals: globals.browser,
       parserOptions: {
-        project: ["./tsconfig.json", "./tsconfig.node.json"],
+        project: ["./tsconfig.json", "./tsconfig.node.json", "./tsconfig.e2e.json"],
         tsconfigRootDir: import.meta.dirname,
       },
     },
@@ -40,7 +40,7 @@ export default tseslint.config(
   },
   {
     // Node-side config files.
-    files: ["vite.config.ts", "eslint.config.js"],
+    files: ["vite.config.ts", "eslint.config.js", "playwright.config.ts", "e2e/**"],
     languageOptions: { globals: globals.node },
   },
 );
