@@ -1,3 +1,4 @@
+import Typography from "@tiptap/extension-typography";
 import StarterKit from "@tiptap/starter-kit";
 import type { Extensions } from "@tiptap/react";
 
@@ -10,7 +11,23 @@ import type { Extensions } from "@tiptap/react";
  * met is dropped to plain text on export with a warning — the author's words survive,
  * their formatting does not. `schema.node.test.ts` checks the two agree.
  */
-export const EDITOR_EXTENSIONS: Extensions = [
+export interface SchemaOptions {
+  /**
+   * Curly quotes, en and em dashes, ellipses, as you type.
+   *
+   * Optional because it is wrong for some writing: code samples, dialect that needs
+   * a straight apostrophe, and anyone typesetting deliberately. It adds no node or
+   * mark — it only rewrites text — so turning it on or off does not change what
+   * compile has to understand.
+   */
+  smartTypography: boolean;
+}
+
+export function editorExtensions({ smartTypography }: SchemaOptions): Extensions {
+  return smartTypography ? [...BASE_EXTENSIONS, Typography] : BASE_EXTENSIONS;
+}
+
+const BASE_EXTENSIONS: Extensions = [
   StarterKit.configure({
     // History is per-document; 100 steps is more than an author undoes in a sitting
     // and bounds what a long session holds in memory.
@@ -24,6 +41,9 @@ export const EDITOR_EXTENSIONS: Extensions = [
     },
   }),
 ];
+
+/** The full set, used where the options do not matter — schema checks, tests. */
+export const EDITOR_EXTENSIONS: Extensions = editorExtensions({ smartTypography: true });
 
 /** An empty document, matching the schema's own default. */
 export const EMPTY_DOCUMENT = { type: "doc", content: [{ type: "paragraph" }] };

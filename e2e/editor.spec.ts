@@ -96,3 +96,43 @@ test("keeps the binder toolbar on one row", async ({ page }) => {
   // is most of, and moves the buttons as the selection enables and disables them.
   expect(rows).toBe(1);
 });
+
+test("finds synonyms offline, without sending anything", async ({ page }) => {
+  // Any request to a third party fails this outright: the offline thesaurus is the
+  // default, and the whole claim is that it needs no network.
+  const outbound: string[] = [];
+  await page.route("**://*/**", (route) => {
+    const url = route.request().url();
+    if (!url.startsWith("http://127.0.0.1:4173")) outbound.push(url);
+    return route.continue();
+  });
+
+  await openDocument(page);
+  const surface = page.getByRole("textbox", { name: "Manuscript" });
+  await surface.click();
+  await surface.pressSequentially("She was furious");
+
+  await page.getByRole("button", { name: "Synonyms" }).click();
+
+  // Proves the generated index is served, parses, and answers in a real browser.
+  await expect(page.getByRole("button", { name: "enraged" })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(/on this device/)).toBeVisible();
+  expect(outbound).toEqual([]);
+});
+
+test("puts a chosen synonym into the manuscript", async ({ page }) => {
+  await openDocument(page);
+  const surface = page.getByRole("textbox", { name: "Manuscript" });
+  await surface.click();
+  await surface.pressSequentially("She was furious");
+  // Selecting the whole line would make the lookup term the sentence, which has no
+  // synonyms — the word under the cursor is what the panel is for.
+  await surface.press("Shift+ControlOrMeta+ArrowLeft");
+
+  await page.getByRole("button", { name: "Synonyms" }).click();
+  await page.getByRole("button", { name: "enraged" }).click({ timeout: 20_000 });
+
+  // Chosen with a selection in place, so it replaces rather than appends.
+  await expect(surface).toContainText("She was enraged");
+  await expect(surface).not.toContainText("furious");
+});

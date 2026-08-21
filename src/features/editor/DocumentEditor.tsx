@@ -1,9 +1,11 @@
 import { EditorContent, useEditor } from "@tiptap/react";
 import { useEffect, useRef, useState } from "react";
 import { useDatabase } from "@/app/db/DatabaseContext";
+import { useSettings } from "@/app/settings/SettingsContext";
 import { loadDocument, saveDocument, type StoredDocument } from "@/data/documents";
-import { EDITOR_EXTENSIONS } from "./schema";
+import { editorExtensions } from "./schema";
 import { summarise } from "./text";
+import { LookupPanel } from "@/features/lookup/LookupPanel";
 import { useAutosave, type SaveState } from "./useAutosave";
 import "./DocumentEditor.css";
 
@@ -16,6 +18,7 @@ const LABELS: Record<SaveState, string> = {
 
 export function DocumentEditor({ projectId, documentId }: { projectId: string; documentId: string }) {
   const { db } = useDatabase();
+  const { settings } = useSettings();
   const [loaded, setLoaded] = useState<StoredDocument | null>(null);
   const [missing, setMissing] = useState(false);
   const [state, setState] = useState<SaveState>("clean");
@@ -35,7 +38,7 @@ export function DocumentEditor({ projectId, documentId }: { projectId: string; d
 
   const editor = useEditor(
     {
-      extensions: EDITOR_EXTENSIONS,
+      extensions: editorExtensions({ smartTypography: settings.smartTypography }),
       content: loaded?.content ?? "",
       editable: loaded !== null,
       onUpdate: ({ editor: instance }) => {
@@ -55,7 +58,10 @@ export function DocumentEditor({ projectId, documentId }: { projectId: string; d
         },
       },
     },
-    [loaded?.id],
+    // Rebuilt when the typography setting changes, because extensions are fixed at
+    // construction. Flushing first is handled by the same effect that guards a
+    // document switch.
+    [loaded?.id, settings.smartTypography],
   );
 
   // Flush the previous document before the next one replaces it. Without this the
@@ -132,6 +138,7 @@ export function DocumentEditor({ projectId, documentId }: { projectId: string; d
       )}
 
       <EditorContent editor={editor} />
+      <LookupPanel editor={editor} />
     </section>
   );
 }

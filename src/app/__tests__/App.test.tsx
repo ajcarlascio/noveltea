@@ -3,6 +3,7 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import { DatabaseProvider } from "../db/DatabaseProvider";
+import { SettingsProvider } from "../settings/SettingsProvider";
 import { DatabaseClient } from "@/db/client";
 import { fakeWorker } from "@/test/worker";
 import { ThemeProvider } from "../theme/ThemeProvider";
@@ -24,11 +25,13 @@ function renderAt(path: string) {
   const client = new DatabaseClient(fakeWorker().worker);
   return render(
     <ThemeProvider>
-      <DatabaseProvider create={() => client}>
+      <SettingsProvider>
+        <DatabaseProvider create={() => client}>
         <MemoryRouter initialEntries={[path]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <App />
         </MemoryRouter>
-      </DatabaseProvider>
+        </DatabaseProvider>
+      </SettingsProvider>
     </ThemeProvider>,
   );
 }
