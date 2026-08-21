@@ -244,6 +244,20 @@ One bundle runs in a browser tab, a desktop window and a phone webview. These ar
 - **No Node built-ins in app code**, enforced by ESLint. `src/test/**` is exempt; those
   helpers run under Node.
 
+### Anything that leaves the device
+
+- **`mayUseNetwork(settings, feature)` is the only gate**, and it checks the switch and the
+  consent record independently. Local storage is hand-editable; `parseSettings` also refuses
+  to return an enabled-but-unconsented state. Two checks on purpose.
+- **Consent is read at call time, never captured at construction**, so withdrawing takes
+  effect on the next request rather than the next reload.
+- **Local providers are tried first.** A lookup answerable on the device is never a reason
+  to tell a third party what someone is writing.
+- **Results carry `wasNetworked`** and the interface shows it. An author always knows which
+  answers were private.
+- **API keys never touch localStorage, IndexedDB or the replica.** Server-held, OS keychain
+  under Tauri, or session memory on the web — in that order. See the README.
+
 ### The editor
 
 - **The schema is a contract with `packages/compile`.** A node or mark it has not met is

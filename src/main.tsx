@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import { App } from "./app/App";
 import { DatabaseProvider } from "./app/db/DatabaseProvider";
+import { SettingsProvider } from "./app/settings/SettingsProvider";
 import { ThemeProvider } from "./app/theme/ThemeProvider";
 import "./styles/global.css";
 
@@ -14,11 +15,13 @@ if (!container) {
 createRoot(container).render(
   <StrictMode>
     <ThemeProvider>
-      <DatabaseProvider>
-        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-          <App />
-        </BrowserRouter>
-      </DatabaseProvider>
+      <SettingsProvider>
+        <DatabaseProvider>
+          <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+            <App />
+          </BrowserRouter>
+        </DatabaseProvider>
+      </SettingsProvider>
     </ThemeProvider>
   </StrictMode>,
 );

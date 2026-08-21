@@ -328,6 +328,70 @@ Three flushes guard against that, and each has a test.
 A failed save **keeps its payload** and reports the reason, rather than discarding the words
 at exactly the moment they most need keeping.
 
+## Word lookup
+
+Two providers behind one interface, so the interface reasons about *availability*
+rather than about where an answer came from.
+
+**Offline thesaurus (default, on).** WordNet 3.0, on the device. `tooling/build-thesaurus.mjs`
+compiles the 35MB database down to what a synonym lookup actually uses — 110,543 words and
+53,842 synsets, each word stored once and referenced by index — giving 3.7MB, 1.3MB over the
+wire. It is **not bundled**: most sessions never open a thesaurus, so it is fetched on the
+first lookup and held in memory. Generated at build time and gitignored; `npm run thesaurus`
+rebuilds it.
+
+> WordNet is distributed under Princeton University's licence, which permits use and
+> redistribution without fee provided the notice travels with it. The notice is copied to
+> `public/thesaurus/WORDNET-LICENSE.txt` beside the data. `wordnet-db` is a **dev**
+> dependency — it is only needed to build the index — so it does not appear in the
+> production audit even though the derived data ships.
+
+**Datamuse (off, consented).** Rhymes, near-matches and associations a dictionary cannot
+give. This is the only code in NovelTea that sends an author's words to a third party, and
+it is written so it cannot do so by accident:
+
+- Consent is checked **immediately before the request**, not at construction, so withdrawing
+  takes effect on the next lookup rather than the next reload.
+- **Only the single term is sent.** Never the sentence, never the document, never an
+  identifier. `credentials: "omit"`, `referrer-policy: no-referrer`, and a test asserts the
+  query string contains nothing but the term and a result limit.
+- **Local first, always.** A synonym answerable on the device is never a reason to tell a
+  third party what someone is writing.
+- Every result says which it was — "on this device" or "sent to Datamuse" — so an author
+  always knows.
+
+### Consent
+
+Anything that leaves the device is off until asked for, and asking opens a dialog that
+states what is sent and to whom before anything is enabled. Three deliberate details:
+
+- **Ticking the box opens the dialog; it does not enable the feature.** Only the explicit
+  confirmation does.
+- **The declining button holds focus**, so dismissing by reflex leaves the feature off — the
+  reversible outcome.
+- **Withdrawing forgets the consent.** Turning it on again asks again, because keeping the
+  timestamp would let a later toggle re-enable it silently.
+
+`parseSettings` refuses to return a state where a network feature is enabled without consent
+recorded, and `mayUseNetwork` checks both independently. Local storage is hand-editable, so
+neither one is trusted alone.
+
+### Where API keys live
+
+**Not in local storage, not in IndexedDB, not in the SQLite replica.** All three are
+readable by any script that reaches the page, and the replica is written to disk in the
+clear and copied into every backup. Three honest options, in the order the app prefers them:
+
+1. **The operator's key, on the server.** NovelTea is self-hosted, so the natural home for a
+   shared credential is the instance the author already trusts. The client never sees it.
+   This is the recommended arrangement and the only one straightforwardly safe on the web.
+2. **The OS keychain, under Tauri** — reached from Rust, so the key never enters the webview,
+   which also lets the request be made from Rust and `connect-src` stay tight.
+3. **Memory, this session only, on the web.** A browser has no secure storage. A key typed
+   into the web client is held in a variable and forgotten when the tab closes, and the
+   author is told that plainly rather than being quietly given weaker storage than they
+   assumed.
+
 ## Typography
 
 The reading font is the author's choice, offered at sign-up and changeable in Settings
