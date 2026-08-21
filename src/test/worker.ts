@@ -33,9 +33,9 @@ export function fakeWorker() {
       }
     },
     /** Answer whatever is outstanding, so a component's read resolves. */
-    answerAll(rows: Record<string, unknown>[] = []) {
+    answerAll(result: unknown = []) {
       for (const request of sent.splice(0, sent.length)) {
-        this.reply({ id: request.id, ok: true, rows });
+        this.reply({ id: request.id, ok: true, result });
       }
     },
     crash(message = "worker died") {

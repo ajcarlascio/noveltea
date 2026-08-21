@@ -25,7 +25,7 @@ describe("requests arriving before the database is open", () => {
 
     dispatcher.opened(opened());
     expect(posted[0]).toMatchObject({ kind: "ready" });
-    expect(posted[1]).toEqual({ id: 1, ok: true, rows: [{ n: 1 }] });
+    expect(posted[1]).toEqual({ id: 1, ok: true, result: [{ n: 1 }] });
   });
 
   it("are answered as failures if the database never opens", () => {
@@ -56,7 +56,7 @@ describe("failures are contained per request", () => {
     dispatcher.handle({ id: 2, kind: "query", sql: "SELECT 2 AS n", params: [] });
 
     expect(posted[1]).toMatchObject({ id: 1, ok: false });
-    expect(posted[2]).toEqual({ id: 2, ok: true, rows: [{ n: 2 }] });
+    expect(posted[2]).toEqual({ id: 2, ok: true, result: [{ n: 2 }] });
   });
 
   it("carries the error message across, not a generic one", () => {
@@ -148,7 +148,7 @@ describe("transactions", () => {
 });
 
 describe("run", () => {
-  it("returns no rows and applies the statement", () => {
+  it("returns nothing and applies the statement", () => {
     const { dispatcher, posted } = harness();
     const state = opened();
     dispatcher.opened(state);
@@ -158,7 +158,7 @@ describe("run", () => {
       sql: "INSERT INTO project (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
       params: ["p1", "One", isoNow(), isoNow()],
     });
-    expect(posted[1]).toEqual({ id: 1, ok: true, rows: [] });
+    expect(posted[1]).toEqual({ id: 1, ok: true, result: undefined });
     expect(state.adapter.query("SELECT id FROM project")).toEqual([{ id: "p1" }]);
   });
 });

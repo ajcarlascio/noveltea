@@ -1,0 +1,58 @@
+.binder {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.binder__row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  /* Comfortable under a finger as well as a mouse. */
+  min-height: 44px;
+  padding-right: var(--space-3);
+  border-radius: var(--radius-sm);
+  cursor: default;
+}
+
+.binder__row:hover {
+  background: var(--surface-sunken);
+}
+
+.binder__row[aria-selected="true"] {
+  background: var(--accent-subtle);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.binder__twisty {
+  display: inline-flex;
+  width: 1.5rem;
+  height: 1.5rem;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.binder__twisty svg {
+  transition: transform 120ms ease;
+}
+
+.binder__icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-muted);
+}
+
+.binder__title {
+  overflow: hidden;
+  /* Titles are author-written and can be long; the tree must not widen the page. */
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.binder__empty {
+  margin: 0;
+  padding: var(--space-4) 0;
+  color: var(--text-muted);
+}

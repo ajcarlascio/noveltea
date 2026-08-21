@@ -64,3 +64,6 @@ Thumbs.db
 # Private notes — mirrors the server repo's convention
 *.local.md
 *.private.md
+
+# Review screenshots — regenerate with `npm run screenshots`, never commit the PNGs.
+screenshots/
