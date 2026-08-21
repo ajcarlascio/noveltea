@@ -10,9 +10,8 @@ schema. This repository owns the interface and nothing else.
 
 ## Status
 
-**Scaffold, themes, the local replica, and the binder.** The build, routing, theme system,
-offline SQLite replica and the binder tree are in place and covered by tests. There is no
-sync and no editor yet. Everything below that is not the build, the router, the theme
+**Scaffold, themes, the local replica, the binder, and the editor.** All in place and
+covered by tests. There is no sync yet. Everything below that is not the build, the router, the theme
 tokens, the database layer or the binder is still a decision rather than an observation.
 
 Start with `CLAUDE.md` for the rules, and `docs/architecture.md` for the reasoning behind
@@ -252,6 +251,24 @@ algorithm rejects. Changing the rounding or the alphabet turns dozens of them re
 
 Arithmetic on these strings is always a bug: they are compared, never computed.
 
+**A finding worth acting on, server-side.** The published fractional-indexing algorithm
+carries a length-prefixed integer part — `a0`, `a1`, … `az`, `b00` — so appending N items
+keeps keys at O(log N): a few characters for thousands. `FractionalIndex` has no such
+prefix, so once the leading digit reaches `z` every further append adds a character:
+
+| appends | key length | | inserts into one gap | key length |
+|---|---|---|---|---|
+| 10 | 2 | | 10 | 2 |
+| 50 | 10 | | 50 | 9 |
+| 500 | 100 | | 500 | 84 |
+| 2000 | 400 (`zzzz…`) | | 2000 | 334 |
+
+Appending is the commonest thing a binder does. Ordering stays correct, so nothing breaks —
+it costs storage, index size and comparison time on the hottest path. It is cheapest to
+change **before any real binder exists**, because changing it later means migrating every
+key in every replica. `order.node.test.ts` pins the current numbers so a server-side fix
+turns this port red and forces it to be regenerated rather than diverging silently.
+
 ### Creating a project offline — the known gap
 
 `createProject` writes locally and queues **nothing**, because `pending_change` has no
@@ -273,6 +290,63 @@ npm run screenshots
 Writes `screenshots/` — every route, three device sizes, both themes. Gitignored; regenerate
 rather than commit. It is not a test and asserts nothing; it exists so a change to the
 interface can be looked at instead of described.
+
+## The editor
+
+TipTap (MIT) over ProseMirror, in `src/features/editor/`. `@tiptap-pro/*` is a gated
+commercial registry and must never appear here, even transitively.
+
+- **The schema is a contract, not a preference.** `packages/compile` on the server
+  serialises this same JSON to txt, md and html and recognises a fixed set of node and mark
+  names. Anything else is dropped to plain text with a warning — the words survive, the
+  formatting does not. `schema.node.test.ts` reads compile's own source out of the submodule
+  and fails if the two drift.
+- **Link hrefs are allowlisted, not escaped.** There is nothing in `javascript:alert(1)` to
+  escape. http, https and mailto only, matching the server. Tested through a real editor
+  against `data:`, `vbscript:`, `file:`, mixed case, leading whitespace and a tab inside the
+  scheme — browsers strip those before resolving, so `java<TAB>script:` executes.
+- **`role="textbox"` and `aria-multiline` are set explicitly.** A bare
+  `<div contenteditable>` computes as role `generic` in HTML-AAM, so without them a screen
+  reader never announces the manuscript as somewhere you can type.
+- **`search_text` and `word_count` are computed here** because only the client parses a
+  document — the JVM stores `content` as opaque jsonb and never walks it.
+- **Words break on whitespace and on en/em dashes**, matching Word and Scrivener, so
+  "stopped—then" and "stopped — then" both count as two. Hyphens join: "well-lit" is one.
+
+### Autosave is where a writing app loses work
+
+It loses it silently: nothing fails, the author just finds the last few minutes missing.
+Three flushes guard against that, and each has a test.
+
+- **On a pause** (700ms), so a typing session does not rewrite the body on every keystroke.
+- **On leaving the document** — switching to another one in the binder, or unmounting.
+- **On the page going away**, via `visibilitychange` and `pagehide`. React unmounting is not
+  involved in a reload, a closed tab, or a phone backgrounding the browser; the document
+  simply stops existing, taking anything still inside the debounce with it. `beforeunload` is
+  not used: mobile browsers do not fire it reliably.
+
+A failed save **keeps its payload** and reports the reason, rather than discarding the words
+at exactly the moment they most need keeping.
+
+## Typography
+
+The reading font is the author's choice, offered at sign-up and changeable in Settings
+afterwards. **Merriweather is the default offer, not a decision made for them** — novelists
+care about this the way they care about paper.
+
+It is **bundled, not fetched**: a self-hosted instance may have no internet, and the CSP
+allows no font CDN. The variable `wght` axis ships in one file per style (~100KB Latin), and
+`unicode-range` means a reader downloads only the subset they render.
+
+Merriweather is **SIL OFL 1.1**, which is not in the MIT/Apache/BSD rule below. It is
+allowed by name and on purpose: OFL is the standard open-font licence, its copyleft applies
+to derivative *fonts* rather than to software that embeds them, and it permits bundling in a
+commercial product. Do not modify the font — OFL reserves the name.
+
+The interface keeps its own font (`--font-ui`); only the manuscript follows the choice.
+
+> **Sign-up is not built yet.** When it is, the font picker belongs in it, alongside the
+> theme — with the same four options and the same default.
 
 ## Content Security Policy
 

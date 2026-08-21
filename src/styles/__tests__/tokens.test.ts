@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 // `?raw` rather than node:fs: these tests run in the jsdom environment, where
 // import.meta.url is an http URL and file reads have no base path to resolve against.
 import css from "../tokens.css?raw";
+import indexHtml from "../../../index.html?raw";
 
 /**
  * These tests read tokens.css as text rather than through jsdom on purpose: jsdom
@@ -102,6 +103,18 @@ describe("tokens.css", () => {
   it("does not introduce tokens in dark that light never defined", () => {
     const strays = [...darkByChoice.keys()].filter((name) => !light.has(name));
     expect(strays).toEqual([]);
+  });
+
+  it("keeps the browser chrome colour in step with the app surface", () => {
+    // index.html cannot read a custom property, so <meta name="theme-color"> repeats
+    // the value. A stale copy paints the address bar or status bar a colour the app
+    // stopped using, which looks like a rendering fault rather than a stale string.
+    const metas = [...indexHtml.matchAll(/<meta name="theme-color" content="([^"]+)" media="\(prefers-color-scheme: (light|dark)\)"/g)];
+    expect(metas).toHaveLength(2);
+
+    const declared = new Map(metas.map((m) => [m[2], m[1]]));
+    expect(declared.get("light")).toBe(light.get("--surface-app"));
+    expect(declared.get("dark")).toBe(darkByChoice.get("--surface-app"));
   });
 
   it("guards the explicit light choice against the dark media query", () => {

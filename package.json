@@ -14,17 +14,22 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.e2e.json",
     "lint": "eslint . --max-warnings 0",
-    "licenses": "license-checker --production --onlyAllow \"MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;Unlicense\" --excludePackages \"noveltea@0.1.0\" --summary",
+    "licenses": "license-checker --production --onlyAllow \"MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;Unlicense;OFL-1.1\" --excludePackages \"noveltea@0.1.0\" --summary",
     "client-db:generate": "npm run generate -w @noveltea/client-db",
     "test:e2e": "playwright test",
     "check:submodule": "node scripts/check-submodule.mjs",
     "predev": "npm run check:submodule",
     "prebuild": "npm run check:submodule",
     "pretest": "npm run check:submodule",
-    "screenshots": "npm run build && node tooling/screenshots.mjs"
+    "screenshots": "npm run build && node tooling/screenshots.mjs",
+    "test:e2e:webkit": "NOVELTEA_WEBKIT=1 playwright test --project=webkit --project=mobile-safari"
   },
   "dependencies": {
+    "@fontsource-variable/merriweather": "^5.3.0",
     "@sqlite.org/sqlite-wasm": "^3.53.0-build1",
+    "@tiptap/pm": "^3.30.2",
+    "@tiptap/react": "^3.30.2",
+    "@tiptap/starter-kit": "^3.30.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.28.0"

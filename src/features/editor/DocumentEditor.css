@@ -1,0 +1,87 @@
+.editor {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.editor__bar {
+  display: flex;
+  gap: var(--space-3);
+  align-items: baseline;
+  flex-wrap: wrap;
+  margin-bottom: var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.editor__title {
+  flex: 1 1 auto;
+  margin: 0;
+  font-family: var(--font-prose);
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.editor__words,
+.editor__state {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.editor__state[data-state="error"] {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.editor__error {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-md);
+  background: var(--danger-subtle);
+}
+
+.editor__surface {
+  /* The measure: prose past about 70 characters is hard for the eye to track back. */
+  max-width: var(--measure);
+  min-height: 12rem;
+  padding: var(--space-2) 0;
+  font-family: var(--font-prose);
+  font-size: 1.05rem;
+  line-height: 1.7;
+}
+
+.editor__surface:focus {
+  outline: none;
+}
+
+.editor__surface p {
+  margin: 0 0 1em;
+}
+
+.editor__surface h1,
+.editor__surface h2,
+.editor__surface h3 {
+  margin: 1.4em 0 0.5em;
+  font-weight: 600;
+}
+
+.editor__surface blockquote {
+  margin: 0 0 1em;
+  padding-left: var(--space-4);
+  border-left: 3px solid var(--border-strong);
+  color: var(--text-secondary);
+}
+
+.editor__surface code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+.editor__surface a {
+  color: var(--accent);
+}
+
+.editor__missing {
+  color: var(--text-muted);
+}

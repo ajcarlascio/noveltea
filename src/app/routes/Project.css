@@ -1,28 +1,20 @@
 .project__toolbar {
   display: flex;
-  flex-wrap: wrap;
+  /* One row on a pointer device. Wrapping a toolbar of five actions across two lines
+     on a wide screen wastes the dimension there is most of. */
+  flex-wrap: nowrap;
   gap: var(--space-2);
   margin-bottom: var(--space-4);
 }
 
-.project__toolbar button,
-.project__trash button,
-.project__rename button {
-  min-height: 44px;
-  padding: var(--space-2) var(--space-4);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
-  background: var(--surface-raised);
-  cursor: pointer;
-}
-
-.project__toolbar button:hover:not(:disabled) {
-  border-color: var(--accent);
-}
-
-.project__toolbar button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+@media (max-width: 34rem) {
+  .project__toolbar {
+    /* Two rows at most on a phone, which is what the shortened labels buy. The row
+       gap clears the 12px the hit overlays span vertically; the column gap need not,
+       because the overlays do not widen the button. */
+    flex-wrap: wrap;
+    gap: var(--space-4) var(--space-2);
+  }
 }
 
 .project__error {
@@ -36,7 +28,7 @@
 .project__rename {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-2);
+  gap: var(--space-4) var(--space-2);
   align-items: center;
   margin-bottom: var(--space-4);
 }
@@ -72,7 +64,28 @@
   min-height: 44px;
 }
 
-.project__danger {
-  border-color: var(--danger) !important;
-  color: var(--danger);
+
+
+.project__panes {
+  display: grid;
+  gap: var(--space-5);
+  /* One column on a phone, binder beside manuscript when there is room. The binder
+     is given a fixed share so a long chapter title cannot squeeze the prose. */
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 48rem) {
+  .project__panes {
+    grid-template-columns: minmax(12rem, 18rem) minmax(0, 1fr);
+    align-items: start;
+  }
+}
+
+.project__binder {
+  min-width: 0;
+}
+
+.project__hint {
+  margin: 0;
+  color: var(--text-muted);
 }

@@ -1,4 +1,9 @@
+/* Bundled, not fetched: a self-hosted instance may have no internet, and the CSP
+   allows no font CDN. SIL OFL 1.1 — see README, "Dependency licensing". */
+@import "@fontsource-variable/merriweather/wght.css";
+@import "@fontsource-variable/merriweather/wght-italic.css";
 @import "./tokens.css";
+@import "../ui/button.css";
 
 *,
 *::before,

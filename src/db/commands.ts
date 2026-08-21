@@ -203,6 +203,25 @@ export interface BinderItemRef {
   id: string;
 }
 
+export interface SaveDocumentInput {
+  projectId: string;
+  id: string;
+  /** ProseMirror JSON. Stored as text; never interpreted here. */
+  content: unknown;
+  /** Flattened prose, for offline search and for the server's tsvector. */
+  searchText: string;
+  wordCount: number;
+}
+
+export interface DocumentRow {
+  id: string;
+  content: string;
+  search_text: string | null;
+  word_count: number;
+  version: number;
+  updated_at: string;
+}
+
 export const COMMANDS = {
   /**
    * Creates a project and its trash node locally.
@@ -378,6 +397,58 @@ export const COMMANDS = {
     );
     const row = requireItem(db, input.projectId, input.id);
     queue(db, row, "update");
+    return row;
+  },
+
+  /**
+   * Writes a document's body.
+   *
+   * The content is stored as text and never inspected: only the editor understands
+   * the schema. `search_text` and `word_count` are computed by the caller for the
+   * same reason — the server cannot produce them, because the JVM never walks a
+   * document.
+   */
+  saveDocument: (db: SqliteAdapter, input: SaveDocumentInput): DocumentRow => {
+    // `document` has no project_id of its own; it is scoped through its binder item,
+    // exactly as the server scopes it. Without this an id learned from anywhere would
+    // write into another project.
+    const item = requireItem(db, input.projectId, input.id);
+    if (item.type !== "document") throw new Error("That item is not a document.");
+    if (item.deleted_at !== null) throw new Error("That document has been deleted.");
+    if (!Number.isInteger(input.wordCount) || input.wordCount < 0) {
+      throw new Error("A word count must be a non-negative whole number.");
+    }
+
+    const stamp = now();
+    db.run(
+      `UPDATE document SET content = ?, search_text = ?, word_count = ?, updated_at = ?
+        WHERE id = ?;`,
+      [JSON.stringify(input.content), input.searchText, input.wordCount, stamp, input.id],
+    );
+
+    const row = db.query<DocumentRow>(
+      "SELECT id, content, search_text, word_count, version, updated_at FROM document WHERE id = ?;",
+      [input.id],
+    )[0];
+    if (!row) throw new Error("That document has no body row.");
+
+    enqueueChange(db, {
+      projectId: input.projectId,
+      entityType: "document",
+      entityId: row.id,
+      op: "update",
+      payload: {
+        id: row.id,
+        content: input.content,
+        search_text: row.search_text,
+        word_count: row.word_count,
+        updated_at: row.updated_at,
+      },
+      // Local edits never bump version; the server assigns it. This is the version
+      // last synced, which is what the server checks the push against.
+      baseVersion: row.version,
+    });
+
     return row;
   },
 

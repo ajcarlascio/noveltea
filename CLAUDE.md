@@ -244,6 +244,19 @@ One bundle runs in a browser tab, a desktop window and a phone webview. These ar
 - **No Node built-ins in app code**, enforced by ESLint. `src/test/**` is exempt; those
   helpers run under Node.
 
+### The editor
+
+- **The schema is a contract with `packages/compile`.** A node or mark it has not met is
+  flattened to plain text on export. `schema.node.test.ts` reads compile's source from the
+  submodule and fails on drift. Adding an extension means checking compile first.
+- **`role="textbox"` + `aria-multiline` are required**: `contenteditable` alone computes as
+  `generic`, so nothing announces the manuscript as editable.
+- **Autosave must flush on pause, on leaving the document, and on `visibilitychange` /
+  `pagehide`.** A reload or a backgrounded tab does not unmount React. A failed save keeps
+  its payload.
+- **Link protocols are an allowlist** matching the server's, and it is tested through a real
+  editor rather than by reading configuration.
+
 ### The binder in this client
 
 - **Writes go through `DatabaseClient.command`**, never assembled from `run` calls here. A
@@ -259,6 +272,10 @@ One bundle runs in a browser tab, a desktop window and a phone webview. These ar
   because it applies them offline with no server to catch it.
 - **Every reparent runs the recursive descendant check.** On the client a cycle is an
   immediately lost subtree, with nothing upstream to refuse it.
+- **`FractionalIndex` grows appended keys linearly** (~1 character per 5 appends; 2000
+  appends give a 400-character key of `zzzz…`). The published algorithm's length-prefixed
+  integer part would keep them at O(log N). Correct but costly, and cheapest to fix on the
+  server before real binders exist. The current numbers are pinned in `order.node.test.ts`.
 - **Icons are inline SVG, not emoji.** Emoji come from whatever font the platform ships:
   different on every OS, inconsistently sized, and an empty box where the font is missing.
 

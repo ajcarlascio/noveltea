@@ -6,26 +6,69 @@ import { expect, test } from "@playwright/test";
  * is a project entry there, not a change here.
  */
 
-test("gives every control a target a finger can hit", async ({ page }) => {
-  await page.goto("/settings");
-  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+/**
+ * Hit-testing, not measuring. Buttons are deliberately smaller than their target on a
+ * phone — compact pills with a transparent overlay extending what a finger can reach —
+ * so a bounding box says nothing about whether a tap lands. This asks the browser the
+ * same question the finger does.
+ */
+async function unhittableControls(page: import("@playwright/test").Page) {
+  return page.evaluate(() => {
+    const MIN = 44;
+    const found: string[] = [];
 
-  const small = await page.evaluate(() => {
-    const offenders: string[] = [];
+    const hittable = (el: Element, x: number, y: number) => {
+      const hit = document.elementFromPoint(x, y);
+      return hit !== null && (hit === el || el.contains(hit));
+    };
+
     for (const el of document.querySelectorAll("a:not(.skip-link), button, label")) {
-      const { width, height } = el.getBoundingClientRect();
-      // Zero-sized elements are hidden, not undersized.
-      if (width === 0 && height === 0) continue;
-      if (height < 44) {
-        offenders.push(`${el.tagName}"${(el.textContent ?? "").trim().slice(0, 20)}" ${Math.round(width)}x${Math.round(height)}`);
+      const rect = el.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) continue;
+
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      // Half a pixel inside the boundary: a point exactly on the edge of a 44px
+      // target belongs to whatever is drawn next, so probing at exactly MIN/2 tests
+      // the neighbour rather than the control.
+      const reach = MIN / 2 - 0.5;
+
+      if (cy - reach < 0 || cy + reach > window.innerHeight) continue; // off screen
+      for (const dy of [-reach, 0, reach]) {
+        if (!hittable(el, cx, cy + dy)) {
+          found.push(
+            `${el.tagName}"${(el.textContent ?? "").trim().slice(0, 20)}" not hittable ${dy}px from its centre`,
+          );
+          break;
+        }
       }
     }
-    return offenders;
+    return found;
   });
+}
 
-  // 44px is the floor in Apple's HIG; Material rounds up from it. Below that,
-  // taps land beside their target and the app feels broken rather than dense.
-  expect(small).toEqual([]);
+test("gives every control on the settings page a target a finger can hit", async ({ page }) => {
+  await page.goto("/settings");
+  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+  // 44px is the floor in Apple's HIG; Material rounds up from it. Below that, taps
+  // land beside their target and the app feels broken rather than dense.
+  expect(await unhittableControls(page)).toEqual([]);
+});
+
+test("gives every control in the binder a target a finger can hit", async ({ page }) => {
+  // The binder toolbar is where the buttons are, and buttons are the controls whose
+  // visible box is deliberately smaller than their target. Testing only the settings
+  // page would leave that entirely uncovered — it has labels and links and no buttons.
+  await page.goto("/projects");
+  await expect(page.locator("html")).toHaveAttribute("data-db-status", "ready", { timeout: 30_000 });
+  await page.getByRole("button", { name: "New project" }).click();
+  await page.getByRole("link", { name: "Untitled project" }).first().click();
+  await expect(page.getByRole("heading", { name: "Binder" })).toBeVisible();
+
+  await page.getByRole("button", { name: "New folder" }).click();
+  await expect(page.getByRole("treeitem")).toHaveCount(1);
+
+  expect(await unhittableControls(page)).toEqual([]);
 });
 
 test("nothing is wider than the screen", async ({ page }) => {
@@ -64,4 +107,34 @@ test("nothing is wider than the screen", async ({ page }) => {
     // they never chose to move.
     expect(offenders, `on ${path}`).toEqual([]);
   }
+});
+
+test("keeps the binder toolbar to two rows at most", async ({ page }) => {
+  await page.goto("/projects");
+  await expect(page.locator("html")).toHaveAttribute("data-db-status", "ready", { timeout: 30_000 });
+  await page.getByRole("button", { name: "New project" }).click();
+  await page.getByRole("link", { name: "Untitled project" }).first().click();
+  await expect(page.getByRole("heading", { name: "Binder" })).toBeVisible();
+
+  const layout = await page.evaluate(() => {
+    const toolbar = document.querySelector('[role="toolbar"]');
+    const buttons = [...(toolbar?.querySelectorAll("button") ?? [])];
+    return {
+      buttons: buttons.length,
+      rows: new Set(buttons.map((el) => Math.round(el.getBoundingClientRect().top))).size,
+      // innerText, not textContent: both labels are in the DOM and CSS decides which
+      // is shown, so textContent would report the hidden one too.
+      labels: buttons.map((el) => (el as HTMLElement).innerText.trim()),
+      names: buttons.map((el) => el.getAttribute("aria-label") ?? ""),
+    };
+  });
+
+  expect(layout.buttons).toBe(5);
+  // Five actions across four rows pushes the binder off the screen before an author
+  // has written anything. Short labels are what buy the second row back.
+  expect(layout.rows).toBeLessThanOrEqual(2);
+  expect(layout.labels).toContain("Trash");
+  // The accessible name stays the full wording whatever the screen is doing, so a
+  // screen reader never hears an abbreviation the sighted reader does not see.
+  expect(layout.names).toContain("Move to trash");
 });

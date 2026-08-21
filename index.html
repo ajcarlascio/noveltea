@@ -9,8 +9,8 @@
     <!-- The colour the OS paints around the page: browser address bar on Android,
          status bar backdrop in a standalone install. One per theme, or a dark reader
          gets a white bar above a near-black app. -->
-    <meta name="theme-color" content="#ebe8e2" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#141317" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#e6e0d1" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1a1b1d" media="(prefers-color-scheme: dark)" />
     <title>NovelTea</title>
     <script>
       // Applied before first paint so a reader who chose dark never sees a white flash.
@@ -18,12 +18,17 @@
       // run early enough to prevent the flash, and a stylesheet cannot read storage.
       (function () {
         try {
-          var stored = localStorage.getItem("noveltea.theme");
-          if (stored === "light" || stored === "dark") {
-            document.documentElement.setAttribute("data-theme", stored);
+          var root = document.documentElement;
+          var theme = localStorage.getItem("noveltea.theme");
+          if (theme === "light" || theme === "dark") {
+            root.setAttribute("data-theme", theme);
+          }
+          var font = localStorage.getItem("noveltea.font");
+          if (font === "georgia" || font === "system-serif" || font === "system-sans") {
+            root.setAttribute("data-font", font);
           }
         } catch (_) {
-          /* storage unavailable — fall through to the OS preference */
+          /* storage unavailable — fall through to the defaults */
         }
       })();
     </script>

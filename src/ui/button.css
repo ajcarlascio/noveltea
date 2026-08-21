@@ -1,0 +1,75 @@
+/**
+ * One button style for the whole app.
+ *
+ * On a pointer device the button is generous. On a phone it is a compact pill —
+ * tight to its label, so a toolbar fits on one line instead of wrapping — while the
+ * area a finger can actually hit stays 44px through a transparent ::after overlay.
+ * Shrinking the *target* along with the button is what makes small controls miss.
+ */
+.button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.button--danger {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* One label is shown, the other is not; the accessible name comes from aria-label
+   and does not change with the viewport. */
+.button__short {
+  display: none;
+}
+
+@media (max-width: 34rem) {
+  .button {
+    min-height: 36px;
+    padding: var(--space-1) var(--space-3);
+    /* Rounded tight to the label rather than a boxy desktop control. */
+    border-radius: 999px;
+    font-size: 0.8125rem;
+  }
+
+  .button__long {
+    display: none;
+  }
+
+  .button__short {
+    display: inline;
+  }
+
+  /* Invisible, and 6px past the button on each edge: 36 + 12 = 48, comfortably
+     past the 44px floor. Rows are spaced further apart than this so two of these
+     never overlap and steal each other's taps. */
+  /* Invisible, and 6px past the button above and below: 36 + 12 = 48. Sized past the
+     44px floor rather than exactly to it, because a device pixel ratio of 2.625
+     rounds a half-pixel margin away and the target lands just short. Vertical only,
+     so a toolbar can pack buttons closely side by side without two overlays
+     overlapping and stealing each other's taps. Wrapped rows are spaced further
+     apart than 10px for the same reason. */
+  .button::after {
+    content: "";
+    position: absolute;
+    inset: -6px 0;
+  }
+}

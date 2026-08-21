@@ -12,6 +12,7 @@ import indexHtml from "../../index.html?raw";
 export interface PrePaintResult {
   /** What the script stamped on <html>, if anything. */
   theme: string | null;
+  font: string | null;
   threw: unknown;
 }
 
@@ -26,10 +27,10 @@ function scriptSource(): string {
 export function runPrePaintScript(storage: {
   getItem: (key: string) => string | null;
 }): PrePaintResult {
-  let theme: string | null = null;
+  const stamped: Record<string, string> = {};
   const documentElement = {
     setAttribute: (name: string, value: string) => {
-      if (name === "data-theme") theme = value;
+      stamped[name] = value;
     },
   };
 
@@ -42,5 +43,9 @@ export function runPrePaintScript(storage: {
   } catch (error) {
     threw = error;
   }
-  return { theme, threw };
+  return {
+    theme: stamped["data-theme"] ?? null,
+    font: stamped["data-font"] ?? null,
+    threw,
+  };
 }

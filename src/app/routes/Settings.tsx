@@ -1,3 +1,4 @@
+import { FontChooser } from "@/ui/FontChooser";
 import { ThemeToggle } from "@/ui/ThemeToggle";
 
 export function Settings() {
@@ -5,6 +6,7 @@ export function Settings() {
     <section className="page">
       <h1>Settings</h1>
       <ThemeToggle />
+      <FontChooser />
     </section>
   );
 }
