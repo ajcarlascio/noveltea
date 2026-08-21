@@ -191,6 +191,102 @@ asserts the second visit applies **zero** migrations, which is only true if the 
 file survived. Deleting the OPFS path turns that red, along with the assertion that storage
 is not `memory`.
 
+## Content Security Policy
+
+A policy is injected into `dist/index.html` at build time by `build/csp-plugin.ts`. Build
+only — Vite's dev server serves its own inline HMR scripts, so a strict policy in
+development blocks the tooling rather than an attacker.
+
+Hashes for inline scripts are **computed, never written by hand**. The theme pre-paint
+script has to keep running, and a copied hash goes stale the first time someone edits the
+script — silently removing it and bringing back the flash of the wrong theme.
+
+Four things about this policy that are easy to get wrong:
+
+- **`'wasm-unsafe-eval'` is required.** sqlite-wasm compiles WebAssembly. It permits wasm
+  compilation and nothing else; it is not `'unsafe-eval'`. Removing it is the most likely
+  well-meaning tightening and it takes the database with it.
+- **`worker-src 'self' blob:`** covers the database worker and sqlite-wasm's own OPFS proxy
+  worker.
+- **`connect-src` is deliberately open.** NovelTea is self-hosted: the server is whatever
+  address the author types at sign-in, so there is no origin to allow at build time. A Tauri
+  build should route requests through Rust instead and tighten this to `'self'` — see
+  "Tauri readiness".
+- **`frame-ancestors` is absent on purpose.** Browsers ignore it when the policy arrives in
+  a `<meta>` element and log a warning saying so. Listing it would look like clickjacking
+  protection while providing none.
+
+**What a `<meta>` policy does not cover:** worker contexts. Code inside the database worker
+is not governed by it — which is why removing `'wasm-unsafe-eval'` does not visibly break
+Chromium today, even though a header-delivered policy would enforce it. Operators serving
+the web build should send the policy as an HTTP response header as well, and add
+`X-Frame-Options: DENY` (or a header CSP with `frame-ancestors 'none'`) for framing.
+
+## Designing for every shell
+
+The same bundle runs in a browser tab, a desktop window and a phone webview. Rules that
+follow, all of them enforced by tests rather than by memory:
+
+- **44px minimum for anything tappable** under a coarse pointer — Apple's HIG floor, which
+  Material rounds up from. `e2e/mobile/layout.spec.ts` measures every control and fails on
+  anything shorter.
+- **Nothing wider than the screen.** That test walks every box and every scrollable pane,
+  because measuring `documentElement.scrollWidth` proves nothing here: the app's scroll
+  container is the main pane, so overflow happens *inside* it and the document never grows.
+- **`100dvh`, not `100vh`.** Mobile browser toolbars change the viewport as you scroll, and
+  `100vh` leaves the bottom of the app underneath them.
+- **Safe-area insets** on the header and the scrolling pane, with `viewport-fit=cover`.
+  Without the meta, iOS letterboxes the app; without the insets, the header sits under the
+  notch.
+- **`accent-color`** is set from the palette. Native controls are painted by the OS and
+  otherwise default to its blue — the one thing on screen ignoring the theme.
+- **Body text in `rem`, root at `100%`.** An author who enlarged their browser font did it
+  deliberately.
+- **`overscroll-behavior`** stops page-level rubber-banding and pull-to-refresh, which
+  inside an app webview read as the app coming apart.
+- **A skip link** as the first focusable element. Someone who cannot swipe past the nav has
+  to be able to tab past it.
+
+## Tauri readiness
+
+`src-tauri/` does not exist yet. What is already lined up for it, and what is not:
+
+- **No Node built-ins in app code**, enforced by an ESLint rule rather than by discipline —
+  they do not exist in a webview. `src/test/**` is exempted explicitly, because those
+  helpers run under Node.
+- **All persistence is behind one interface.** `SqliteAdapter` is three methods, so the
+  Tauri shell can serve the same interface from a native SQLite binding without the data
+  layer noticing.
+- **The CSP already assumes a webview**, and is a build artefact rather than a server
+  concern, so it travels with the bundle.
+- **Still to decide:** network calls. Tauri's guidance is to make external requests from
+  Rust, which would let `connect-src` drop to `'self'` and keep any future tokens out of
+  the webview. That is the one place where the web build and the Tauri build will
+  legitimately differ, and it belongs behind `src/platform/`.
+
+## Testing on other devices
+
+The device matrix is Playwright projects in `playwright.config.ts` — `desktop` (Desktop
+Chrome) and `mobile` (Pixel 7). Adding a device is an entry there; specs under `e2e/mobile/`
+run in the mobile project because Playwright only accepts a device's browser type at project
+level.
+
+Only Chromium is installed. Worth adding, in this order:
+
+```bash
+npx playwright install webkit    # iOS and macOS Tauri both use WebKit; closest proxy we can run
+npx playwright install firefox   # optional; no shell ships Gecko, so lowest value
+```
+
+**WebKit is the one that matters.** iOS uses WKWebView and Linux Tauri uses WebKitGTK, and
+WebKit is where `dvh`, `:has()`, OPFS and CSP behaviour most often differ from Chromium.
+Everything in this README about phones is currently verified on a Chromium engine with a
+phone viewport and a coarse pointer, which is not the same claim.
+
+Beyond the browser matrix, real shells need real toolchains: the Rust toolchain plus
+`libwebkit2gtk` for Linux desktop, Android Studio and the NDK for Android, and a macOS host
+with Xcode for iOS — which this machine, being WSL2, cannot provide.
+
 ## Dependency licensing
 
 **MIT, Apache-2.0 or BSD only.** No copyleft, and nothing that requires payment to a vendor

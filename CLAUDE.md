@@ -225,6 +225,25 @@ against an in-memory fallback. `npm run test:e2e` covers exactly that gap: it as
 second visit applies **zero** migrations, which is only true if the database file survived.
 
 
+### Cross-platform and security rules the tests enforce
+
+One bundle runs in a browser tab, a desktop window and a phone webview. These are checked by
+`e2e/`, not by review:
+
+- **44px minimum hit area under a coarse pointer**, and **nothing wider than the screen**.
+  The overflow check walks every box and every scroll pane — `documentElement.scrollWidth`
+  cannot grow here, because the app's scroll container is the main pane.
+- **`100dvh` not `100vh`**, safe-area insets with `viewport-fit=cover`, `accent-color` from
+  the palette, `rem` body text, `overscroll-behavior`, and a skip link first in tab order.
+- **The CSP is generated at build time** with computed inline-script hashes
+  (`build/csp-plugin.ts`). `'wasm-unsafe-eval'` is required by sqlite-wasm; `worker-src`
+  covers both workers; `connect-src` is open because the server address is chosen by the
+  author. `frame-ancestors` is deliberately omitted — a `<meta>` policy cannot express it,
+  and a `<meta>` policy does not reach worker contexts at all. Full coverage needs response
+  headers from whoever serves the build.
+- **No Node built-ins in app code**, enforced by ESLint. `src/test/**` is exempt; those
+  helpers run under Node.
+
 ## The sync engine
 
 **A library, not a service.** It runs inside the client process. A sync *service* sitting

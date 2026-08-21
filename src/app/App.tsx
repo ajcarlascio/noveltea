@@ -7,6 +7,9 @@ import "./App.css";
 export function App() {
   return (
     <div className="shell">
+      <a className="skip-link" href="#main">
+        Skip to content
+      </a>
       <header className="shell__bar">
         <span className="shell__brand">NovelTea</span>
         <nav className="shell__nav">
@@ -14,7 +17,7 @@ export function App() {
           <NavLink to="/settings">Settings</NavLink>
         </nav>
       </header>
-      <main className="shell__main">
+      <main className="shell__main" id="main" tabIndex={-1}>
         <Routes>
           <Route path="/" element={<Navigate to="/projects" replace />} />
           <Route path="/projects" element={<Projects />} />

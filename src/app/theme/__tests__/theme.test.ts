@@ -7,8 +7,7 @@ import {
   THEME_STORAGE_KEY,
   writeStoredTheme,
 } from "../theme";
-// The pre-paint script lives in index.html and cannot import from TypeScript, so
-// the two agree only by convention. This test makes that convention enforceable.
+import { runPrePaintScript } from "@/test/prePaintScript";
 import indexHtml from "../../../../index.html?raw";
 
 /** A storage double whose behaviour each test can choose. */
@@ -110,25 +109,41 @@ describe("applyTheme", () => {
 });
 
 describe("pre-paint script in index.html", () => {
-  it("reads the same storage key the app writes", () => {
-    expect(indexHtml).toContain(`localStorage.getItem("${THEME_STORAGE_KEY}")`);
+  // Executed, not string-matched. The script exists to run before any module can,
+  // so it cannot be imported — but asserting on its source would break on any
+  // rewrite while proving nothing about its behaviour.
+
+  it("applies a stored explicit choice before the app loads", () => {
+    // This is also what pins the storage key: the script and THEME_STORAGE_KEY
+    // agree only by convention, and a mismatch means a dark-mode reader gets a
+    // white flash on every load with nothing failing anywhere.
+    const { theme } = runPrePaintScript(fakeStorage({ [THEME_STORAGE_KEY]: "dark" }));
+    expect(theme).toBe("dark");
   });
 
-  it("stamps only explicit choices, never 'system'", () => {
-    expect(indexHtml).toContain('stored === "light" || stored === "dark"');
+  it("leaves the attribute off for 'system' so the media query decides", () => {
+    expect(runPrePaintScript(fakeStorage({ [THEME_STORAGE_KEY]: "system" })).theme).toBeNull();
   });
 
-  it("tolerates storage that throws", () => {
-    // Without the catch, a blocked-storage browser gets a blank page on load.
-    expect(indexHtml).toMatch(/try\s*\{[\s\S]*localStorage[\s\S]*\}\s*catch/);
+  it("leaves the attribute off when nothing is stored", () => {
+    expect(runPrePaintScript(fakeStorage()).theme).toBeNull();
+  });
+
+  it("ignores a value that is not a theme", () => {
+    expect(runPrePaintScript(fakeStorage({ [THEME_STORAGE_KEY]: "sepia" })).theme).toBeNull();
+    expect(runPrePaintScript(fakeStorage({ [THEME_STORAGE_KEY]: "Dark" })).theme).toBeNull();
+  });
+
+  it("does not throw when storage is blocked", () => {
+    // Without the catch, a browser that refuses localStorage gets a blank page:
+    // this script runs in <head>, before anything has rendered.
+    const result = runPrePaintScript(throwingStorage());
+    expect(result.threw).toBeNull();
+    expect(result.theme).toBeNull();
   });
 
   it("runs before the app bundle so there is no flash of the wrong theme", () => {
-    const inlineScript = indexHtml.indexOf("localStorage.getItem");
-    const moduleScript = indexHtml.indexOf("/src/main.tsx");
-    expect(inlineScript).toBeGreaterThan(-1);
-    expect(moduleScript).toBeGreaterThan(-1);
-    expect(inlineScript).toBeLessThan(moduleScript);
+    expect(indexHtml.indexOf("localStorage")).toBeLessThan(indexHtml.indexOf("/src/main.tsx"));
   });
 });
 

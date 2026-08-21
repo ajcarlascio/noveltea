@@ -38,19 +38,35 @@ describe("DatabaseProvider", () => {
     expect(screen.getByTestId("state")).toHaveTextContent("ready");
   });
 
-  it("picks up a status that arrived before the effect subscribed", () => {
-    // The client is constructed during render and the subscription happens in an
-    // effect; a "ready" landing in between would otherwise be lost and the
-    // provider would sit on "opening" forever.
+  it("picks up a status that landed between render and the subscription", () => {
+    // The narrow window this guards: useState captures the status during render,
+    // but subscribe() only runs in an effect, which is after the whole tree has
+    // committed. A worker message arriving in between belongs to neither, and
+    // without re-reading the status in the effect the provider sits on "opening"
+    // forever while the database is in fact open.
+    //
+    // Replying during a child's *render* lands in exactly that window: children
+    // render before the parent's effects run. Replying before render() instead
+    // would prove nothing, because useState would already have picked it up.
     const fake = fakeWorker();
     const client = new DatabaseClient(fake.worker);
-    fake.reply({ kind: "ready", storage: "opfs", appliedVersions: [], schemaVersion: 11 });
+
+    let replied = false;
+    function ReplyDuringRender() {
+      if (!replied) {
+        replied = true;
+        fake.reply({ kind: "ready", storage: "opfs", appliedVersions: [], schemaVersion: 11 });
+      }
+      return null;
+    }
 
     render(
       <DatabaseProvider create={() => client}>
+        <ReplyDuringRender />
         <Probe />
       </DatabaseProvider>,
     );
+
     expect(screen.getByTestId("state")).toHaveTextContent("ready");
   });
 

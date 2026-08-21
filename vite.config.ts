@@ -1,9 +1,10 @@
 import { fileURLToPath, URL } from "node:url";
 import react from "@vitejs/plugin-react";
+import { contentSecurityPolicy } from "./tooling/csp-plugin";
 import { configDefaults, defineConfig } from "vitest/config";
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), contentSecurityPolicy()],
   resolve: {
     alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
   },
