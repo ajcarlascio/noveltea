@@ -30,6 +30,20 @@
   cursor: not-allowed;
 }
 
+/* The affirmative action. Lives here with the other variants rather than beside the
+   one component that first needed it — a variant defined in a feature's stylesheet
+   wins or loses on import order, which is not a thing to leave to chance. */
+.button--confirm {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.button--confirm:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
 .button--danger {
   border-color: var(--danger);
   color: var(--danger);

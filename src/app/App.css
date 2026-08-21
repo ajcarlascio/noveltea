@@ -6,6 +6,9 @@
 
 .shell__bar {
   display: flex;
+  /* The account area is pushed right and must never push the nav off the screen,
+     so everything here is allowed to shrink and the brand gives way first. */
+  min-width: 0;
   gap: var(--space-6);
   align-items: center;
   /* The insets keep the bar clear of the notch and of a rounded corner; they are
@@ -17,12 +20,17 @@
 }
 
 .shell__brand {
+  overflow: hidden;
+  flex: 0 1 auto;
   font-weight: 600;
   letter-spacing: 0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .shell__nav {
   display: flex;
+  flex: 0 1 auto;
   gap: var(--space-4);
 }
 
@@ -39,6 +47,23 @@
   color: var(--text-primary);
   text-decoration: underline;
   text-underline-offset: 4px;
+}
+
+.shell__account {
+  display: flex;
+  flex: 0 0 auto;
+  gap: var(--space-3);
+  align-items: center;
+  margin-left: auto;
+}
+
+.shell__who {
+  overflow: hidden;
+  max-width: 14rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .shell__main {
@@ -91,11 +116,38 @@
    and the text gets the width. */
 @media (max-width: 34rem) {
   .shell__bar {
-    gap: var(--space-4);
-    padding-inline: var(--space-4);
+    gap: var(--space-3);
+    padding-inline: var(--space-3);
   }
 
-  .shell__main {
+  .shell__who {
+    max-width: 6rem;
+  }
+
+  /* The app name is not load-bearing on a phone: the nav says where you are, and
+     the width is better spent on the controls. */
+  .shell__brand {
+    display: none;
+  }
+
+  .shell__account {
+  display: flex;
+  flex: 0 0 auto;
+  gap: var(--space-3);
+  align-items: center;
+  margin-left: auto;
+}
+
+.shell__who {
+  overflow: hidden;
+  max-width: 14rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell__main {
     padding: 0;
   }
 
