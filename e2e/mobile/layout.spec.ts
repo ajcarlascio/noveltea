@@ -22,9 +22,25 @@ async function unhittableControls(page: import("@playwright/test").Page) {
       return hit !== null && (hit === el || el.contains(hit));
     };
 
+    /**
+     * A link flowing inside a sentence is exempt.
+     *
+     * WCAG 2.5.5 makes this exception deliberately: enforcing 44px on inline links
+     * would mean no link could ever appear mid-paragraph, which is worse for reading
+     * than it is better for tapping. The rule is for standalone controls — buttons,
+     * nav items, anything a finger goes hunting for.
+     */
+    const isInlineInProse = (el: Element) => {
+      if (el.tagName !== "A") return false;
+      if (getComputedStyle(el).display !== "inline") return false;
+      const parentText = (el.parentElement?.textContent ?? "").trim();
+      return parentText.length > (el.textContent ?? "").trim().length;
+    };
+
     for (const el of document.querySelectorAll("a:not(.skip-link), button, label")) {
       const rect = el.getBoundingClientRect();
       if (rect.width === 0 && rect.height === 0) continue;
+      if (isInlineInProse(el)) continue;
 
       const cx = rect.left + rect.width / 2;
       const cy = rect.top + rect.height / 2;

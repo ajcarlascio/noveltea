@@ -244,6 +244,22 @@ One bundle runs in a browser tab, a desktop window and a phone webview. These ar
 - **No Node built-ins in app code**, enforced by ESLint. `src/test/**` is exempt; those
   helpers run under Node.
 
+### Sync
+
+- **Pull before push.** Pushing into a stale picture resurrects what another device
+  deleted.
+- **The cursor is `latestId`, and an empty page advances it too.** A resync resumes at
+  `latestId`, never at 0 — a purged server answers `resyncRequired` for any cursor
+  below its purge point.
+- **A resync must not wipe the replica.** There is no endpoint returning a document's
+  current body, so local prose is the only copy of anything not changed recently.
+- **`version_mismatch` clears the queued change**; retrying breeds conflict copies.
+  Only `not_implemented` stays queued.
+- **`markAttempted` before the push, never after**, or a lost response resurrects a
+  deleted item as a ghost.
+- **`DatabaseClient` announces writes, not reads.** `READ_ONLY_COMMANDS` exists because
+  a read that announces a change wakes whatever just performed it, and the page spins.
+
 ### Accounts
 
 - **Signing in is not a gate.** The replica is local and complete; the app works signed out

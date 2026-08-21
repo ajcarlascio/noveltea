@@ -10,9 +10,8 @@ schema. This repository owns the interface and nothing else.
 
 ## Status
 
-**Scaffold, themes, the local replica, the binder, the editor, and accounts.** All in
-place and covered by tests. There is no sync yet — signing in establishes the account
-and the server; moving work between them is the next phase. Everything below that is not the build, the router, the theme
+**Scaffold, themes, the local replica, the binder, the editor, accounts, and sync.**
+All in place and covered by tests. Everything below that is not the build, the router, the theme
 tokens, the database layer or the binder is still a decision rather than an observation.
 
 Start with `CLAUDE.md` for the rules, and `docs/architecture.md` for the reasoning behind
@@ -343,6 +342,68 @@ Three flushes guard against that, and each has a test.
 
 A failed save **keeps its payload** and reports the reason, rather than discarding the words
 at exactly the moment they most need keeping.
+
+## Sync
+
+One pass is: pull everything waiting, then push everything local. **Pull first,
+deliberately** — pushing into a stale picture is how a client resurrects something
+another device deleted.
+
+### Rules the tests hold
+
+- **The cursor never moves past `latestId`.** That is the highest id *actually served*,
+  not the feed's maximum; advancing past unserved rows skips them permanently.
+- **An empty page still advances the cursor.** It moves the feed position like any
+  other, and leaving it unwritten means re-asking for the same empty range forever.
+- **A resync resumes at `latestId`, never at 0.** A purged server answers
+  `resyncRequired` for *any* cursor below its purge point, so restarting at 0 walks
+  straight back into the same answer and rebuilds on every page.
+- **A resync does not wipe the replica.** See the gap below.
+- **`version_mismatch` clears the queued change.** The server kept its version and
+  preserved the author's text as a conflict copy; retrying would make another copy on
+  every push and copies would breed without bound. Only `not_implemented` stays
+  queued, because a later server version may accept it.
+- **`markAttempted` runs before the push, never after.** If a push is applied and the
+  response is lost, an unmarked entry can be dropped locally while the server keeps
+  the row — and the item returns on the next pull as a ghost.
+- **A failed sync clears nothing.** The queue holds writing that never left the device.
+- **One malformed row does not stall the feed.** Rows that cannot be applied are
+  dropped; the page still applies and the cursor still advances.
+- **An unknown entity type is skipped, not fatal.** A newer server may send rows this
+  client has no table for, and refusing the page would stall sync on a version
+  difference.
+
+### The order-key collision
+
+Two devices, both offline, both add a sibling after the same item. `between` is
+deterministic, so **both choose the same `order_key`**. Whichever pushes first wins, and
+the other device pulls a row whose key its own unpushed row is already holding — a
+unique-index violation that would fail the whole page.
+
+The server's ordering is the accepted one, so **the local row moves**, and is re-queued
+with its new key so the two devices stop disagreeing about order.
+
+### When sync runs
+
+Regaining a connection starts a **fifteen-minute settle window**; the sync fires only if
+the connection holds for all of it, and dropping resets it. A flapping connection — a
+train, a tunnel, a phone hunting for signal — would otherwise start a sync on every
+flicker and fail halfway each time. Waiting costs an author nothing: their work is
+already safe locally. **"Sync now" always overrides**, including while `navigator.onLine`
+says offline, because it is often simply wrong and the author may know better.
+
+### A gap in the server API
+
+**There is no `GET /documents/{id}`.** The feed carries document content, but only for
+rows since the cursor, so after a resync there is no way to fetch back the body of a
+document that has not changed recently.
+
+The client therefore **does not wipe the replica on a resync**. It reconciles the tree
+from `GET /binder` and keeps local document bodies as the last known good text, which
+later changes correct. Wiping would destroy prose that cannot be recovered.
+
+Closing this properly needs a server endpoint returning a project's current document
+bodies. Until then, resync restores structure exactly and content approximately.
 
 ## Accounts and servers
 

@@ -1,4 +1,5 @@
 import { enqueueChange, type SqliteAdapter } from "@noveltea/client-db";
+import { SYNC_COMMANDS } from "./sync-commands";
 import { between } from "@/data/order";
 
 /**
@@ -482,7 +483,22 @@ export const COMMANDS = {
     }
     return { deleted: ids.size };
   },
+  ...SYNC_COMMANDS,
 } satisfies Record<string, (db: SqliteAdapter, input: never) => unknown>;
+
+/**
+ * Commands that only read.
+ *
+ * `DatabaseClient` announces a change after every other command, and anything
+ * listening re-reads. A read-only command that announced one would wake the listener
+ * that just called it — `syncState` refreshing a status which calls `syncState` —
+ * and the page would spin instead of rendering.
+ *
+ * Listed rather than inferred: a new read-only command is rare, and being wrong in
+ * this direction only costs a redundant read, while being wrong in the other costs a
+ * loop.
+ */
+export const READ_ONLY_COMMANDS: ReadonlySet<string> = new Set(["syncState"]);
 
 export type CommandName = keyof typeof COMMANDS;
 export type CommandInput<K extends CommandName> = Parameters<(typeof COMMANDS)[K]>[1];

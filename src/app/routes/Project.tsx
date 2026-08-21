@@ -13,6 +13,7 @@ import {
 } from "@/data/binder";
 import { BinderTree } from "@/features/binder/BinderTree";
 import { DocumentEditor } from "@/features/editor/DocumentEditor";
+import { SyncStatus } from "@/features/sync/SyncStatus";
 import { useBinder } from "@/features/binder/useBinder";
 import { StorageWarning } from "@/ui/StorageWarning";
 import { ToolbarButton } from "@/ui/ToolbarButton";
@@ -45,6 +46,7 @@ export function Project() {
     <section className="page">
       <h1>Binder</h1>
       <StorageWarning />
+      <SyncStatus projectId={projectId} />
 
       {error !== null && (
         <p className="project__error" role="alert">
