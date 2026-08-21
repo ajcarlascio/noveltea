@@ -1,4 +1,5 @@
-# Node
+# Node — note: this ignores bundler output. Build *tooling* lives in tooling/,
+# because a source file under build/ would be silently untracked.
 node_modules/
 dist/
 dist-ssr/

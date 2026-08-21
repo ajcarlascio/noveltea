@@ -8,7 +8,10 @@
   display: flex;
   gap: var(--space-6);
   align-items: center;
-  padding: var(--space-3) var(--space-5);
+  /* The insets keep the bar clear of the notch and of a rounded corner; they are
+     0 everywhere that has no cutout, so this costs desktop nothing. */
+  padding: max(var(--space-3), env(safe-area-inset-top)) var(--space-5) var(--space-3)
+    max(var(--space-5), env(safe-area-inset-left));
   border-bottom: 1px solid var(--border);
   background: var(--surface-app);
 }
@@ -24,6 +27,10 @@
 }
 
 .shell__nav a {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-2) var(--space-2);
+  border-radius: var(--radius-sm);
   color: var(--text-secondary);
   text-decoration: none;
 }
@@ -37,7 +44,12 @@
 .shell__main {
   flex: 1;
   overflow: auto;
-  padding: var(--space-6) var(--space-5);
+  /* The pane scrolls, so it owns the bottom inset (home indicator) itself. */
+  padding: var(--space-6) max(var(--space-5), env(safe-area-inset-right)) 
+    max(var(--space-6), env(safe-area-inset-bottom))
+    max(var(--space-5), env(safe-area-inset-left));
+  /* Momentum scrolling stays inside the pane rather than dragging the whole page. */
+  overscroll-behavior: contain;
 }
 
 .page {
@@ -52,6 +64,8 @@
 
 .page h1 {
   margin-top: 0;
+  /* Scales with the viewport instead of taking a phone's width for a headline. */
+  font-size: clamp(1.5rem, 1.1rem + 2vw, 2rem);
   font-family: var(--font-prose);
   font-weight: 600;
 }
@@ -63,4 +77,28 @@
 .project-list {
   margin: 0;
   padding-left: var(--space-5);
+}
+
+/* Phones: the page is the screen. A card floating inside a viewport barely wider
+   than the card wastes the only dimension that is scarce, so the chrome comes off
+   and the text gets the width. */
+@media (max-width: 34rem) {
+  .shell__bar {
+    gap: var(--space-4);
+    padding-inline: var(--space-4);
+  }
+
+  .shell__main {
+    padding: 0;
+  }
+
+  .page {
+    max-width: none;
+    min-height: 100%;
+    padding: var(--space-5) var(--space-4)
+      max(var(--space-5), env(safe-area-inset-bottom));
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+  }
 }

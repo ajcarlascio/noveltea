@@ -1,6 +1,7 @@
 .theme-toggle {
   display: flex;
-  gap: var(--space-4);
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
   align-items: center;
   margin: 0;
   padding: var(--space-3) var(--space-4);
@@ -21,5 +22,28 @@
   display: inline-flex;
   gap: var(--space-2);
   align-items: center;
+  /* Padding rather than a bare label: the whole chip is the target, not the 13px
+     radio glyph inside it. */
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
   cursor: pointer;
+}
+
+.theme-toggle__option:hover {
+  border-color: var(--border);
+  background: var(--surface-sunken);
+}
+
+.theme-toggle__option:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-subtle);
+}
+
+.theme-toggle__option input {
+  /* The default 13px glyph is smaller than the pointer that has to hit it. */
+  width: 1.1rem;
+  height: 1.1rem;
+  margin: 0;
 }

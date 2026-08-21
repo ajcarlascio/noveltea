@@ -21,7 +21,21 @@ export default defineConfig({
     baseURL: "http://127.0.0.1:4173",
     trace: "retain-on-failure",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    {
+      name: "desktop",
+      use: { ...devices["Desktop Chrome"] },
+      testIgnore: "**/mobile/**",
+    },
+    {
+      // A coarse pointer and a phone viewport. Device descriptors set
+      // defaultBrowserType, which Playwright only accepts at project level — which
+      // is why the phone specs live in their own directory.
+      name: "mobile",
+      use: { ...devices["Pixel 7"] },
+      testMatch: "**/mobile/**",
+    },
+  ],
   webServer: {
     command: "npm run build && npm run preview -- --port 4173 --strictPort",
     url: "http://127.0.0.1:4173",

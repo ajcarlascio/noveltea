@@ -33,14 +33,37 @@ export default tseslint.config(
       // and nobody knows". Where we genuinely mean it, the comment says why.
       "no-empty": ["error", { allowEmptyCatch: false }],
 
+      // Node built-ins have no business in code that ships to a browser or a Tauri
+      // webview. They are legitimate in the test helpers, which run under Node — that
+      // exception is granted explicitly below rather than by everyone remembering.
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["node:*", "fs", "path", "crypto", "vm", "child_process"],
+              message:
+                "Node built-ins do not exist in the browser or in a Tauri webview. If this is test-only code, put it in src/test/.",
+            },
+          ],
+        },
+      ],
+
       "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_" }],
       eqeqeq: ["error", "always", { null: "ignore" }],
       "no-console": ["warn", { allow: ["warn", "error"] }],
     },
   },
   {
+    // Test helpers run under Node, so they may use its built-ins.
+    files: ["src/test/**", "**/*.node.test.ts"],
+    rules: { "no-restricted-imports": "off" },
+  },
+  {
     // Node-side config files.
-    files: ["vite.config.ts", "eslint.config.js", "playwright.config.ts", "e2e/**"],
+    files: ["vite.config.ts", "eslint.config.js", "playwright.config.ts", "e2e/**", "tooling/**"],
     languageOptions: { globals: globals.node },
+    // These run under Node by definition; they are never bundled into the app.
+    rules: { "no-restricted-imports": "off" },
   },
 );

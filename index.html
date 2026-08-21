@@ -2,7 +2,15 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover lets the page reach under the notch and home indicator;
+         the layout then pays that back with env(safe-area-inset-*) padding. Without
+         it iOS letterboxes the app with black bars. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <!-- The colour the OS paints around the page: browser address bar on Android,
+         status bar backdrop in a standalone install. One per theme, or a dark reader
+         gets a white bar above a near-black app. -->
+    <meta name="theme-color" content="#ebe8e2" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#141317" media="(prefers-color-scheme: dark)" />
     <title>NovelTea</title>
     <script>
       // Applied before first paint so a reader who chose dark never sees a white flash.
