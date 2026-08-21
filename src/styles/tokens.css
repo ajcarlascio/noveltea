@@ -17,28 +17,28 @@
    * shade darker, so the text column reads as a sheet of paper on a desk rather
    * than as a lit panel. Pure white at full-page size is tiring to write against.
    */
-  --surface-app: #ebe8e2;
-  --surface-page: #faf9f6;
-  --surface-raised: #ffffff;
-  --surface-sunken: #e3dfd7;
+  --surface-app: #e6e0d1;
+  --surface-page: #f2ecdf;
+  --surface-raised: #f8f4ea;
+  --surface-sunken: #dbd3c1;
 
   --text-primary: #1c1a17;
   --text-secondary: #4a453e;
   --text-muted: #6d675f;
-  --text-inverse: #faf9f6;
+  --text-inverse: #f2ecdf;
 
-  --border: #dcd7cf;
-  --border-strong: #c3bcb1;
+  --border: #d6cdb9;
+  --border-strong: #bcb09a;
 
   --accent: #3d6b8e;
   --accent-hover: #325a78;
   --accent-contrast: #ffffff;
-  --accent-subtle: #e4ecf3;
+  --accent-subtle: #dfe8f0;
 
   --danger: #97362f;
-  --danger-subtle: #f6e5e3;
+  --danger-subtle: #f3e0dc;
   --warning: #8a6320;
-  --warning-subtle: #f7edda;
+  --warning-subtle: #f4e8d0;
   --success: #3d6b45;
 
   --shadow-raised: 0 1px 2px rgb(28 26 23 / 8%), 0 2px 8px rgb(28 26 23 / 6%);
@@ -46,8 +46,11 @@
 
   /* ---- Non-colour tokens: identical in both themes ---------------------- */
   --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-prose: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+
+  /* The reading font. The author picks it; this is only the default offer, and the
+     fallbacks matter because the bundled file may still be loading. */
+  --font-prose: "Merriweather Variable", Merriweather, Georgia, "Iowan Old Style", serif;
 
   --space-1: 0.25rem;
   --space-2: 0.5rem;
@@ -63,6 +66,20 @@
 
   /* The measure of the writing column. Prose past ~70 characters is hard to track. */
   --measure: 34rem;
+}
+
+/* Reading font, chosen in Settings. The default needs no attribute, so an author
+   who has never chosen and an author who chose the default look the same. */
+:root[data-font="georgia"] {
+  --font-prose: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
+}
+
+:root[data-font="system-serif"] {
+  --font-prose: ui-serif, Georgia, Cambria, "Times New Roman", serif;
+}
+
+:root[data-font="system-sans"] {
+  --font-prose: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
 /* Dark, when the OS asks for it and the reader has not explicitly chosen light. */

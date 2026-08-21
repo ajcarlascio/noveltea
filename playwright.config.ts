@@ -12,6 +12,23 @@ import { defineConfig, devices } from "@playwright/test";
  * most likely to break is asset resolution for the worker and the wasm file, and
  * dev serves those differently from a bundle.
  */
+/**
+ * WebKit is opt-in. Its browser binary comes from `npx playwright install webkit`, but it
+ * also needs system libraries that only root can install:
+ *
+ *     sudo npx playwright install-deps webkit
+ *
+ * Without them every WebKit test fails at browser launch, which would make the default
+ * run red for a reason that has nothing to do with the code. So it runs only when asked:
+ *
+ *     npm run test:e2e:webkit
+ *
+ * It is worth asking for. WebKit is what iOS (WKWebView) and Linux Tauri (WebKitGTK)
+ * actually run, and dvh, :has(), OPFS and CSP enforcement are exactly where it and
+ * Chromium diverge — Chromium passing says nothing about either.
+ */
+const includeWebKit = process.env.NOVELTEA_WEBKIT === "1";
+
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: false,
@@ -35,6 +52,20 @@ export default defineConfig({
       use: { ...devices["Pixel 7"] },
       testMatch: "**/mobile/**",
     },
+    ...(includeWebKit
+      ? [
+          {
+            name: "webkit",
+            use: { ...devices["Desktop Safari"] },
+            testIgnore: "**/mobile/**",
+          },
+          {
+            name: "mobile-safari",
+            use: { ...devices["iPhone 13"] },
+            testMatch: "**/mobile/**",
+          },
+        ]
+      : []),
   ],
   webServer: {
     command: "npm run build && npm run preview -- --port 4173 --strictPort",

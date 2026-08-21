@@ -51,7 +51,7 @@ export function Project() {
       )}
 
       <div className="project__toolbar" role="toolbar" aria-label="Binder actions">
-        <button
+        <button className="button"
           type="button"
           onClick={() =>
             void run(async (db) => {
@@ -62,7 +62,7 @@ export function Project() {
         >
           New folder
         </button>
-        <button
+        <button className="button"
           type="button"
           onClick={() =>
             void run(async (db) => {
@@ -73,10 +73,10 @@ export function Project() {
         >
           New document
         </button>
-        <button type="button" disabled={selected === null} onClick={() => setRenaming(true)}>
+        <button className="button" type="button" disabled={selected === null} onClick={() => setRenaming(true)}>
           Rename
         </button>
-        <button
+        <button className="button"
           type="button"
           disabled={selected === null}
           onClick={() =>
@@ -88,7 +88,7 @@ export function Project() {
         >
           Move to trash
         </button>
-        <button
+        <button className="button"
           type="button"
           disabled={selected === null || selected.parentId === null}
           onClick={() =>
@@ -131,7 +131,7 @@ export function Project() {
             {(binder?.trash ?? []).map((node) => (
               <li key={node.id}>
                 <span>{node.title}</span>
-                <button
+                <button className="button"
                   type="button"
                   onClick={() => void run((db) => restoreItem(db, projectId, node.id))}
                 >
@@ -142,7 +142,7 @@ export function Project() {
           </ul>
           <button
             type="button"
-            className="project__danger"
+            className="button button--danger"
             onClick={() => void run((db) => emptyTrash(db, projectId))}
           >
             Empty trash
@@ -181,8 +181,8 @@ function RenameForm({
           if (event.key === "Escape") onCancel();
         }}
       />
-      <button type="submit">Save</button>
-      <button type="button" onClick={onCancel}>
+      <button className="button" type="submit">Save</button>
+      <button className="button" type="button" onClick={onCancel}>
         Cancel
       </button>
     </form>

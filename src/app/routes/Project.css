@@ -1,28 +1,10 @@
 .project__toolbar {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-2);
+  /* Row gap clears the 10px the hit overlays span vertically; the column gap does
+     not have to, because the overlays do not widen the button. */
+  gap: var(--space-4) var(--space-2);
   margin-bottom: var(--space-4);
-}
-
-.project__toolbar button,
-.project__trash button,
-.project__rename button {
-  min-height: 44px;
-  padding: var(--space-2) var(--space-4);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
-  background: var(--surface-raised);
-  cursor: pointer;
-}
-
-.project__toolbar button:hover:not(:disabled) {
-  border-color: var(--accent);
-}
-
-.project__toolbar button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .project__error {
@@ -36,7 +18,7 @@
 .project__rename {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-2);
+  gap: var(--space-4) var(--space-2);
   align-items: center;
   margin-bottom: var(--space-4);
 }
@@ -72,7 +54,4 @@
   min-height: 44px;
 }
 
-.project__danger {
-  border-color: var(--danger) !important;
-  color: var(--danger);
-}
+

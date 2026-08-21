@@ -259,6 +259,10 @@ One bundle runs in a browser tab, a desktop window and a phone webview. These ar
   because it applies them offline with no server to catch it.
 - **Every reparent runs the recursive descendant check.** On the client a cycle is an
   immediately lost subtree, with nothing upstream to refuse it.
+- **`FractionalIndex` grows appended keys linearly** (~1 character per 5 appends; 2000
+  appends give a 400-character key of `zzzz…`). The published algorithm's length-prefixed
+  integer part would keep them at O(log N). Correct but costly, and cheapest to fix on the
+  server before real binders exist. The current numbers are pinned in `order.node.test.ts`.
 - **Icons are inline SVG, not emoji.** Emoji come from whatever font the platform ships:
   different on every OS, inconsistently sized, and an empty box where the font is missing.
 
