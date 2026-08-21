@@ -244,6 +244,24 @@ One bundle runs in a browser tab, a desktop window and a phone webview. These ar
 - **No Node built-ins in app code**, enforced by ESLint. `src/test/**` is exempt; those
   helpers run under Node.
 
+### The binder in this client
+
+- **Writes go through `DatabaseClient.command`**, never assembled from `run` calls here. A
+  binder edit changes a row *and* queues a `pending_change`, and they must commit together;
+  `enqueueChange` is synchronous, so the work happens in the worker. Re-implementing its
+  merge rules against the async client would be a second copy of them.
+- **`src/data/order.ts` is a port of the server's `FractionalIndex`** and must stay
+  digit-identical. Conformance vectors in `src/data/__fixtures__/` are generated from the
+  Java by `tooling/generate-order-vectors.sh`; drift fails nowhere else and reorders a book
+  differently on each device.
+- **Re-trashing must not overwrite `trashed_from_parent_id`**, and **restoring a live item
+  is a no-op** — both are real defects the server hit, and the client repeats the rules
+  because it applies them offline with no server to catch it.
+- **Every reparent runs the recursive descendant check.** On the client a cycle is an
+  immediately lost subtree, with nothing upstream to refuse it.
+- **Icons are inline SVG, not emoji.** Emoji come from whatever font the platform ships:
+  different on every OS, inconsistently sized, and an empty box where the font is missing.
+
 ## The sync engine
 
 **A library, not a service.** It runs inside the client process. A sync *service* sitting

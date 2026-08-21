@@ -1,4 +1,5 @@
 import type { SqliteAdapter } from "@noveltea/client-db";
+import { COMMANDS } from "./commands";
 import {
   toErrorPayload,
   type DbRequest,
@@ -47,7 +48,7 @@ export function createDispatcher(post: (message: WorkerOutbound) => void) {
 
     let response: DbResponse;
     try {
-      response = { id: request.id, ok: true, rows: execute(adapter, request) };
+      response = { id: request.id, ok: true, result: execute(adapter, request) };
     } catch (error) {
       // Contained per request: one failing statement must not take down the
       // dispatcher and with it every request that comes after.
@@ -83,28 +84,45 @@ export function createDispatcher(post: (message: WorkerOutbound) => void) {
   };
 }
 
-function execute(db: SqliteAdapter, request: DbRequest): Record<string, unknown>[] {
+function execute(db: SqliteAdapter, request: DbRequest): unknown {
   switch (request.kind) {
     case "query":
       return db.query(request.sql, request.params);
     case "run":
       db.run(request.sql, request.params);
-      return [];
-    case "transaction": {
-      db.exec("BEGIN;");
-      try {
-        for (const statement of request.statements) db.run(statement.sql, statement.params);
-        db.exec("COMMIT;");
-      } catch (error) {
-        try {
-          db.exec("ROLLBACK;");
-        } catch {
-          // The transaction is already gone. Report the cause, not the cleanup —
-          // the original error is the one that explains what went wrong.
+      return undefined;
+    case "command":
+      return inTransaction(db, () => {
+        const command = COMMANDS[request.name];
+        if (!command) {
+          // Reachable only from a message this app did not send, or a version skew
+          // between a cached bundle and a newer worker.
+          throw new Error(`Unknown database command: ${String(request.name)}`);
         }
-        throw error;
-      }
-      return [];
+        return command(db, request.input as never);
+      });
+    case "transaction":
+      return inTransaction(db, () => {
+        for (const statement of request.statements) db.run(statement.sql, statement.params);
+        return undefined;
+      });
+  }
+}
+
+/** All-or-nothing. SQLite DDL and DML are both transactional, so a failure leaves nothing. */
+function inTransaction<T>(db: SqliteAdapter, body: () => T): T {
+  db.exec("BEGIN;");
+  try {
+    const result = body();
+    db.exec("COMMIT;");
+    return result;
+  } catch (error) {
+    try {
+      db.exec("ROLLBACK;");
+    } catch {
+      // The transaction is already gone. Report the cause, not the cleanup — the
+      // original error is the one that explains what went wrong.
     }
+    throw error;
   }
 }

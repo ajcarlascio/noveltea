@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { useDatabase } from "@/app/db/DatabaseContext";
+import { createProject } from "@/data/binder";
 import { listProjects, type Project } from "@/data/projects";
 import { StorageWarning } from "@/ui/StorageWarning";
 
@@ -7,6 +9,7 @@ export function Projects() {
   const { db } = useDatabase();
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     let current = true;
@@ -21,7 +24,19 @@ export function Projects() {
     return () => {
       current = false;
     };
-  }, [db]);
+  }, [db, reloadToken]);
+
+  const onCreate = () => {
+    void (async () => {
+      try {
+        await createProject(db, "Untitled project");
+        setError(null);
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : String(cause));
+      }
+      setReloadToken((n) => n + 1);
+    })();
+  };
 
   return (
     <section className="page">
@@ -34,20 +49,25 @@ export function Projects() {
         </p>
       )}
 
+      <p>
+        <button type="button" className="button" onClick={onCreate}>
+          New project
+        </button>
+      </p>
+
       {/* No spinner: this reads the local replica, not the network. On a cold start
           the worker queues the read and answers it in milliseconds; announcing a
           wait that is not happening is worse than a blank moment. */}
       {error === null && projects !== null && projects.length === 0 && (
-        <p className="page__note">
-          No projects yet. Sign in to a server to pull your work down, or create one once
-          the binder exists.
-        </p>
+        <p className="page__note">No projects yet. Create one to open its binder.</p>
       )}
 
       {projects !== null && projects.length > 0 && (
         <ul className="project-list">
           {projects.map((project) => (
-            <li key={project.id}>{project.title}</li>
+            <li key={project.id}>
+              <Link to={`/projects/${project.id}`}>{project.title}</Link>
+            </li>
           ))}
         </ul>
       )}

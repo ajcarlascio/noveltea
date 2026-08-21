@@ -18,9 +18,9 @@ describe("request correlation", () => {
     // Answered out of order on purpose: a client that assumed FIFO would hand the
     // author another document's contents, and nothing about that looks like a bug
     // until someone notices the wrong chapter on screen.
-    fake.reply({ id: ids[2]!, ok: true, rows: [{ n: 3 }] });
-    fake.reply({ id: ids[0]!, ok: true, rows: [{ n: 1 }] });
-    fake.reply({ id: ids[1]!, ok: true, rows: [{ n: 2 }] });
+    fake.reply({ id: ids[2]!, ok: true, result: [{ n: 3 }] });
+    fake.reply({ id: ids[0]!, ok: true, result: [{ n: 1 }] });
+    fake.reply({ id: ids[1]!, ok: true, result: [{ n: 2 }] });
 
     await expect(first).resolves.toEqual([{ n: 1 }]);
     await expect(second).resolves.toEqual([{ n: 2 }]);
@@ -32,8 +32,8 @@ describe("request correlation", () => {
     const db = new DatabaseClient(fake.worker);
     const pending = db.query("SELECT 1");
 
-    fake.reply({ id: 9999, ok: true, rows: [{ stray: true }] });
-    fake.reply({ id: fake.sent[0]!.id, ok: true, rows: [{ n: 1 }] });
+    fake.reply({ id: 9999, ok: true, result: [{ stray: true }] });
+    fake.reply({ id: fake.sent[0]!.id, ok: true, result: [{ n: 1 }] });
 
     await expect(pending).resolves.toEqual([{ n: 1 }]);
   });
@@ -44,14 +44,14 @@ describe("request correlation", () => {
     const first = db.query("SELECT 1");
     const id = fake.sent[0]!.id;
 
-    fake.reply({ id, ok: true, rows: [{ n: 1 }] });
+    fake.reply({ id, ok: true, result: [{ n: 1 }] });
     // A throw here would take down the message listener and with it every future
     // response — the whole app would go quiet.
-    expect(() => fake.reply({ id, ok: true, rows: [{ n: 1 }] })).not.toThrow();
+    expect(() => fake.reply({ id, ok: true, result: [{ n: 1 }] })).not.toThrow();
 
     await expect(first).resolves.toEqual([{ n: 1 }]);
     const second = db.query("SELECT 2");
-    fake.reply({ id: fake.sent[1]!.id, ok: true, rows: [{ n: 2 }] });
+    fake.reply({ id: fake.sent[1]!.id, ok: true, result: [{ n: 2 }] });
     await expect(second).resolves.toEqual([{ n: 2 }]);
   });
 });

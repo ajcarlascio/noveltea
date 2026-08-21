@@ -20,7 +20,8 @@
     "check:submodule": "node scripts/check-submodule.mjs",
     "predev": "npm run check:submodule",
     "prebuild": "npm run check:submodule",
-    "pretest": "npm run check:submodule"
+    "pretest": "npm run check:submodule",
+    "screenshots": "npm run build && node tooling/screenshots.mjs"
   },
   "dependencies": {
     "@sqlite.org/sqlite-wasm": "^3.53.0-build1",

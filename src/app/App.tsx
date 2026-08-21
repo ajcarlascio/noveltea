@@ -1,5 +1,6 @@
 import { Navigate, NavLink, Route, Routes } from "react-router-dom";
 import { NotFound } from "./routes/NotFound";
+import { Project } from "./routes/Project";
 import { Projects } from "./routes/Projects";
 import { Settings } from "./routes/Settings";
 import "./App.css";
@@ -21,6 +22,7 @@ export function App() {
         <Routes>
           <Route path="/" element={<Navigate to="/projects" replace />} />
           <Route path="/projects" element={<Projects />} />
+          <Route path="/projects/:projectId" element={<Project />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<NotFound />} />
         </Routes>

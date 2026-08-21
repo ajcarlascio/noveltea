@@ -10,10 +10,10 @@ schema. This repository owns the interface and nothing else.
 
 ## Status
 
-**Scaffold, themes, and the local replica.** The build, routing, theme system and the
-offline SQLite replica are in place and covered by tests. There is no sync, no editor and no
-binder yet. Everything below that is not the build, the router, the theme tokens or the
-database layer is still a decision rather than an observation.
+**Scaffold, themes, the local replica, and the binder.** The build, routing, theme system,
+offline SQLite replica and the binder tree are in place and covered by tests. There is no
+sync and no editor yet. Everything below that is not the build, the router, the theme
+tokens, the database layer or the binder is still a decision rather than an observation.
 
 Start with `CLAUDE.md` for the rules, and `docs/architecture.md` for the reasoning behind
 the three structural choices (why not React Native, why TipTap, where the sync engine
@@ -190,6 +190,89 @@ Playwright suite covers exactly that gap: it loads the production build in Chrom
 asserts the second visit applies **zero** migrations, which is only true if the database
 file survived. Deleting the OPFS path turns that red, along with the assertion that storage
 is not `memory`.
+
+## The binder
+
+The tree of folders and documents, read from the local replica and edited entirely
+offline. `src/features/binder/` renders it; `src/db/commands.ts` changes it.
+
+### Writes are named commands, not SQL from the page
+
+A binder edit changes a row **and** queues a `pending_change`, and those two have to
+commit together — an edit that landed without its queue entry never reaches the server and
+nothing reports it. `enqueueChange` is synchronous by design, and the database client is
+async over a worker, so the operation is *named* on this side and executed on the other,
+inside one transaction (`DatabaseClient.command`).
+
+The alternative was re-implementing the queue's merge rules against an async client, which
+is a second copy of them, which is how they drift. As a side effect the commands are plain
+synchronous functions over `SqliteAdapter`, so they are tested against real SQLite with
+nothing stubbed.
+
+### Semantics that are not obvious from the schema
+
+- **Trash is a move, not a delete.** Trashing reparents to the project's trash node and
+  records `trashed_from_parent_id`; `deleted_at` is reserved for the tombstone written when
+  the trash is emptied. Two consequences that are easy to get backwards, and both have bitten
+  the server already:
+  - **Re-trashing must not overwrite the remembered origin**, or restoring puts the item
+    back where it already is and it can never come out.
+  - **Restoring something that is not in the trash is a no-op**, not a move to the root —
+    otherwise it silently relocates a document the author is looking at.
+  - Restoring to a parent that has since been trashed falls back to the root. Refusing
+    would strand the item somewhere unreachable.
+- **Cycle prevention is application-level.** No CHECK constraint can express "this item is
+  not among its own descendants", so every reparent runs a recursive walk first. Without it
+  a mis-ordered move detaches the subtree: the rows survive, but every read starts at a
+  root, so the chapters render nowhere. There is no server involved here — on the client
+  that is a lost manuscript.
+- **Emptying the trash tombstones every item in every trashed subtree**, each with its own
+  queue entry. A child left live under a vanished parent renders nowhere and syncs nothing.
+  The rows stay: the tombstone is what tells another device the item is gone.
+- **A document is a leaf.** The schema permits nesting under one; the semantics do not.
+
+### Ordering keys
+
+`binder_item.order_key` is a lexicographic fractional index, never a float — floats exhaust
+IEEE precision after about fifty inserts between the same two siblings. `src/data/order.ts`
+is a **digit-for-digit port of the server's `com.noveltea.order.FractionalIndex`**, and the
+two must agree exactly: keys made on a phone are compared against keys made on a laptop and
+by the server, and an algorithm that differs even in rounding orders the same book
+differently on each device.
+
+Nothing about that drift fails on its own, so it is pinned by conformance vectors generated
+from the real Java:
+
+```bash
+./tooling/generate-order-vectors.sh    # needs a JDK and the submodule
+```
+
+105 vectors cover appending, prepending, sixty inserts into the same gap, and the pairs the
+algorithm rejects. Changing the rounding or the alphabet turns dozens of them red.
+
+Arithmetic on these strings is always a bug: they are compared, never computed.
+
+### Creating a project offline — the known gap
+
+`createProject` writes locally and queues **nothing**, because `pending_change` has no
+`project` entity type. That is not an oversight in the schema: the sync endpoint is
+`POST /projects/{id}/sync`, authorised on a project named in its path, so it cannot carry
+the creation of one.
+
+A project created offline therefore does not reach the server yet. Closing it needs a
+client-generated project id posted to `POST /projects` from an outbox, idempotent on the id
+so a lost response does not create two — the same shape as the rest of the queue, drained on
+reconnect. That belongs with the sync phase.
+
+## Reviewing the interface
+
+```bash
+npm run screenshots
+```
+
+Writes `screenshots/` — every route, three device sizes, both themes. Gitignored; regenerate
+rather than commit. It is not a test and asserts nothing; it exists so a change to the
+interface can be looked at instead of described.
 
 ## Content Security Policy
 

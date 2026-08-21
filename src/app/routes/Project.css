@@ -1,0 +1,78 @@
+.project__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.project__toolbar button,
+.project__trash button,
+.project__rename button {
+  min-height: 44px;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  cursor: pointer;
+}
+
+.project__toolbar button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.project__toolbar button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.project__error {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-md);
+  background: var(--danger-subtle);
+}
+
+.project__rename {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  margin-bottom: var(--space-4);
+}
+
+.project__rename input {
+  min-height: 44px;
+  flex: 1 1 12rem;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  color: inherit;
+  font: inherit;
+}
+
+.project__trash-heading {
+  margin-top: var(--space-6);
+  font-family: var(--font-prose);
+  font-size: 1.1rem;
+}
+
+.project__trash {
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  list-style: none;
+}
+
+.project__trash li {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+}
+
+.project__danger {
+  border-color: var(--danger) !important;
+  color: var(--danger);
+}

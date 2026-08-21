@@ -1,4 +1,5 @@
 import type { SqlValue } from "@noveltea/client-db";
+import type { CommandInput, CommandName, CommandResult } from "./commands";
 import {
   isLifecycle,
   type DbErrorPayload,
@@ -35,7 +36,7 @@ export class DatabaseError extends Error {
 }
 
 interface Deferred {
-  resolve: (rows: Record<string, unknown>[]) => void;
+  resolve: (result: unknown) => void;
   reject: (error: Error) => void;
 }
 
@@ -81,6 +82,21 @@ export class DatabaseClient {
     return this.#send({ id: this.#nextId++, kind: "query", sql, params }) as Promise<T[]>;
   }
 
+  /**
+   * Runs a named write in the worker, in one transaction.
+   *
+   * The command's implementation is never imported here — only its types — so the
+   * worker's code does not end up in the main bundle.
+   */
+  command<K extends CommandName>(name: K, input: CommandInput<K>): Promise<CommandResult<K>> {
+    return this.#send({
+      id: this.#nextId++,
+      kind: "command",
+      name,
+      input,
+    }) as Promise<CommandResult<K>>;
+  }
+
   async run(sql: string, params: readonly SqlValue[] = []): Promise<void> {
     await this.#send({ id: this.#nextId++, kind: "run", sql, params });
   }
@@ -103,7 +119,7 @@ export class DatabaseClient {
     this.#worker.terminate();
   }
 
-  #send(request: DbRequest): Promise<Record<string, unknown>[]> {
+  #send(request: DbRequest): Promise<unknown> {
     if (this.#closed) {
       return Promise.reject(
         new DatabaseError({ name: "DatabaseClosed", message: "Database closed." }),
@@ -137,7 +153,7 @@ export class DatabaseClient {
     if (!pending) return;
     this.#inFlight.delete(message.id);
 
-    if (message.ok) pending.resolve(message.rows);
+    if (message.ok) pending.resolve(message.result);
     else pending.reject(new DatabaseError(message.error));
   }
 

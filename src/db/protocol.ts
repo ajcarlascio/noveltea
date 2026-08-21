@@ -6,6 +6,7 @@
  * rendering. Everything the app can ask of the database goes through here.
  */
 import type { SqlValue } from "@noveltea/client-db";
+import type { CommandInput, CommandName } from "./commands";
 
 export type DbRequest =
   | { id: number; kind: "query"; sql: string; params: readonly SqlValue[] }
@@ -15,7 +16,17 @@ export type DbRequest =
       id: number;
       kind: "transaction";
       statements: readonly { sql: string; params: readonly SqlValue[] }[];
-    };
+    }
+  /**
+   * A named write, run in the worker in one transaction.
+   *
+   * Writes that have to update rows *and* queue a pending change cannot be
+   * assembled from `run` calls on this side: `enqueueChange` is synchronous by
+   * design, and re-implementing its merge rules against an async client would be a
+   * second copy of them, which is precisely how they drift. So the operation is
+   * named here and executed there, next to the database, atomically.
+   */
+  | { id: number; kind: "command"; name: CommandName; input: CommandInput<CommandName> };
 
 /**
  * Errors are flattened rather than passed as `Error`.
@@ -32,7 +43,8 @@ export interface DbErrorPayload {
 }
 
 export type DbResponse =
-  | { id: number; ok: true; rows: Record<string, unknown>[] }
+  /** Rows for a query; whatever the command returned for a command; undefined otherwise. */
+  | { id: number; ok: true; result: unknown }
   | { id: number; ok: false; error: DbErrorPayload };
 
 /** Sent once, unprompted, when the worker has opened the database and migrated it. */

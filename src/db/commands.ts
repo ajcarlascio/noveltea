@@ -1,0 +1,418 @@
+import { enqueueChange, type SqliteAdapter } from "@noveltea/client-db";
+import { between } from "@/data/order";
+
+/**
+ * Writes that touch more than one table, executed in the worker next to the
+ * database.
+ *
+ * Each is synchronous and runs inside one transaction (see `dispatch.ts`), which is
+ * what lets a row change and its `pending_change` entry commit or fail together. A
+ * binder edit that landed without its queue entry would never reach the server and
+ * nothing would report it.
+ *
+ * Being plain synchronous functions over `SqliteAdapter`, they are also directly
+ * testable against real SQLite in Node — no worker, no mocks.
+ */
+
+export type BinderItemType = "folder" | "document";
+
+export interface BinderItemRow {
+  id: string;
+  project_id: string;
+  parent_id: string | null;
+  type: string;
+  title: string;
+  order_key: string;
+  icon: string | null;
+  label_id: string | null;
+  status_id: string | null;
+  trashed_from_parent_id: string | null;
+  deleted_at: string | null;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+const ITEM_COLUMNS = `id, project_id, parent_id, type, title, order_key, icon, label_id,
+  status_id, trashed_from_parent_id, deleted_at, version, created_at, updated_at`;
+
+function now(): string {
+  return new Date().toISOString();
+}
+
+function newId(): string {
+  // Clients mint ids. The server has to accept an id it did not choose anyway,
+  // because an author creates items offline; `duplicate_create` exists for the
+  // retry case where it has already seen this one.
+  return crypto.randomUUID();
+}
+
+function requireItem(db: SqliteAdapter, projectId: string, id: string): BinderItemRow {
+  const row = db.query<BinderItemRow>(
+    `SELECT ${ITEM_COLUMNS} FROM binder_item WHERE id = ? AND project_id = ?;`,
+    [id, projectId],
+  )[0];
+  if (!row) throw new Error("That item is not in this project.");
+  return row;
+}
+
+function trashNodeId(db: SqliteAdapter, projectId: string): string {
+  const row = db.query<{ id: string }>(
+    "SELECT id FROM binder_item WHERE project_id = ? AND type = 'trash';",
+    [projectId],
+  )[0];
+  if (!row) throw new Error("This project has no trash node.");
+  return row.id;
+}
+
+/** The order key for a new last child of `parentId`. */
+function keyAtEnd(db: SqliteAdapter, projectId: string, parentId: string | null): string {
+  const last = db.query<{ order_key: string }>(
+    `SELECT order_key FROM binder_item
+      WHERE project_id = ? AND parent_id IS ${parentId === null ? "NULL" : "?"}
+        AND deleted_at IS NULL
+      ORDER BY order_key DESC LIMIT 1;`,
+    parentId === null ? [projectId] : [projectId, parentId],
+  )[0];
+  return between(last?.order_key ?? null, null);
+}
+
+/** The order key for a slot directly after `afterId`, or first when it is null. */
+function keyAfter(
+  db: SqliteAdapter,
+  projectId: string,
+  parentId: string | null,
+  afterId: string | null,
+  movingId?: string,
+): string {
+  const siblings = db.query<{ id: string; order_key: string }>(
+    `SELECT id, order_key FROM binder_item
+      WHERE project_id = ? AND parent_id IS ${parentId === null ? "NULL" : "?"}
+        AND deleted_at IS NULL
+      ORDER BY order_key;`,
+    parentId === null ? [projectId] : [projectId, parentId],
+  ).filter((row) => row.id !== movingId);
+
+  if (afterId === null) {
+    return between(null, siblings[0]?.order_key ?? null);
+  }
+  const index = siblings.findIndex((row) => row.id === afterId);
+  if (index === -1) throw new Error("That item is not among the siblings being ordered.");
+  return between(siblings[index]!.order_key, siblings[index + 1]?.order_key ?? null);
+}
+
+/** Ids of `id` and everything beneath it, live or trashed. */
+function subtreeIds(db: SqliteAdapter, projectId: string, id: string): string[] {
+  return db
+    .query<{ id: string }>(
+      `WITH RECURSIVE subtree(id) AS (
+         SELECT id FROM binder_item WHERE id = ? AND project_id = ?
+         UNION ALL
+         SELECT b.id FROM binder_item b JOIN subtree s ON b.parent_id = s.id
+       )
+       SELECT id FROM subtree;`,
+      [id, projectId],
+    )
+    .map((row) => row.id);
+}
+
+/**
+ * Refuses a reparent that would put an item inside its own subtree.
+ *
+ * No CHECK constraint can express this, and without it a mis-ordered drag detaches
+ * the subtree: the rows are still in the database but every read walks down from
+ * the roots, so the chapters render nowhere. On the client that is a lost
+ * manuscript with no server involved at all.
+ */
+function requireReparentIsSafe(
+  db: SqliteAdapter,
+  projectId: string,
+  id: string,
+  newParentId: string | null,
+): void {
+  if (newParentId === null) return;
+  if (newParentId === id) throw new Error("An item cannot be moved inside itself.");
+  const parent = requireItem(db, projectId, newParentId);
+  if (parent.deleted_at !== null) throw new Error("That destination no longer exists.");
+  if (subtreeIds(db, projectId, id).includes(newParentId)) {
+    throw new Error("An item cannot be moved inside itself.");
+  }
+}
+
+/** The payload the server will be sent for this row. */
+function payloadOf(row: BinderItemRow): Record<string, unknown> {
+  return {
+    id: row.id,
+    project_id: row.project_id,
+    parent_id: row.parent_id,
+    type: row.type,
+    title: row.title,
+    order_key: row.order_key,
+    icon: row.icon,
+    label_id: row.label_id,
+    status_id: row.status_id,
+    trashed_from_parent_id: row.trashed_from_parent_id,
+    deleted_at: row.deleted_at,
+    updated_at: row.updated_at,
+  };
+}
+
+function queue(db: SqliteAdapter, row: BinderItemRow, op: "create" | "update" | "delete"): void {
+  enqueueChange(db, {
+    projectId: row.project_id,
+    entityType: "binder_item",
+    entityId: row.id,
+    op,
+    payload: op === "delete" ? undefined : payloadOf(row),
+    // The version this client last synced. Local edits deliberately do not bump
+    // `version` — the server assigns it — so the current value is that number, and
+    // enqueueChange keeps whichever base_version an existing pending row already had.
+    baseVersion: row.version,
+  });
+}
+
+// ---------------------------------------------------------------------------------
+
+export interface CreateProjectInput {
+  title: string;
+}
+
+export interface CreateBinderItemInput {
+  projectId: string;
+  parentId: string | null;
+  type: BinderItemType;
+  title: string;
+}
+
+export interface RenameBinderItemInput {
+  projectId: string;
+  id: string;
+  title: string;
+}
+
+export interface MoveBinderItemInput {
+  projectId: string;
+  id: string;
+  parentId: string | null;
+  /** Place directly after this sibling; null means first. */
+  afterId: string | null;
+}
+
+export interface BinderItemRef {
+  projectId: string;
+  id: string;
+}
+
+export const COMMANDS = {
+  /**
+   * Creates a project and its trash node locally.
+   *
+   * Nothing is queued: `pending_change` has no `project` entity type, because the
+   * sync endpoint is scoped by a project id in its path and so cannot carry the
+   * creation of one. A project made offline therefore does not reach the server
+   * yet — see README, "Creating a project offline".
+   */
+  createProject: (db: SqliteAdapter, input: CreateProjectInput): { id: string; title: string } => {
+    const title = input.title.trim();
+    if (title.length === 0) throw new Error("A project needs a title.");
+
+    const id = newId();
+    const stamp = now();
+    db.run(
+      "INSERT INTO project (id, title, created_at, updated_at) VALUES (?, ?, ?, ?);",
+      [id, title, stamp, stamp],
+    );
+    db.run(
+      `INSERT INTO binder_item (id, project_id, parent_id, type, title, order_key, created_at, updated_at)
+       VALUES (?, ?, NULL, 'trash', 'Trash', ?, ?, ?);`,
+      [newId(), id, between(null, null), stamp, stamp],
+    );
+    return { id, title };
+  },
+
+  createBinderItem: (db: SqliteAdapter, input: CreateBinderItemInput): BinderItemRow => {
+    const title = input.title.trim();
+    if (title.length === 0) throw new Error("A title cannot be empty.");
+    if (input.parentId !== null) {
+      const parent = requireItem(db, input.projectId, input.parentId);
+      if (parent.type === "document") {
+        throw new Error("A document cannot contain other items.");
+      }
+    }
+
+    const id = newId();
+    const stamp = now();
+    db.run(
+      `INSERT INTO binder_item (id, project_id, parent_id, type, title, order_key, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?);`,
+      [
+        id,
+        input.projectId,
+        input.parentId,
+        input.type,
+        title,
+        keyAtEnd(db, input.projectId, input.parentId),
+        stamp,
+        stamp,
+      ],
+    );
+
+    if (input.type === "document") {
+      db.run(
+        "INSERT INTO document (id, created_at, updated_at) VALUES (?, ?, ?);",
+        [id, stamp, stamp],
+      );
+    }
+
+    const row = requireItem(db, input.projectId, id);
+    queue(db, row, "create");
+    return row;
+  },
+
+  renameBinderItem: (db: SqliteAdapter, input: RenameBinderItemInput): BinderItemRow => {
+    const title = input.title.trim();
+    if (title.length === 0) throw new Error("A title cannot be empty.");
+
+    const existing = requireItem(db, input.projectId, input.id);
+    if (existing.type === "trash") throw new Error("The trash cannot be renamed.");
+
+    db.run("UPDATE binder_item SET title = ?, updated_at = ? WHERE id = ? AND project_id = ?;", [
+      title,
+      now(),
+      input.id,
+      input.projectId,
+    ]);
+    const row = requireItem(db, input.projectId, input.id);
+    queue(db, row, "update");
+    return row;
+  },
+
+  moveBinderItem: (db: SqliteAdapter, input: MoveBinderItemInput): BinderItemRow => {
+    const existing = requireItem(db, input.projectId, input.id);
+    if (existing.type === "trash") throw new Error("The trash cannot be moved.");
+    requireReparentIsSafe(db, input.projectId, input.id, input.parentId);
+
+    if (input.parentId !== null) {
+      const parent = requireItem(db, input.projectId, input.parentId);
+      if (parent.type === "document") {
+        throw new Error("A document cannot contain other items.");
+      }
+    }
+
+    db.run(
+      `UPDATE binder_item SET parent_id = ?, order_key = ?, updated_at = ?
+        WHERE id = ? AND project_id = ?;`,
+      [
+        input.parentId,
+        keyAfter(db, input.projectId, input.parentId, input.afterId, input.id),
+        now(),
+        input.id,
+        input.projectId,
+      ],
+    );
+    const row = requireItem(db, input.projectId, input.id);
+    queue(db, row, "update");
+    return row;
+  },
+
+  /**
+   * Moves an item to the trash. Trashing is a move, not a delete: the item keeps
+   * syncing and stays restorable, and `deleted_at` is reserved for the tombstone
+   * written when the trash is emptied.
+   */
+  trashBinderItem: (db: SqliteAdapter, input: BinderItemRef): BinderItemRow => {
+    const existing = requireItem(db, input.projectId, input.id);
+    if (existing.type === "trash") throw new Error("The trash cannot be trashed.");
+
+    const trash = trashNodeId(db, input.projectId);
+    if (existing.parent_id === trash) {
+      // Already there. Re-trashing must not overwrite trashed_from_parent_id with
+      // the trash node itself — that would make the item permanently unrestorable.
+      return existing;
+    }
+
+    db.run(
+      `UPDATE binder_item
+          SET parent_id = ?, trashed_from_parent_id = ?, order_key = ?, updated_at = ?
+        WHERE id = ? AND project_id = ?;`,
+      [trash, existing.parent_id, keyAtEnd(db, input.projectId, trash), now(), input.id, input.projectId],
+    );
+    const row = requireItem(db, input.projectId, input.id);
+    queue(db, row, "update");
+    return row;
+  },
+
+  /** Puts a trashed item back where it came from, or at the root if that is gone. */
+  restoreBinderItem: (db: SqliteAdapter, input: BinderItemRef): BinderItemRow => {
+    const existing = requireItem(db, input.projectId, input.id);
+    const trash = trashNodeId(db, input.projectId);
+
+    if (existing.parent_id !== trash) {
+      // Restoring something that is not in the trash is a no-op, not a move to the
+      // root: doing otherwise silently relocates a live item the author can see.
+      return existing;
+    }
+
+    let destination = existing.trashed_from_parent_id;
+    if (destination !== null) {
+      const parent = db.query<BinderItemRow>(
+        `SELECT ${ITEM_COLUMNS} FROM binder_item WHERE id = ? AND project_id = ?;`,
+        [destination, input.projectId],
+      )[0];
+      // Falling back to the root rather than refusing: a refusal strands the item
+      // somewhere the author cannot reach it.
+      if (!parent || parent.deleted_at !== null || parent.parent_id === trash) destination = null;
+    }
+
+    db.run(
+      `UPDATE binder_item
+          SET parent_id = ?, trashed_from_parent_id = NULL, order_key = ?, updated_at = ?
+        WHERE id = ? AND project_id = ?;`,
+      [
+        destination,
+        keyAtEnd(db, input.projectId, destination),
+        now(),
+        input.id,
+        input.projectId,
+      ],
+    );
+    const row = requireItem(db, input.projectId, input.id);
+    queue(db, row, "update");
+    return row;
+  },
+
+  /**
+   * Tombstones everything in the trash.
+   *
+   * Rows are kept, never removed: a tombstone is what tells another device the item
+   * is gone. Each item in each trashed subtree gets its own row and its own queue
+   * entry, or a child would stay live under a parent that has vanished.
+   */
+  emptyTrash: (db: SqliteAdapter, input: { projectId: string }): { deleted: number } => {
+    const trash = trashNodeId(db, input.projectId);
+    const roots = db.query<{ id: string }>(
+      "SELECT id FROM binder_item WHERE project_id = ? AND parent_id = ? AND deleted_at IS NULL;",
+      [input.projectId, trash],
+    );
+
+    const stamp = now();
+    const ids = new Set<string>();
+    for (const root of roots) {
+      for (const id of subtreeIds(db, input.projectId, root.id)) ids.add(id);
+    }
+
+    for (const id of ids) {
+      db.run(
+        "UPDATE binder_item SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL;",
+        [stamp, stamp, id],
+      );
+      const row = requireItem(db, input.projectId, id);
+      queue(db, row, "delete");
+    }
+    return { deleted: ids.size };
+  },
+} satisfies Record<string, (db: SqliteAdapter, input: never) => unknown>;
+
+export type CommandName = keyof typeof COMMANDS;
+export type CommandInput<K extends CommandName> = Parameters<(typeof COMMANDS)[K]>[1];
+export type CommandResult<K extends CommandName> = ReturnType<(typeof COMMANDS)[K]>;
