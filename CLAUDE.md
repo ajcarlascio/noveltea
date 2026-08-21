@@ -515,6 +515,18 @@ Server side, in a `noveltea-server` checkout: `docker compose up -d` then
 `./gradlew :api:bootRun`. Remember to list this client's dev origin in
 `noveltea.cors.allowed-origins`.
 
+### A click does not settle the write behind it
+
+This has cost time three times now, so it is written down. Every mutation in this app
+is a command to the worker followed by a re-read, and Playwright's `click()` returns
+as soon as the click lands — not when the database has changed and the tree has
+re-rendered.
+
+**Before a `reload()`, a screenshot, or any assertion about a later state, wait for
+something that proves the write finished** — a row count, a status transition, a piece
+of text. Without it a fast machine passes and a slow one reports data loss that never
+happened, and the first instinct is to go looking in the storage layer.
+
 ## Testing
 
 **A failing test is a claim about the code. Investigate the claim before you touch the test.**
