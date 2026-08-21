@@ -13,6 +13,15 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
   },
+  preview: {
+    // Pinned to IPv4 on purpose. `vite preview` otherwise binds "localhost", which on
+    // a CI runner resolves to ::1 first, while Playwright polls http://127.0.0.1 —
+    // so the server is up and the harness waits out its timeout regardless. The
+    // failure reads as "the app never started", which is not what happened.
+    host: "127.0.0.1",
+    port: 4173,
+    strictPort: true,
+  },
   worker: {
     // The database worker imports ESM (sqlite-wasm, client-db). The legacy "iife"
     // worker format cannot express that.

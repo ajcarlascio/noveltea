@@ -68,9 +68,16 @@ export default defineConfig({
       : []),
   ],
   webServer: {
-    command: "npm run build && npm run preview -- --port 4173 --strictPort",
+    // Host and port come from vite.config.ts so this and the server cannot disagree.
+    command: "npm run build && npm run preview",
     url: "http://127.0.0.1:4173",
     reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
+    // A cold CI runner builds from nothing; 120s was not enough headroom once the
+    // font and the editor joined the bundle.
+    timeout: 240_000,
+    // Without these a build failure surfaces only as "timed out waiting for
+    // webServer", with the compiler's explanation swallowed.
+    stdout: "pipe",
+    stderr: "pipe",
   },
 });
