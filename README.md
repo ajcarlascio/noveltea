@@ -392,18 +392,34 @@ flicker and fail halfway each time. Waiting costs an author nothing: their work 
 already safe locally. **"Sync now" always overrides**, including while `navigator.onLine`
 says offline, because it is often simply wrong and the author may know better.
 
-### A gap in the server API
+### Rebuilding after a resync
 
-**There is no `GET /documents/{id}`.** The feed carries document content, but only for
-rows since the cursor, so after a resync there is no way to fetch back the body of a
-document that has not changed recently.
+Three steps, in this order:
 
-The client therefore **does not wipe the replica on a resync**. It reconciles the tree
-from `GET /binder` and keeps local document bodies as the last known good text, which
-later changes correct. Wiping would destroy prose that cannot be recovered.
+1. **The tree**, from `GET /binder`.
+2. **Every document body**, from `GET /projects/{id}/documents`, paged. That endpoint
+   exists only for this: the feed carries content, but only on rows appended since a
+   cursor, so a client rebuilding from nothing cannot otherwise recover a document
+   nobody has edited recently.
+3. **Anything the server did not list is tombstoned** — an item deleted while this
+   client was away, whose delete row retention has since purged, would otherwise linger
+   forever with nothing left to say it is gone.
 
-Closing this properly needs a server endpoint returning a project's current document
-bodies. Until then, resync restores structure exactly and content approximately.
+Bodies after structure, because a document row references its binder item.
+
+Two things it deliberately does not do:
+
+- **It does not wipe first.** Deleting everything and re-fetching would open a window
+  in which the author's binder is empty, and would take unpushed work with it if
+  anything failed partway. Upserting reaches the same state without ever holding less
+  than both.
+- **It does not prune an item with a pending change.** The server cannot have listed
+  something it has never seen, so absence says nothing about whether the author still
+  wants it — and removing it would delete unsynced writing.
+
+The rows a rebuild applies did not come from the feed, so they are applied with
+`advanceCursor: false`. Claiming position zero there would ask the server for another
+rebuild on the very next sync.
 
 ## Accounts and servers
 

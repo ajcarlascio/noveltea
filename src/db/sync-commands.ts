@@ -39,6 +39,13 @@ export interface ApplyPullInput {
   /** Highest id actually served. Never the feed's maximum. */
   latestId: number;
   syncEpoch: number;
+  /**
+   * Whether this call owns the cursor. A rebuild applies rows that did not come from
+   * the feed at all, and must not claim a position in it — leaving this true there
+   * would reset the cursor to zero, and a failure before the caller corrected it
+   * would ask the server for another rebuild on the next sync.
+   */
+  advanceCursor?: boolean;
   now?: string;
 }
 
@@ -198,6 +205,8 @@ export const SYNC_COMMANDS = {
       applied += 1;
     }
 
+    if (input.advanceCursor === false) return { applied, skipped: [...skipped] };
+
     db.run(
       `INSERT INTO sync_state (project_id, last_change_id, sync_epoch, last_synced_at, last_error)
        VALUES (?, ?, ?, ?, NULL)
@@ -284,6 +293,53 @@ export const SYNC_COMMANDS = {
                                              last_error = excluded.last_error;`,
       [input.projectId, stamp, input.error],
     );
+  },
+
+  /**
+   * Tombstones binder items the server did not list during a rebuild.
+   *
+   * A rebuild that only upserts leaves ghosts: an item deleted on the server while
+   * this client was away, whose delete row retention has since purged, would linger
+   * locally forever with nothing left to say it is gone.
+   *
+   * Items with a pending change are left alone. Those are local edits the server has
+   * never seen — it cannot have listed them, and their absence says nothing about
+   * whether the author still wants them.
+   */
+  pruneMissing: (
+    db: SqliteAdapter,
+    input: { projectId: string; keepIds: string[]; now?: string },
+  ): { removed: number } => {
+    const stamp = input.now ?? new Date().toISOString();
+    const keep = new Set(input.keepIds);
+
+    const rows = db.query<{ id: string; type: string }>(
+      "SELECT id, type FROM binder_item WHERE project_id = ? AND deleted_at IS NULL;",
+      [input.projectId],
+    );
+    const pending = new Set(
+      db
+        .query<{ entity_id: string }>(
+          "SELECT entity_id FROM pending_change WHERE project_id = ?;",
+          [input.projectId],
+        )
+        .map((row) => row.entity_id),
+    );
+
+    let removed = 0;
+    for (const row of rows) {
+      // The trash node is structural, not content: the server does not list it in the
+      // binder, and removing it would leave the project with nowhere to trash things.
+      if (row.type === "trash") continue;
+      if (keep.has(row.id) || pending.has(row.id)) continue;
+      db.run("UPDATE binder_item SET deleted_at = ?, updated_at = ? WHERE id = ?;", [
+        stamp,
+        stamp,
+        row.id,
+      ]);
+      removed += 1;
+    }
+    return { removed };
   },
 
   /**

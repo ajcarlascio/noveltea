@@ -71,12 +71,12 @@ export async function syncProject(
         // The cursor points into history the server can no longer explain: retention
         // purged it, or the project was restored from an older backup.
         //
-        // The local replica is deliberately NOT wiped. The server has no endpoint that
-        // returns a document's current body — the feed carries content, but only for
-        // rows since the cursor — so discarding local prose would destroy writing that
-        // cannot be fetched back. Structure is reconciled from the binder; bodies are
-        // kept as the last known good text and corrected by later changes.
-        await reconcileTree(db, auth, projectId);
+        // Rebuilt by converging on the server rather than by wiping first. Deleting
+        // everything and re-fetching would open a window in which the author's binder
+        // is empty, and would take unpushed local work with it if anything failed
+        // partway. Upserting reaches the same state without ever having less than
+        // both.
+        await rebuildFromServer(db, auth, projectId);
         cursor = pull.latestId;
         epoch = pull.syncEpoch;
         outcome.resynced = true;
@@ -155,33 +155,112 @@ export async function syncProject(
 }
 
 /**
- * Brings the binder tree back in line with the server after a resync.
+ * Rebuilds a project from the server after a resync.
  *
- * Items the server no longer lists are tombstoned locally — they are genuinely gone.
- * Items it does list are upserted. Document bodies are untouched for the reason given
- * at the call site.
+ * Three steps, in this order:
+ *
+ * 1. The tree, from `GET /binder`.
+ * 2. Every document body, from `GET /projects/{id}/documents`, paged. This endpoint
+ *    exists only for this: the change feed carries content, but only on rows appended
+ *    since a cursor, so a client rebuilding from nothing cannot otherwise recover a
+ *    document nobody has edited recently.
+ * 3. Anything the server did not list is tombstoned — otherwise an item deleted while
+ *    this client was away, whose delete row retention has since purged, would linger
+ *    forever with nothing left to say it is gone.
+ *
+ * Bodies after structure, because a document row references its binder item.
  */
-async function reconcileTree(
+async function rebuildFromServer(
   db: DatabaseClient,
   auth: Authenticator,
   projectId: string,
 ): Promise<void> {
   const response = await auth.fetch(`/api/v1/projects/${projectId}/binder`);
-  const tree = await json(response, "read the binder");
-  const flat = flattenBinder(tree);
+  const flat = flattenBinder(await json(response, "read the binder"));
 
-  await db.command("applyPull", {
+  await applyRows(
+    db,
     projectId,
-    changes: flat.map((node, index) => ({
-      id: index,
+    flat.map((node) => ({
       entityType: "binder_item",
       entityId: node.id,
-      op: "update",
       data: { ...node, project_id: projectId },
     })),
-    // The cursor is set by the caller; this page must not move it.
+  );
+
+  const documentIds = await fetchDocumentBodies(db, auth, projectId);
+
+  await db.command("pruneMissing", {
+    projectId,
+    keepIds: [...flat.map((node) => node.id), ...documentIds],
+  });
+}
+
+/** Walks every page of document bodies, returning the ids it applied. */
+async function fetchDocumentBodies(
+  db: DatabaseClient,
+  auth: Authenticator,
+  projectId: string,
+): Promise<string[]> {
+  const ids: string[] = [];
+  let after: string | null = null;
+
+  // Bounded for the same reason the pull loop is: a server that always says hasMore
+  // must not pin the client here forever.
+  for (let page = 0; page < 200; page += 1) {
+    const query = after === null ? "" : `?after=${encodeURIComponent(after)}`;
+    const response = await auth.fetch(`/api/v1/projects/${projectId}/documents${query}`);
+    const body = await json(response, "read document bodies");
+    if (body === null || typeof body !== "object") break;
+
+    const payload = body as { documents?: unknown; nextCursor?: unknown; hasMore?: unknown };
+    const documents = Array.isArray(payload.documents) ? payload.documents : [];
+
+    await applyRows(
+      db,
+      projectId,
+      documents.flatMap((row) => {
+        if (row === null || typeof row !== "object") return [];
+        const document = row as Record<string, unknown>;
+        if (typeof document.id !== "string") return [];
+        ids.push(document.id);
+        return [
+          {
+            entityType: "document",
+            entityId: document.id,
+            data: {
+              id: document.id,
+              content: document.content,
+              search_text: document.searchText ?? null,
+              word_count: typeof document.wordCount === "number" ? document.wordCount : 0,
+              version: typeof document.version === "number" ? document.version : 1,
+              created_at: document.updatedAt,
+              updated_at: document.updatedAt,
+            },
+          },
+        ];
+      }),
+    );
+
+    if (payload.hasMore !== true || typeof payload.nextCursor !== "string") break;
+    after = payload.nextCursor;
+  }
+  return ids;
+}
+
+/** Applies rows without moving the cursor: these did not come from the feed. */
+async function applyRows(
+  db: DatabaseClient,
+  projectId: string,
+  rows: { entityType: string; entityId: string; data: Record<string, unknown> }[],
+): Promise<void> {
+  if (rows.length === 0) return;
+  await db.command("applyPull", {
+    projectId,
+    changes: rows.map((row, index) => ({ id: index, op: "update", ...row })),
     latestId: 0,
     syncEpoch: 0,
+    advanceCursor: false,
   });
 }
 

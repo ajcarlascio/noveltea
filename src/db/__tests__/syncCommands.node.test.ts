@@ -16,6 +16,12 @@ beforeEach(() => {
 afterEach(() => db.close());
 
 const state = () => COMMANDS.syncState(db.adapter, { projectId });
+
+const item = (id: string) =>
+  db.adapter.query<{ id: string; deleted_at: string | null }>(
+    "SELECT id, deleted_at FROM binder_item WHERE id = ?;",
+    [id],
+  )[0]!;
 const queued = () => db.adapter.query<PendingChange>("SELECT * FROM pending_change ORDER BY id;");
 
 const binderChange = (id: number, entityId: string, over: Record<string, unknown> = {}) => ({
@@ -278,5 +284,84 @@ describe("syncState", () => {
   it("counts what is waiting to go out", () => {
     COMMANDS.createBinderItem(db.adapter, { projectId, parentId: null, type: "folder", title: "Act I" });
     expect(state().pending).toBe(1);
+  });
+});
+
+describe("pruneMissing", () => {
+  it("tombstones an item the server did not list", () => {
+    const ghost = COMMANDS.createBinderItem(db.adapter, {
+      projectId, parentId: null, type: "folder", title: "Deleted while away",
+    });
+    db.adapter.run("DELETE FROM pending_change;");
+
+    expect(COMMANDS.pruneMissing(db.adapter, { projectId, keepIds: [] })).toEqual({ removed: 1 });
+
+    // Its delete row was purged by retention, so absence is the only thing left
+    // saying it is gone. Keeping it would leave a ghost the author cannot remove.
+    const row = db.adapter.query<{ deleted_at: string | null }>(
+      "SELECT deleted_at FROM binder_item WHERE id = ?;", [ghost.id],
+    )[0]!;
+    expect(row.deleted_at).not.toBeNull();
+  });
+
+  it("keeps an item the server did list", () => {
+    const kept = COMMANDS.createBinderItem(db.adapter, {
+      projectId, parentId: null, type: "folder", title: "Still there",
+    });
+    db.adapter.run("DELETE FROM pending_change;");
+
+    COMMANDS.pruneMissing(db.adapter, { projectId, keepIds: [kept.id] });
+    expect(item(kept.id).deleted_at).toBeNull();
+  });
+
+  it("keeps an item with a pending change, which the server has never seen", () => {
+    const mine = COMMANDS.createBinderItem(db.adapter, {
+      projectId, parentId: null, type: "folder", title: "Written offline",
+    });
+
+    COMMANDS.pruneMissing(db.adapter, { projectId, keepIds: [] });
+
+    // The server could not have listed it. Its absence says nothing about whether the
+    // author still wants it, and removing it would delete unsynced writing.
+    expect(item(mine.id).deleted_at).toBeNull();
+  });
+
+  it("never removes the trash node", () => {
+    // The server does not list it in the binder, and a project without one has
+    // nowhere to trash things.
+    COMMANDS.pruneMissing(db.adapter, { projectId, keepIds: [] });
+    expect(
+      db.adapter.query("SELECT id FROM binder_item WHERE project_id = ? AND type = 'trash';", [projectId]),
+    ).toHaveLength(1);
+  });
+
+  it("leaves another project alone", () => {
+    const other = COMMANDS.createProject(db.adapter, { title: "Other" }).id;
+    const theirs = COMMANDS.createBinderItem(db.adapter, {
+      projectId: other, parentId: null, type: "folder", title: "Theirs",
+    });
+    db.adapter.run("DELETE FROM pending_change;");
+
+    COMMANDS.pruneMissing(db.adapter, { projectId, keepIds: [] });
+    expect(item(theirs.id).deleted_at).toBeNull();
+  });
+});
+
+describe("applyPull without a cursor", () => {
+  it("applies rows but leaves the position alone", () => {
+    COMMANDS.applyPull(db.adapter, { projectId, changes: [], latestId: 42, syncEpoch: 3 });
+
+    COMMANDS.applyPull(db.adapter, {
+      projectId,
+      changes: [binderChange(1, "b1")],
+      latestId: 0,
+      syncEpoch: 0,
+      advanceCursor: false,
+    });
+
+    // A rebuild applies rows that never came from the feed. Claiming position zero
+    // would ask the server for another rebuild on the very next sync.
+    expect(state()).toMatchObject({ lastChangeId: 42, syncEpoch: 3 });
+    expect(db.adapter.query("SELECT id FROM binder_item WHERE id = 'b1';")).toHaveLength(1);
   });
 });

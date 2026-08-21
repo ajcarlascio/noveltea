@@ -194,40 +194,135 @@ describe("a resync", () => {
     expect(state().lastChangeId).toBe(88);
   });
 
-  it("does not throw away document bodies it cannot fetch back", async () => {
-    // The server has no endpoint returning a document's current body — the feed
-    // carries content, but only for rows since the cursor. Wiping the replica on a
-    // resync would destroy prose that cannot be recovered.
+  it("fetches every document body back", async () => {
+    // The endpoint this uses exists only for a rebuild: the feed carries content, but
+    // only on rows since a cursor, so a client starting from nothing cannot otherwise
+    // recover a document nobody has edited recently.
     const item = COMMANDS.createBinderItem(db.adapter, {
       projectId,
       parentId: null,
       type: "document",
       title: "Chapter One",
     });
-    COMMANDS.saveDocument(db.adapter, {
-      projectId,
-      id: item.id,
-      content: { type: "doc" },
-      searchText: "the light swung",
-      wordCount: 3,
-    });
+    db.adapter.run("DELETE FROM pending_change;");
 
-    const { auth, calls } = fakeAuth((path) => {
-      if (path.includes("/binder")) return ok([]);
-      if (path.includes("/sync") && calls.filter((c) => c.path.includes("/sync") && c.method === "GET").length === 1) {
-        return ok(pullBody({ resyncRequired: true, latestId: 5, syncEpoch: 2 }));
+    let firstSync = true;
+    const { auth } = fakeAuth((path) => {
+      if (path.includes("/binder")) {
+        return ok([{ id: item.id, type: "document", title: "Chapter One", orderKey: "m", version: 9 }]);
       }
-      if (path.includes("/sync")) return ok(pullBody({ latestId: 5, syncEpoch: 2 }));
-      return ok(pushBody());
+      if (path.includes("/documents")) {
+        return ok({
+          documents: [
+            {
+              id: item.id,
+              title: "Chapter One",
+              content: { type: "doc", content: [{ type: "paragraph" }] },
+              searchText: "the light swung out",
+              wordCount: 4,
+              version: 9,
+              updatedAt: "2026-02-01T00:00:00Z",
+            },
+          ],
+          nextCursor: null,
+          hasMore: false,
+        });
+      }
+      if (firstSync) {
+        firstSync = false;
+        return ok(pullBody({ resyncRequired: true, latestId: 40, syncEpoch: 2 }));
+      }
+      return ok(pullBody({ latestId: 40, syncEpoch: 2 }));
     });
 
     await syncProject({ db: db.client, auth }, projectId);
 
-    const doc = db.adapter.query<{ search_text: string }>(
-      "SELECT search_text FROM document WHERE id = ?;",
+    const row = db.adapter.query<{ search_text: string; word_count: number }>(
+      "SELECT search_text, word_count FROM document WHERE id = ?;",
       [item.id],
-    );
-    expect(doc[0]?.search_text).toBe("the light swung");
+    )[0]!;
+    expect(row.search_text).toBe("the light swung out");
+    expect(row.word_count).toBe(4);
+  });
+
+  it("pages through the bodies rather than assuming one response holds them all", async () => {
+    const ids = ["aaaa1111-0000-0000-0000-000000000001", "aaaa1111-0000-0000-0000-000000000002"];
+    let firstSync = true;
+    const seen: string[] = [];
+
+    const { auth } = fakeAuth((path) => {
+      if (path.includes("/binder")) {
+        return ok(ids.map((id, i) => ({ id, type: "document", title: `Doc ${String(i)}`, orderKey: `m${String(i)}`, version: 1 })));
+      }
+      if (path.includes("/documents")) {
+        const after = /after=([^&]+)/.exec(path)?.[1];
+        seen.push(after ?? "start");
+        const index = after === undefined ? 0 : 1;
+        return ok({
+          documents: [
+            {
+              id: ids[index],
+              title: `Doc ${String(index)}`,
+              content: { type: "doc" },
+              searchText: `body ${String(index)}`,
+              wordCount: 2,
+              version: 1,
+              updatedAt: "2026-02-01T00:00:00Z",
+            },
+          ],
+          nextCursor: index === 0 ? ids[0] : null,
+          hasMore: index === 0,
+        });
+      }
+      if (firstSync) {
+        firstSync = false;
+        return ok(pullBody({ resyncRequired: true, latestId: 40, syncEpoch: 2 }));
+      }
+      return ok(pullBody({ latestId: 40, syncEpoch: 2 }));
+    });
+
+    await syncProject({ db: db.client, auth }, projectId);
+
+    // A rebuild that stopped after one page would silently restore part of a novel.
+    expect(seen).toEqual(["start", ids[0]]);
+    expect(
+      db.adapter.query("SELECT id FROM document WHERE search_text IS NOT NULL;"),
+    ).toHaveLength(2);
+  });
+
+  it("removes what the server no longer has, and keeps what it has never seen", async () => {
+    const ghost = COMMANDS.createBinderItem(db.adapter, {
+      projectId, parentId: null, type: "folder", title: "Deleted while away",
+    });
+    db.adapter.run("DELETE FROM pending_change;");
+    const mine = COMMANDS.createBinderItem(db.adapter, {
+      projectId, parentId: null, type: "folder", title: "Written offline",
+    });
+
+    let firstSync = true;
+    const { auth } = fakeAuth((path) => {
+      if (path.includes("/binder")) return ok([]);
+      if (path.includes("/documents")) return ok({ documents: [], nextCursor: null, hasMore: false });
+      if (firstSync) {
+        firstSync = false;
+        return ok(pullBody({ resyncRequired: true, latestId: 7, syncEpoch: 2 }));
+      }
+      return ok(pullBody({ latestId: 7, syncEpoch: 2 }));
+    });
+
+    await syncProject({ db: db.client, auth }, projectId);
+
+    const deleted = (id: string) =>
+      db.adapter.query<{ deleted_at: string | null }>(
+        "SELECT deleted_at FROM binder_item WHERE id = ?;",
+        [id],
+      )[0]?.deleted_at;
+
+    // Its delete row was purged, so nothing is left to say it is gone except absence.
+    expect(deleted(ghost.id)).not.toBeNull();
+    // The server cannot have listed this: it has never been pushed. Its absence says
+    // nothing about whether the author still wants it.
+    expect(deleted(mine.id)).toBeNull();
   });
 });
 
