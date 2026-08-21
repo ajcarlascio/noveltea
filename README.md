@@ -181,6 +181,21 @@ A few decisions worth not relitigating:
   how the end-to-end tests tell a persisted database from a fresh one without the app
   exposing a test handle that would also exist in production.
 
+### Storage across engines
+
+Not every engine can persist, and the app has to be correct in both cases.
+
+| Engine | `navigator.storage` | Result |
+|---|---|---|
+| Chromium | yes | OPFS, persists across reloads |
+| Playwright's WebKit | **absent entirely** | in-memory, warning shown, still usable |
+| Safari 17+ | yes | expected to persist; not verifiable with this harness |
+| WebKitGTK (Linux Tauri) | historically absent | see below |
+
+The WebKit result is a property of the build Playwright ships, **not** of Safari — Safari has had OPFS since 17. But it is a fair proxy for **WebKitGTK**, which Linux Tauri embeds, and that is a real concern: a Linux desktop build on wasm + OPFS could fall back to memory and lose an author's work on every restart.
+
+The answer there is not to fix OPFS. It is that **the Tauri shells should use a native SQLite binding rather than wasm**, which is what `SqliteAdapter` — three methods, no wasm assumptions — exists to allow. Until that shell is built, the memory fallback and its warning are what stand between an author and silent loss, and `e2e/replica.spec.ts` tests that path explicitly rather than skipping the engine.
+
 ### What the tests prove, and what they cannot
 
 Unit tests run the real migrations and the real SQL against real SQLite through

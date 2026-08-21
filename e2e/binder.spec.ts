@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { hasOpfs } from "./support/storage";
 
 /**
  * The binder against a real browser and a real OPFS database. The unit tests cover
@@ -78,6 +79,9 @@ test("empties the trash and does not bring anything back", async ({ page }) => {
 });
 
 test("keeps the binder across a reload", async ({ page }) => {
+  await page.goto("/projects");
+  test.skip(!(await hasOpfs(page)), "This engine has no OPFS; a reload keeps nothing.");
+
   await newProject(page);
   await page.getByRole("button", { name: "New folder" }).click();
   await row(page, "New folder").click();

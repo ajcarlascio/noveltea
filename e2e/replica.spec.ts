@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { hasOpfs } from "./support/storage";
 
 /**
  * Proves what the unit tests cannot: that sqlite-wasm really loads, that OPFS
@@ -21,16 +22,24 @@ async function replicaState(page: Page) {
   };
 }
 
-test("opens a persistent replica, not an in-memory fallback", async ({ page }) => {
+test("uses persistent storage where the engine has it", async ({ page }) => {
   await page.goto("/projects");
   const state = await replicaState(page);
 
   expect(state.status).toBe("ready");
-  // "memory" would mean the author's work is not being stored. Everything else in
-  // this repo passes just as happily in that state, which is why it is asserted here.
-  expect(state.storage).toBe("opfs");
   expect(state.schema).toBeGreaterThan(0);
-  await expect(page.getByRole("alert")).toHaveCount(0);
+
+  if (await hasOpfs(page)) {
+    // Falling back to memory here would mean the author's work is not being stored,
+    // and everything else in this repo passes just as happily in that state.
+    expect(state.storage).toBe("opfs");
+    await expect(page.getByRole("alert")).toHaveCount(0);
+  } else {
+    // The supported degraded state, and the one that must never be quiet: the app
+    // still runs, and says plainly that nothing is being kept.
+    expect(state.storage).toBe("memory");
+    await expect(page.getByRole("alert")).toContainText(/not storing your work/i);
+  }
 });
 
 test("runs the migrations and answers a real query through the worker", async ({ page }) => {
@@ -44,8 +53,10 @@ test("runs the migrations and answers a real query through the worker", async ({
 });
 
 test("finds the same database on the next visit instead of rebuilding it", async ({ page }) => {
-  // First visit in this browser context creates the file and applies everything.
   await page.goto("/projects");
+  test.skip(!(await hasOpfs(page)), "This engine has no OPFS; there is nothing to persist.");
+
+  // First visit in this browser context creates the file and applies everything.
   const first = await replicaState(page);
   expect(first.applied).toBeGreaterThan(0);
 
@@ -58,4 +69,17 @@ test("finds the same database on the next visit instead of rebuilding it", async
   expect(second.applied).toBe(0);
   expect(second.storage).toBe("opfs");
   expect(second.schema).toBe(first.schema);
+});
+
+test("keeps working, and says so, when the engine cannot persist", async ({ page }) => {
+  await page.goto("/projects");
+  test.skip(await hasOpfs(page), "This engine persists; the degraded path is elsewhere.");
+
+  await expect(page.getByRole("alert")).toContainText(/lost when you close this tab/i);
+
+  // Usable regardless. Refusing to run would be worse than running without a net,
+  // as long as the net's absence is stated.
+  await page.getByRole("button", { name: "New project" }).click();
+  await page.getByRole("link", { name: "Untitled project" }).first().click();
+  await expect(page.getByRole("heading", { name: "Binder" })).toBeVisible();
 });
