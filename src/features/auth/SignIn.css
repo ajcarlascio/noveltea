@@ -1,0 +1,60 @@
+.signin {
+  max-width: 32rem;
+}
+
+.signin__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin-top: var(--space-5);
+}
+
+.signin__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.signin__field > span:first-child {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.signin__field input,
+.signin__field select {
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-page);
+  color: inherit;
+  font: inherit;
+}
+
+.signin__hint {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.signin__warning {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border-left: 3px solid var(--warning);
+  background: var(--warning-subtle);
+}
+
+.signin__error {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-md);
+  background: var(--danger-subtle);
+}
+
+.signin__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4) var(--space-2);
+}

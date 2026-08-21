@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { hasOpfs } from "./support/storage";
 
 /**
  * The editor against a real browser and a real OPFS database: TipTap, autosave and
@@ -35,6 +36,9 @@ test("writes, counts and saves", async ({ page }) => {
 });
 
 test("keeps the prose across a reload", async ({ page }) => {
+  await page.goto("/projects");
+  test.skip(!(await hasOpfs(page)), "This engine has no OPFS; a reload keeps nothing.");
+
   await openDocument(page);
   const surface = page.getByRole("textbox", { name: "Manuscript" });
   await surface.click();

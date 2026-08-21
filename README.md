@@ -10,8 +10,9 @@ schema. This repository owns the interface and nothing else.
 
 ## Status
 
-**Scaffold, themes, the local replica, the binder, and the editor.** All in place and
-covered by tests. There is no sync yet. Everything below that is not the build, the router, the theme
+**Scaffold, themes, the local replica, the binder, the editor, and accounts.** All in
+place and covered by tests. There is no sync yet — signing in establishes the account
+and the server; moving work between them is the next phase. Everything below that is not the build, the router, the theme
 tokens, the database layer or the binder is still a decision rather than an observation.
 
 Start with `CLAUDE.md` for the rules, and `docs/architecture.md` for the reasoning behind
@@ -181,6 +182,21 @@ A few decisions worth not relitigating:
   how the end-to-end tests tell a persisted database from a fresh one without the app
   exposing a test handle that would also exist in production.
 
+### Storage across engines
+
+Not every engine can persist, and the app has to be correct in both cases.
+
+| Engine | `navigator.storage` | Result |
+|---|---|---|
+| Chromium | yes | OPFS, persists across reloads |
+| Playwright's WebKit | **absent entirely** | in-memory, warning shown, still usable |
+| Safari 17+ | yes | expected to persist; not verifiable with this harness |
+| WebKitGTK (Linux Tauri) | historically absent | see below |
+
+The WebKit result is a property of the build Playwright ships, **not** of Safari — Safari has had OPFS since 17. But it is a fair proxy for **WebKitGTK**, which Linux Tauri embeds, and that is a real concern: a Linux desktop build on wasm + OPFS could fall back to memory and lose an author's work on every restart.
+
+The answer there is not to fix OPFS. It is that **the Tauri shells should use a native SQLite binding rather than wasm**, which is what `SqliteAdapter` — three methods, no wasm assumptions — exists to allow. Until that shell is built, the memory fallback and its warning are what stand between an author and silent loss, and `e2e/replica.spec.ts` tests that path explicitly rather than skipping the engine.
+
 ### What the tests prove, and what they cannot
 
 Unit tests run the real migrations and the real SQL against real SQLite through
@@ -327,6 +343,56 @@ Three flushes guard against that, and each has a test.
 
 A failed save **keeps its payload** and reports the reason, rather than discarding the words
 at exactly the moment they most need keeping.
+
+## Accounts and servers
+
+There is no central service and never will be, so **the server address is the first thing
+asked for**, not something buried in settings. Addresses already used are offered in a
+dropdown, most recent first, with the email prefilled — people move between two or three in
+practice.
+
+### Signing in is about syncing, not access
+
+**The app works signed out.** The replica is complete and local, so an author can write on a
+plane, or before they have set up a server at all. Requiring an account first would
+contradict the one rule this client is built on: the interface never waits on the network to
+render. The header offers "Sign in to sync" rather than standing in the way, and **signing
+out leaves the local database untouched** — a routine action must not destroy a novel with
+unsynced changes.
+
+### Where the two tokens live
+
+- **The access token is memory only.** It lasts fifteen minutes and is replaced on demand;
+  persisting it buys nothing and widens the window a copy is useful in.
+- **The refresh token is persisted**, which is a deliberate exception to the rule that
+  credentials never touch local storage. The difference from an API key is what a stolen one
+  is worth: it **rotates on every use**, so a copy works at most once, and using a stolen one
+  **breaks the legitimate device's next refresh** — a signal the author sees. The alternative
+  is signing in on every reload, which pushes people towards shorter, reused passwords.
+  The mitigation making this defensible is the CSP: scripts run by hash, no `unsafe-inline`,
+  no third-party script at all. **If that ever loosens, revisit this.**
+
+### Rules the tests hold
+
+- **Being offline is not being signed out.** A refresh that fails because the server is
+  unreachable leaves the session exactly as it was. Only the server *rejecting* the refresh
+  token ends one — that is a real answer; a timeout is not.
+- **One renewal at a time.** Refresh tokens rotate on use, so two concurrent renewals would
+  invalidate each other and the app would lock itself out.
+- **A 401 retries exactly once.** More would hammer the server with a token it has already
+  refused.
+- **One message for every rejected credential.** The server answers identically so that
+  login cannot be used to discover which addresses have accounts; this client does not undo
+  that by inferring more than it was told.
+- **Unreachable is told apart from rejected.** A browser reports DNS failure, refused
+  connection and CORS block with the same opaque `TypeError`. The message names the CORS
+  case explicitly, because it is the one a self-hoster actually hits and the one that looks
+  least like what it is.
+- **Plain HTTP is warned about** for a remote host and **not** for localhost — every
+  development server is `http://localhost`, and crying wolf there trains people to ignore
+  the warning that matters.
+- **A stored server list is untrusted input.** Entries that are not normalised origins are
+  dropped rather than offered, because the app posts credentials to whatever it is given.
 
 ## Word lookup
 

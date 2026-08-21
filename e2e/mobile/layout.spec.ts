@@ -74,7 +74,17 @@ test("gives every control in the binder a target a finger can hit", async ({ pag
 test("nothing is wider than the screen", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 640 });
 
-  for (const path of ["/projects", "/settings"]) {
+  // The binder is included by building one first. Checking only /projects and
+  // /settings would leave the toolbar — the widest row in the app, and the one most
+  // likely to overflow — untested, which is exactly what it did.
+  await page.goto("/projects");
+  await expect(page.locator("html")).toHaveAttribute("data-db-status", "ready", { timeout: 30_000 });
+  await page.getByRole("button", { name: "New project" }).click();
+  await page.getByRole("link", { name: "Untitled project" }).first().click();
+  await expect(page.getByRole("heading", { name: "Binder" })).toBeVisible();
+  const binderPath = new URL(page.url()).pathname;
+
+  for (const path of ["/projects", "/settings", binderPath, "/signin"]) {
     await page.goto(path);
     await expect(page.locator("h1")).toBeVisible();
 
@@ -94,7 +104,13 @@ test("nothing is wider than the screen", async ({ page }) => {
             `${el.tagName}.${el.className || "-"} spans ${Math.round(rect.left)}..${Math.round(rect.right)} of ${viewport}`,
           );
         }
-        if (el.scrollWidth - el.clientWidth > 1) {
+        // Only where the reader could actually scroll. An element with
+        // `overflow: hidden` and an ellipsis is clipping on purpose — its
+        // scrollWidth exceeds its box by design, and nobody can scroll it, so
+        // flagging it would mean forbidding text truncation altogether.
+        const overflowX = getComputedStyle(el).overflowX;
+        const scrollable = overflowX === "auto" || overflowX === "scroll";
+        if (scrollable && el.scrollWidth - el.clientWidth > 1) {
           found.push(
             `${el.tagName}.${el.className || "-"} scrolls sideways by ${el.scrollWidth - el.clientWidth}px`,
           );

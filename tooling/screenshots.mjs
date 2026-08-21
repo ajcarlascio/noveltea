@@ -61,6 +61,7 @@ const targets = [
 const routes = [
   { name: "projects", path: "/projects" },
   { name: "settings", path: "/settings" },
+  { name: "signin", path: "/signin" },
   {
     name: "binder",
     path: "/projects",

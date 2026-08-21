@@ -11,6 +11,9 @@ afterEach(() => {
 });
 
 function open(html: string): Editor {
+  // Same reason as linkSafety: an editor replaced without being destroyed leaves a
+  // timer running into the next test, or past the end of the run.
+  editor?.destroy();
   editor = new Editor({ extensions: EDITOR_EXTENSIONS, content: html });
   return editor;
 }

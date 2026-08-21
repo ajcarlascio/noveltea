@@ -244,6 +244,20 @@ One bundle runs in a browser tab, a desktop window and a phone webview. These ar
 - **No Node built-ins in app code**, enforced by ESLint. `src/test/**` is exempt; those
   helpers run under Node.
 
+### Accounts
+
+- **Signing in is not a gate.** The replica is local and complete; the app works signed out
+  and sign-out never touches the database. Anything that makes writing wait on an account
+  contradicts the rule the client is built on.
+- **Offline is not signed out.** Only a server *rejecting* the refresh token ends a session.
+  A `ServerUnreachable` must leave it exactly as it was.
+- **One renewal at a time, and one retry per 401.** Refresh tokens rotate on use; concurrent
+  renewals invalidate each other and lock the app out.
+- **One message for every rejected credential.** The server refuses to be an enumeration
+  oracle; the client must not undo that.
+- **The access token is memory-only; the refresh token is persisted.** That exception rests
+  on rotation, single use, and the CSP — see the README before loosening any of the three.
+
 ### Anything that leaves the device
 
 - **`mayUseNetwork(settings, feature)` is the only gate**, and it checks the switch and the

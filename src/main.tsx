@@ -4,6 +4,7 @@ import { BrowserRouter } from "react-router-dom";
 import { App } from "./app/App";
 import { DatabaseProvider } from "./app/db/DatabaseProvider";
 import { SettingsProvider } from "./app/settings/SettingsProvider";
+import { AuthProvider } from "./features/auth/AuthProvider";
 import { ThemeProvider } from "./app/theme/ThemeProvider";
 import "./styles/global.css";
 
@@ -16,10 +17,15 @@ createRoot(container).render(
   <StrictMode>
     <ThemeProvider>
       <SettingsProvider>
+        {/* The replica sits outside auth on purpose: an author's work is theirs
+            whether or not they are signed in, and signing out must not take the
+            local copy with it. */}
         <DatabaseProvider>
-          <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-            <App />
-          </BrowserRouter>
+          <AuthProvider>
+            <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+              <App />
+            </BrowserRouter>
+          </AuthProvider>
         </DatabaseProvider>
       </SettingsProvider>
     </ThemeProvider>

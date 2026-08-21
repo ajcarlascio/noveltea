@@ -22,6 +22,10 @@ afterEach(() => {
 });
 
 function withLink(href: string): string | null {
+  // Destroyed before being replaced. ProseMirror's DOMObserver keeps a timer, and an
+  // editor left running past the end of a test fires it after the environment is torn
+  // down — "document is not defined", from a test that already reported a pass.
+  editor?.destroy();
   editor = new Editor({ extensions: EDITOR_EXTENSIONS, content: "<p>a link</p>" });
   editor.commands.selectAll();
   editor.commands.setLink({ href });
