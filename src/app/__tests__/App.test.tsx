@@ -2,6 +2,9 @@ import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
+import { DatabaseProvider } from "../db/DatabaseProvider";
+import { DatabaseClient } from "@/db/client";
+import { fakeWorker } from "@/test/worker";
 import { ThemeProvider } from "../theme/ThemeProvider";
 
 beforeEach(() => {
@@ -16,11 +19,16 @@ beforeEach(() => {
 });
 
 function renderAt(path: string) {
+  // The projects route reads the local replica, so the shell needs a database.
+  // A worker double keeps these tests about routing.
+  const client = new DatabaseClient(fakeWorker().worker);
   return render(
     <ThemeProvider>
-      <MemoryRouter initialEntries={[path]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <App />
-      </MemoryRouter>
+      <DatabaseProvider create={() => client}>
+        <MemoryRouter initialEntries={[path]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <App />
+        </MemoryRouter>
+      </DatabaseProvider>
     </ThemeProvider>,
   );
 }

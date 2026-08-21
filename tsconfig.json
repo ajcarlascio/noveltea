@@ -15,6 +15,10 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
 
+    // @noveltea/client-db is consumed as TypeScript source, and it imports with explicit
+    // .ts specifiers because Node 22 strips types natively there rather than transpiling.
+    // Legal only alongside noEmit, which is how this project type-checks anyway.
+    "allowImportingTsExtensions": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
     "resolveJsonModule": true,

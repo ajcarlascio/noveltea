@@ -59,3 +59,8 @@
 .page__note {
   color: var(--text-muted);
 }
+
+.project-list {
+  margin: 0;
+  padding-left: var(--space-5);
+}

@@ -10,11 +10,10 @@ schema. This repository owns the interface and nothing else.
 
 ## Status
 
-**Scaffold and theme foundation.** Vite + React + TypeScript build, routing, and the theme
-system are in place and covered by tests. There is no local database, no sync, no editor
-and no binder yet — the routes are placeholders that prove the shell renders and the themes
-switch. Everything below that is not the build, the router or the theme tokens is still a
-decision rather than an observation.
+**Scaffold, themes, and the local replica.** The build, routing, theme system and the
+offline SQLite replica are in place and covered by tests. There is no sync, no editor and no
+binder yet. Everything below that is not the build, the router, the theme tokens or the
+database layer is still a decision rather than an observation.
 
 Start with `CLAUDE.md` for the rules, and `docs/architecture.md` for the reasoning behind
 the three structural choices (why not React Native, why TipTap, where the sync engine
@@ -72,7 +71,7 @@ If you are about to write `await fetch(...)` anywhere a component can see it, st
 | Language | TypeScript | Shared vocabulary with the server's Node packages, which the client consumes directly. |
 | UI | React + Vite | The editor decides this: ProseMirror is a DOM library, so the client is a web client. React is the ecosystem TipTap and the team already know. |
 | Editor | **TipTap core** (MIT) over ProseMirror | Far less code than raw ProseMirror, with the ProseMirror API still reachable underneath. `@tiptap-pro/*` is a paid registry and is **forbidden**. |
-| Local store | SQLite via `@noveltea/client-db` | The schema and migrations come from the server repo so they cannot drift from the protocol. wa-sqlite over OPFS on the web, a native SQLite build under Tauri. |
+| Local store | SQLite via `@noveltea/client-db` | The schema and migrations come from the server repo so they cannot drift from the protocol. `@sqlite.org/sqlite-wasm` (Apache-2.0) over the OPFS SAH Pool VFS on the web, a native SQLite build under Tauri. wa-sqlite was the original pick and was dropped — see "The local replica". |
 | Sync | `@noveltea/sync` (to be created, in the server repo) | Coupled to the wire protocol and the schema the server owns. A library, never a service. |
 | Desktop + mobile | **Tauri v2** | One web codebase wrapped for Windows, macOS, Linux, iOS and Android. Real ProseMirror in every shell. |
 
@@ -89,7 +88,8 @@ boundary, and all three point in the same direction:
 - **`@noveltea/client-db`** — the local SQLite schema and its migration runner. It lives in
   the server repo because its migrations must move in lockstep with the server's; a client
   release that ships a schema the server has not seen is a corrupted replica. This repo
-  consumes it as a dependency and **never** hand-writes DDL.
+  pins the server repo as a submodule at `vendor/noveltea-server` and consumes the package
+  as an npm workspace; it **never** hand-writes DDL.
 - **The document schema** — documents are ProseMirror JSON, and the server's
   `packages/compile` serialises that same JSON to txt/md/html. The set of node and mark
   names is therefore a *contract*, not an editor detail. It must be defined once, in one
@@ -102,6 +102,15 @@ definition belongs in the server repo and this one consumes it.**
 
 ## Running it
 
+This repo pins the server repository as a **git submodule** at `vendor/noveltea-server`,
+because that is where the client's SQLite schema lives. Clone accordingly:
+
+```bash
+git clone --recurse-submodules https://github.com/ajcarlascio/noveltea.git
+# already cloned without it:
+git submodule update --init --recursive
+```
+
 ```bash
 npm install              # Node >= 22.6, matching the server's packages
 npm run dev              # Vite dev server — the browser client
@@ -111,13 +120,13 @@ npm run typecheck        # tsc over src and over the Node-side config
 npm run lint             # eslint, zero warnings tolerated
 npm run licenses         # dependency licence audit
 npm run build            # typecheck, then production bundle
+npm run test:e2e         # Playwright, against the production build in a real browser
 ```
 
 Not wired up yet, and documented here so the commit that adds them does not invent a
 different name:
 
 ```bash
-npm run test:e2e         # end-to-end, against a seeded local replica
 npm run tauri dev        # desktop shell around the same code
 npm run tauri ios dev    # iOS simulator (macOS host only)
 npm run tauri android dev
@@ -131,6 +140,56 @@ Note that the API sets **CORS off unless configured**. A browser client on
 `http://localhost:5173` must be listed in the server's `noveltea.cors.allowed-origins`, or
 every request fails in a way that looks like an auth bug. The Tauri shells are not subject
 to this.
+
+## The local replica
+
+Every screen reads SQLite, never the network. The database is opened once, in a **web
+worker**, and reached through a typed request client.
+
+```
+src/db/open.ts        opens SQLite over OPFS
+src/db/adapter.ts     sqlite-wasm -> the SqliteAdapter that @noveltea/client-db migrates through
+src/db/dispatch.ts    the worker's behaviour, with the worker globals factored out so it is testable
+src/db/worker.ts      the worker itself: wiring, nothing more
+src/db/client.ts      main-thread request/response, one promise per request
+src/data/*            the only place SQL lives
+```
+
+**The schema is not written here.** It comes from `@noveltea/client-db` in the server repo,
+consumed as an npm workspace pointing into the submodule, so there is one source of truth
+and no publishing step between a schema change and this client seeing it. The generated
+migration bundle is gitignored upstream; `npm install` regenerates it through that package's
+own `prepare` script.
+
+A few decisions worth not relitigating:
+
+- **`@sqlite.org/sqlite-wasm`, not `wa-sqlite`.** The architecture document named wa-sqlite,
+  but its npm package declares no licence at all (`license: None`, no repository field), and
+  the rule in this repo is MIT/Apache-2.0/BSD. `@sqlite.org/sqlite-wasm` is Apache-2.0,
+  official, and ships the VFS we need.
+- **The SAH Pool OPFS VFS, not the plain one.** The plain VFS needs `SharedArrayBuffer`,
+  which needs COOP/COEP response headers, which a self-hoster behind an arbitrary reverse
+  proxy cannot be assumed to have set. Getting that wrong would silently take persistence
+  away from the author. SAH Pool needs no cross-origin isolation and is faster.
+- **An in-memory fallback is reported, never hidden.** If OPFS is unavailable the app still
+  runs, but `StorageWarning` says so in the interface. An in-memory replica loses every word
+  on reload, and that is not something an author may discover for themselves.
+- **Requests made before the database opens are queued, not rejected**, and if opening fails
+  the queue is drained *as failures*. A dropped request leaves a promise pending forever,
+  which in an offline-first client is indistinguishable from a lost write.
+- **The replica's state is mirrored onto `<html>`** as `data-db-status`, `data-db-storage`,
+  `data-db-applied` and `data-db-schema`. It helps an operator support an author, and it is
+  how the end-to-end tests tell a persisted database from a fresh one without the app
+  exposing a test handle that would also exist in production.
+
+### What the tests prove, and what they cannot
+
+Unit tests run the real migrations and the real SQL against real SQLite through
+`node:sqlite`, so a wrong column name fails immediately — but they cannot see OPFS. The
+Playwright suite covers exactly that gap: it loads the production build in Chromium and
+asserts the second visit applies **zero** migrations, which is only true if the database
+file survived. Deleting the OPFS path turns that red, along with the assertion that storage
+is not `memory`.
 
 ## Dependency licensing
 
