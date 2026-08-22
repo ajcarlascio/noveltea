@@ -18,6 +18,10 @@ export function contentSecurityPolicy(): Plugin {
     apply: "build",
     enforce: "post",
     transformIndexHtml(html) {
+      // Set by the desktop build. A browser build must not carry these, since naming
+      // schemes it will never use only widens the policy.
+      const hosted = process.env.NOVELTEA_TAURI === "1";
+
       const hashes = [...html.matchAll(/<script(?![^>]*\ssrc=)[^>]*>([\s\S]*?)<\/script>/g)]
         .map((match) => match[1] ?? "")
         .filter((source) => source.trim().length > 0)
@@ -42,9 +46,13 @@ export function contentSecurityPolicy(): Plugin {
         "worker-src 'self' blob:",
         // Deliberately open. NovelTea is self-hosted: the server is whatever address
         // the author types at sign-in, so there is no origin to allow at build time.
-        // Tauri builds should instead route requests through Rust and tighten this
-        // to 'self' — see README, "Content Security Policy".
-        "connect-src *",
+        //
+        // `*` does not cover custom schemes, which is why the desktop build has to name
+        // Tauri's IPC endpoints explicitly. Without them `invoke` is blocked before it
+        // leaves the webview, and both sides fail quietly: the host never hears a
+        // request, and the page catches an error it cannot distinguish from a missing
+        // file. That looked exactly like "the desktop app does not persist anything".
+        hosted ? "connect-src * ipc: http://ipc.localhost" : "connect-src *",
       ].join("; ");
 
       return {

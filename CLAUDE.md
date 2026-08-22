@@ -436,6 +436,51 @@ single most divergent area of the web platform, and this app is a `contenteditab
 Consequences: keep editor behaviour on ProseMirror's abstractions rather than raw DOM
 selection wherever possible, and never assume a keyboard event shape.
 
+### WebKitGTK has no OPFS, so the desktop shell keeps the database itself
+
+Measured, not assumed: `tooling/webview-probe` runs the built app in webkit2gtk-4.1 —
+the engine Tauri uses on Linux — and reads the app's own `data-db-storage`. On
+**WebKitGTK 2.52.3** (current, August 2026) `navigator.storage` is absent **entirely**,
+so there is no OPFS, so the replica opens in memory and every word is lost on restart.
+`isSecureContext` is true and `indexedDB` works, which rules out a secure-context gate.
+
+Do not use Playwright's WebKit to answer this. It is a deliberately minimal build with
+no storage APIs at all, and reasoning from it produced the wrong answer twice — once
+asserting the conclusion and once doubting it, neither with evidence.
+
+So under Tauri:
+
+- The webview holds the database **in memory**, and the file lives on the host.
+- Rust exposes exactly two commands, `db_load` and `db_save`. They know no SQL and no
+  schema. Everything that understands the database stays on the other side of that
+  boundary, where it is already tested against real SQLite.
+- `db_save` writes to a temp file, `sync_all`s it, then renames. A rename within one
+  directory is atomic everywhere this ships, so a crash mid-write leaves the previous
+  database intact — and a half-written SQLite file is not a database that lost recent
+  edits, it is one that will not open. The `sync_all` is the part that is easy to leave
+  out and useless to leave out: without it the rename can reach the disk before the
+  bytes do.
+- `db_save` refuses an empty payload. An empty export means something went wrong
+  upstream, and writing it would replace a working database with nothing.
+- The command layer is **untouched** by any of this. It stays synchronous, next to an
+  in-memory SQLite, exactly as on the web. A native binding (rusqlite) would have meant
+  making every command async — Tauri's IPC is async and this WebKitGTK has no
+  SharedArrayBuffer, so there is no synchronous bridge available.
+
+Two things that cost an afternoon and will cost it again:
+
+- **`SQLITE_DESERIALIZE_RESIZEABLE` is not optional.** Without it SQLite refuses to grow
+  the database past the buffer it was handed, so everything works until the author has
+  written enough to need another page. Pinned by
+  `src/db/__tests__/restore.node.test.ts`, which runs the real wasm build under Node.
+- **The app's own `<meta>` CSP has to name Tauri's IPC.** `connect-src *` does not cover
+  custom schemes, so `invoke` is blocked before it leaves the webview and both sides
+  fail quietly — the host never hears a request, and the page catches an error it cannot
+  tell apart from a missing file. `NOVELTEA_TAURI=1` adds `ipc: http://ipc.localhost`;
+  use `npm run dev:tauri` / `npm run build:tauri`, which `tauri.conf.json` already does.
+
+Licences: Tauri brings five MPL-2.0 crates transitively. See `src-tauri/LICENSES.md`.
+
 ### Device detection versus webview divergence
 
 These are two separate problems and only one of them has a library answer.

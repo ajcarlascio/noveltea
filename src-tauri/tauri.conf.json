@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "NovelTea",
+  "version": "0.1.0",
+  "identifier": "app.noveltea.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev:tauri",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "npm run build:tauri",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "NovelTea",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 480,
+        "minHeight": 480
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/icon.png"
+    ]
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "What the NovelTea window is allowed to ask the host for.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

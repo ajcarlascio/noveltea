@@ -6,8 +6,12 @@ import { isoNow, openTestDatabase } from "@/test/sqlite";
 
 function harness() {
   const posted: WorkerOutbound[] = [];
-  const dispatcher = createDispatcher((message) => posted.push(message));
-  return { dispatcher, posted };
+  const wrote: true[] = [];
+  const dispatcher = createDispatcher(
+    (message) => posted.push(message),
+    () => wrote.push(true),
+  );
+  return { dispatcher, posted, wrote };
 }
 
 function opened(db = openTestDatabase()) {
@@ -160,5 +164,50 @@ describe("run", () => {
     });
     expect(posted[1]).toEqual({ id: 1, ok: true, result: undefined });
     expect(state.adapter.query("SELECT id FROM project")).toEqual([{ id: "p1" }]);
+  });
+});
+
+describe("telling the host something changed", () => {
+  it("announces a write after a command that changes rows", () => {
+    const { dispatcher, wrote } = harness();
+    dispatcher.opened(opened());
+    dispatcher.handle({
+      id: 1,
+      kind: "command",
+      name: "createProject",
+      input: { title: "The Lighthouse" },
+    });
+    expect(wrote).toHaveLength(1);
+  });
+
+  it("SAYS NOTHING AFTER A READ", () => {
+    // Every panel that refreshes runs queries. Flushing on those would rewrite the
+    // whole database file each time one of them re-rendered.
+    const { dispatcher, wrote } = harness();
+    dispatcher.opened(opened());
+    dispatcher.handle({ id: 1, kind: "query", sql: "SELECT 1 AS n;", params: [] });
+    expect(wrote).toHaveLength(0);
+  });
+
+  it("says nothing after a read-only command", () => {
+    const { dispatcher, wrote } = harness();
+    dispatcher.opened(opened());
+    dispatcher.handle({ id: 1, kind: "command", name: "syncState", input: { projectId: "p1" } });
+    expect(wrote).toHaveLength(0);
+  });
+
+  it("says nothing when the write failed", () => {
+    // There is nothing worth persisting, and the previous file is still correct.
+    const { dispatcher, wrote } = harness();
+    dispatcher.opened(opened());
+    dispatcher.handle({ id: 1, kind: "run", sql: "NOT VALID SQL;", params: [] });
+    expect(wrote).toHaveLength(0);
+  });
+
+  it("assumes raw SQL writes, rather than trying to parse it", () => {
+    const { dispatcher, wrote } = harness();
+    dispatcher.opened(opened());
+    dispatcher.handle({ id: 1, kind: "run", sql: "PRAGMA user_version;", params: [] });
+    expect(wrote).toHaveLength(1);
   });
 });

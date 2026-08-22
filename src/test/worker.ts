@@ -1,6 +1,6 @@
 import { vi } from "vitest";
 import type { WorkerLike } from "@/db/client";
-import type { DbRequest, WorkerOutbound } from "@/db/protocol";
+import { isOpen, type DbRequest, type WorkerOutbound } from "@/db/protocol";
 
 /**
  * A worker double. Nothing that matters about the client is observable with a real
@@ -14,7 +14,11 @@ export function fakeWorker() {
   const terminate = vi.fn();
 
   const worker: WorkerLike = {
-    postMessage: (message) => void sent.push(message),
+    // Only requests are recorded. The `open` handshake is sent by the real factory,
+    // not by these tests, and recording it would shift every index they assert on.
+    postMessage: (message) => {
+      if (!isOpen(message)) sent.push(message);
+    },
     addEventListener: (type: string, listener: unknown) => {
       if (type === "message")
         messageListeners.push(listener as (event: MessageEvent<WorkerOutbound>) => void);
