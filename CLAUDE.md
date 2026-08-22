@@ -479,7 +479,10 @@ Two things that cost an afternoon and will cost it again:
   tell apart from a missing file. `NOVELTEA_TAURI=1` adds `ipc: http://ipc.localhost`;
   use `npm run dev:tauri` / `npm run build:tauri`, which `tauri.conf.json` already does.
 
-Licences: Tauri brings five MPL-2.0 crates transitively. See `src-tauri/LICENSES.md`.
+Licences: Tauri brings five MPL-2.0 crates transitively. Accepted, deliberately and
+narrowly — weak file-level copyleft arriving through a dependency we do not modify. The
+rule for direct dependencies is unchanged, and GPL/LGPL/AGPL/CDDL/EPL stay excluded. See
+`src-tauri/LICENSES.md`.
 
 ### Device detection versus webview divergence
 

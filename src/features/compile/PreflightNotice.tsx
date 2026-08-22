@@ -1,4 +1,5 @@
 import type { CompilePlan, CompileWarning } from "@noveltea/compile";
+import { describePages } from "@/features/editor/text";
 import "./PreflightNotice.css";
 
 /**
@@ -48,7 +49,7 @@ export function PreflightNotice({ plan }: { plan: CompilePlan | null }) {
       <p className="preflight__summary" role="status">
         {plan.included.length === 0
           ? "Nothing would be exported yet."
-          : `${plan.included.length === 1 ? "1 document" : `${String(plan.included.length)} documents`}, ${String(plan.wordCount)} words.`}
+          : `${plan.included.length === 1 ? "1 document" : `${String(plan.included.length)} documents`}, ${String(plan.wordCount)} words, ${describePages(plan.wordCount)}.`}
       </p>
 
       {grouped.size > 0 && (

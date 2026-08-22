@@ -2,6 +2,22 @@
    allows no font CDN. SIL OFL 1.1 — see README, "Dependency licensing". */
 @import "@fontsource-variable/merriweather/wght.css";
 @import "@fontsource-variable/merriweather/wght-italic.css";
+/*
+ * The other bundled faces. Only the @font-face rules are in the stylesheet; the woff2
+ * files are separate assets a browser fetches only for the family actually in use, so
+ * offering four costs an author the download of one.
+ *
+ * All OFL-1.1, bundled rather than fetched: a self-hosted instance may have no internet
+ * at all, and the CSP does not allow a font CDN.
+ */
+@import "@fontsource-variable/eb-garamond/wght.css";
+@import "@fontsource-variable/eb-garamond/wght-italic.css";
+@import "@fontsource-variable/lora/wght.css";
+@import "@fontsource-variable/lora/wght-italic.css";
+@import "@fontsource/atkinson-hyperlegible/400.css";
+@import "@fontsource/atkinson-hyperlegible/400-italic.css";
+@import "@fontsource/atkinson-hyperlegible/700.css";
+@import "@fontsource/atkinson-hyperlegible/700-italic.css";
 @import "./tokens.css";
 @import "../ui/button.css";
 

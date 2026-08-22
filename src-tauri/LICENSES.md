@@ -17,9 +17,11 @@ themselves, and we make none: they are consumed from crates.io as published.
 That is a materially different licence from the GPL family, and nothing in the tree is
 GPL, LGPL, AGPL, CDDL or EPL — checked with `cargo tree --format '{p} {l}'`.
 
-**This is flagged rather than decided.** The allowlist is a deliberate project rule, and
-extending it to permit MPL-2.0 for transitive Rust dependencies is a call for the
-project owner, particularly with paid builds in view.
+**Decided (August 2026): MPL-2.0 is accepted for transitive Rust dependencies.** The
+allowlist for direct dependencies is unchanged — MIT / Apache-2.0 / BSD, plus OFL-1.1
+for fonts. What this permits is weak, file-level copyleft arriving through a dependency
+we do not modify, which does not reach the rest of the work and does not affect paid
+builds. GPL, LGPL, AGPL, CDDL and EPL remain excluded outright.
 
 To re-check after a dependency bump:
 

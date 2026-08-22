@@ -23,9 +23,20 @@
           if (theme === "light" || theme === "dark") {
             root.setAttribute("data-theme", theme);
           }
+          // Kept in step with FONT_CHOICES in app/typography/fonts.ts by
+          // `the pre-paint script offers every font` in its test file. A face missing
+          // here still works — it just arrives one paint late, as a reflow.
+          var fonts = ["eb-garamond", "lora", "atkinson", "georgia", "system-serif", "system-sans"];
           var font = localStorage.getItem("noveltea.font");
-          if (font === "georgia" || font === "system-serif" || font === "system-sans") {
+          if (fonts.indexOf(font) !== -1) {
             root.setAttribute("data-font", font);
+          }
+          // Size matters more than colour here: getting it wrong reflows the whole
+          // manuscript after first paint rather than just recolouring it.
+          var sizes = ["small", "large", "x-large"];
+          var size = localStorage.getItem("noveltea.fontSize");
+          if (sizes.indexOf(size) !== -1) {
+            root.setAttribute("data-font-size", size);
           }
         } catch (_) {
           /* storage unavailable — fall through to the defaults */
