@@ -14,6 +14,7 @@ import {
 import { BinderTree } from "@/features/binder/BinderTree";
 import { DocumentEditor } from "@/features/editor/DocumentEditor";
 import { CompilePanel } from "@/features/compile/CompilePanel";
+import { ConflictsPanel } from "@/features/conflicts/ConflictsPanel";
 import { SearchPanel } from "@/features/search/SearchPanel";
 import { SyncStatus } from "@/features/sync/SyncStatus";
 import { useBinder } from "@/features/binder/useBinder";
@@ -57,6 +58,7 @@ export function Project() {
       <h1 className="project__title">{title ?? "Project"}</h1>
       <StorageWarning />
       <SyncStatus projectId={projectId} />
+      <ConflictsPanel projectId={projectId} />
 
       {error !== null && (
         <p className="project__error" role="alert">

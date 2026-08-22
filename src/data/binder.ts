@@ -18,6 +18,13 @@ export interface BinderItem {
   title: string;
   orderKey: string;
   trashedFromParentId: string | null;
+  /**
+   * The document this one forked from, when it is a conflict copy.
+   *
+   * The link is a foreign key and never a title: titles are author-editable and
+   * ambiguous the moment two copies exist.
+   */
+  conflictOfId: string | null;
 }
 
 export interface BinderNode extends BinderItem {
@@ -39,11 +46,12 @@ interface BinderRow {
   title: string;
   order_key: string;
   trashed_from_parent_id: string | null;
+  conflict_of_id: string | null;
 }
 
 export async function loadBinder(db: Reader, projectId: string): Promise<Binder> {
   const rows = await db.query<BinderRow>(
-    `SELECT id, parent_id, type, title, order_key, trashed_from_parent_id
+    `SELECT id, parent_id, type, title, order_key, trashed_from_parent_id, conflict_of_id
        FROM binder_item
       WHERE project_id = ? AND deleted_at IS NULL
       ORDER BY order_key, id`,
@@ -68,6 +76,7 @@ export function assemble(rows: readonly BinderRow[]): Binder {
       title: row.title,
       orderKey: row.order_key,
       trashedFromParentId: row.trashed_from_parent_id,
+      conflictOfId: row.conflict_of_id,
       children: [],
     });
   }
