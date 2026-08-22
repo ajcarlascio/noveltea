@@ -152,7 +152,7 @@ describe("reviewing a pair", () => {
     renderPanel((path, init) => {
       if (init?.method === "POST") {
         return Promise.resolve(
-          new Response(JSON.stringify({ code: "stale_document" }), { status: 409 }),
+          new Response(JSON.stringify({ code: "stale_original" }), { status: 409 }),
         );
       }
       return path.includes("/conflicts/c1") ? ok(detail) : ok([summary]);

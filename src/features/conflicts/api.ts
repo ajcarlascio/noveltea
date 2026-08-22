@@ -68,7 +68,7 @@ async function read(response: Response, what: string): Promise<unknown> {
     // The server refuses a stale baseVersion rather than forking again — forking on
     // merge would let copies breed without bound. It is not an error to report as a
     // failure: the pair simply moved on, and the author needs to see it again.
-    if (response.status === 409 || code === "stale_document" || code === "version_mismatch") {
+    if (response.status === 409 || code === "stale_original") {
       throw new ResolveRejected(
         "This document changed on another device while you were merging. Nothing was lost — open the pair again to see both versions as they are now.",
         true,
