@@ -38,6 +38,7 @@
 }
 
 .editor__words,
+.editor__pages,
 .editor__state {
   color: var(--text-muted);
   font-size: 0.8rem;
@@ -89,7 +90,9 @@
   margin: 0 auto;
   padding: var(--space-6) var(--space-5) var(--space-8);
   font-family: var(--font-prose);
-  font-size: 1.0625rem;
+  /* The measure below is in em, so raising this widens the column with the type and
+     the line length in characters stays where it was meant to be. */
+  font-size: calc(1.0625rem * var(--prose-scale, 1));
   line-height: 1.75;
 }
 

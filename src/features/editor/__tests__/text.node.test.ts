@@ -1,6 +1,13 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { documentText, summarise, wordCount } from "../text";
+import {
+  describePages,
+  documentText,
+  manuscriptPages,
+  summarise,
+  wordCount,
+  WORDS_PER_MANUSCRIPT_PAGE,
+} from "../text";
 
 const doc = (...content: unknown[]) => ({ type: "doc", content: content as never });
 const para = (...text: string[]) => ({
@@ -126,5 +133,36 @@ describe("summarise", () => {
 
   it("is empty for an empty document", () => {
     expect(summarise(null)).toEqual({ searchText: "", words: 0 });
+  });
+});
+
+describe("manuscript pages", () => {
+  it("counts at the publishing convention, not at what fits on screen", () => {
+    // 250 words a page: 12pt, double-spaced, one-inch margins. Two writers' page
+    // counts have to be comparable, so this cannot depend on display settings — an
+    // author reading in 19pt has not written a longer book.
+    expect(WORDS_PER_MANUSCRIPT_PAGE).toBe(250);
+    expect(manuscriptPages(250)).toBe(1);
+    expect(manuscriptPages(500)).toBe(2);
+  });
+
+  it("rounds up, because a page with two words on it is still a page", () => {
+    expect(manuscriptPages(1)).toBe(1);
+    expect(manuscriptPages(251)).toBe(2);
+  });
+
+  it("calls nothing zero pages", () => {
+    expect(manuscriptPages(0)).toBe(0);
+    expect(describePages(0)).toBe("0 pages");
+  });
+
+  it("refuses to produce a page count from nonsense", () => {
+    expect(manuscriptPages(Number.NaN)).toBe(0);
+    expect(manuscriptPages(-40)).toBe(0);
+  });
+
+  it("says one page in the singular", () => {
+    expect(describePages(1)).toBe("1 page");
+    expect(describePages(600)).toBe("3 pages");
   });
 });

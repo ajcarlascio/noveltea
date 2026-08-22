@@ -74,3 +74,32 @@ export function summarise(doc: ProseMirrorNode | null | undefined): {
   const searchText = documentText(doc);
   return { searchText, words: wordCount(searchText) };
 }
+
+/**
+ * Words on a standard manuscript page.
+ *
+ * 250 is the publishing convention — 12pt, double-spaced, one-inch margins, which is
+ * what a submission is expected to look like. It is not what fits on this screen, and
+ * it deliberately does not move when an author changes their reading font or size:
+ * "how long is my book" has an answer the industry already agreed on, and making it
+ * depend on personal display settings would make two writers' page counts
+ * incomparable.
+ */
+export const WORDS_PER_MANUSCRIPT_PAGE = 250;
+
+/**
+ * Manuscript pages, rounded up.
+ *
+ * Anything at all is one page, because a page with two words on it is still a page an
+ * editor has to turn. Zero words is zero pages.
+ */
+export function manuscriptPages(words: number): number {
+  if (!Number.isFinite(words) || words <= 0) return 0;
+  return Math.ceil(words / WORDS_PER_MANUSCRIPT_PAGE);
+}
+
+/** "1 page" / "12 pages", for a count an author glances at. */
+export function describePages(words: number): string {
+  const pages = manuscriptPages(words);
+  return pages === 1 ? "1 page" : `${String(pages)} pages`;
+}

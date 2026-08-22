@@ -1,13 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
   applyFont,
+  applyFontSize,
   DEFAULT_FONT,
+  DEFAULT_FONT_SIZE,
   FONT_CHOICES,
   FONT_LABELS,
+  FONT_NOTES,
+  FONT_SIZE_STORAGE_KEY,
+  FONT_SIZES,
   FONT_STORAGE_KEY,
   isFontChoice,
   readStoredFont,
+  readStoredFontSize,
   writeStoredFont,
+  writeStoredFontSize,
 } from "../fonts";
 import { runPrePaintScript } from "@/test/prePaintScript";
 import tokens from "@/styles/tokens.css?raw";
@@ -141,5 +148,89 @@ describe("the pre-paint script", () => {
     );
     expect(result.theme).toBe("dark");
     expect(result.font).toBe("system-sans");
+  });
+});
+
+describe("the pre-paint script and the app agree", () => {
+  it("APPLIES EVERY FONT THE APP OFFERS", () => {
+    // index.html stamps the stored font before any module loads, to avoid a reflow. A
+    // face it does not know still works — it arrives one paint late — but the two
+    // lists drifting apart is exactly how that happens without anyone noticing.
+    for (const choice of FONT_CHOICES) {
+      if (choice === DEFAULT_FONT) continue;
+      const result = runPrePaintScript(fakeStorage({ [FONT_STORAGE_KEY]: choice }));
+      expect(result.font, `${choice} is not applied before first paint`).toBe(choice);
+    }
+  });
+
+  it("applies every size the app offers", () => {
+    for (const size of FONT_SIZES) {
+      if (size === DEFAULT_FONT_SIZE) continue;
+      const result = runPrePaintScript(fakeStorage({ [FONT_SIZE_STORAGE_KEY]: size }));
+      expect(result.fontSize, `${size} is not applied before first paint`).toBe(size);
+    }
+  });
+
+  it("stamps nothing for the defaults, which are the absence of a choice", () => {
+    const result = runPrePaintScript(fakeStorage());
+    expect(result.font).toBeNull();
+    expect(result.fontSize).toBeNull();
+  });
+
+  it("ignores a value that is not one of the choices", () => {
+    const result = runPrePaintScript(
+      fakeStorage({ [FONT_STORAGE_KEY]: "comic-sans", [FONT_SIZE_STORAGE_KEY]: "enormous" }),
+    );
+    expect(result.font).toBeNull();
+    expect(result.fontSize).toBeNull();
+  });
+});
+
+describe("font size", () => {
+  it("defaults to medium and stores nothing for it", () => {
+    const storage = fakeStorage();
+    writeStoredFontSize(storage, "medium");
+    expect(storage.snapshot()).toEqual({});
+    expect(readStoredFontSize(storage)).toBe("medium");
+  });
+
+  it("reads back a stored size and rejects nonsense", () => {
+    expect(readStoredFontSize(fakeStorage({ [FONT_SIZE_STORAGE_KEY]: "x-large" }))).toBe("x-large");
+    expect(readStoredFontSize(fakeStorage({ [FONT_SIZE_STORAGE_KEY]: "enormous" }))).toBe("medium");
+  });
+
+  it("survives storage that throws", () => {
+    expect(readStoredFontSize(throwingStorage())).toBe("medium");
+    expect(() => writeStoredFontSize(throwingStorage(), "large")).not.toThrow();
+  });
+
+  it("stamps only a non-default size on the root", () => {
+    const root = document.createElement("html");
+    applyFontSize(root, "large");
+    expect(root.getAttribute("data-font-size")).toBe("large");
+    applyFontSize(root, "medium");
+    expect(root.hasAttribute("data-font-size")).toBe(false);
+  });
+
+  it("defines a scale for every non-default size", () => {
+    for (const size of FONT_SIZES) {
+      if (size === DEFAULT_FONT_SIZE) continue;
+      expect(tokens).toContain(`:root[data-font-size="${size}"]`);
+    }
+  });
+
+  it("keeps the measure in em, so the column grows with the type", () => {
+    // In rem, larger text would sit in a column sized for smaller text and every line
+    // would get shorter — the opposite of what someone asking for bigger type wants.
+    expect(tokens).toMatch(/--measure:\s*[\d.]+em/);
+  });
+});
+
+describe("the notes beside each font", () => {
+  it("says something about every choice", () => {
+    // "Which serif" is not a useful question on its own.
+    for (const choice of FONT_CHOICES) {
+      expect(FONT_NOTES[choice]).toBeTruthy();
+    }
   });
 });

@@ -64,12 +64,33 @@
   --radius-md: 6px;
   --radius-lg: 10px;
 
-  /* The measure of the writing column. Prose past ~70 characters is hard to track. */
-  --measure: 34rem;
+  /*
+   * The measure of the writing column. Prose past ~70 characters is hard to track.
+   *
+   * In em, not rem, and used only on the writing surface: it has to scale with the
+   * type. In rem, raising the font size would keep the column the same width and
+   * shorten every line, which is the opposite of what someone asking for larger text
+   * wants — they want the same page, bigger.
+   *
+   * 32em at the surface's 17px is the 544px this was before.
+   */
+  --measure: 32em;
 }
 
 /* Reading font, chosen in Settings. The default needs no attribute, so an author
    who has never chosen and an author who chose the default look the same. */
+:root[data-font="eb-garamond"] {
+  --font-prose: "EB Garamond Variable", "EB Garamond", Garamond, Georgia, serif;
+}
+
+:root[data-font="lora"] {
+  --font-prose: "Lora Variable", Lora, Georgia, serif;
+}
+
+:root[data-font="atkinson"] {
+  --font-prose: "Atkinson Hyperlegible", system-ui, -apple-system, sans-serif;
+}
+
 :root[data-font="georgia"] {
   --font-prose: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
 }
@@ -80,6 +101,29 @@
 
 :root[data-font="system-sans"] {
   --font-prose: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/*
+ * How large the manuscript is set.
+ *
+ * A multiplier, not a size. The editor's measure, line height and padding are all in
+ * ems, so this moves the whole page together — text and the column around it — rather
+ * than leaving large type inside a column sized for something smaller.
+ */
+:root {
+  --prose-scale: 1;
+}
+
+:root[data-font-size="small"] {
+  --prose-scale: 0.9;
+}
+
+:root[data-font-size="large"] {
+  --prose-scale: 1.15;
+}
+
+:root[data-font-size="x-large"] {
+  --prose-scale: 1.35;
 }
 
 /* Dark, when the OS asks for it and the reader has not explicitly chosen light. */

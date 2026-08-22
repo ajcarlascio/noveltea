@@ -4,7 +4,7 @@ import { useDatabase } from "@/app/db/DatabaseContext";
 import { useSettings } from "@/app/settings/SettingsContext";
 import { loadDocument, saveDocument, type StoredDocument } from "@/data/documents";
 import { editorExtensions } from "./schema";
-import { summarise } from "./text";
+import { describePages, summarise } from "./text";
 import { CommentsPanel } from "@/features/comments/CommentsPanel";
 import { HistoryPanel } from "@/features/history/HistoryPanel";
 import { LookupPanel } from "@/features/lookup/LookupPanel";
@@ -149,6 +149,11 @@ export function DocumentEditor({ projectId, documentId }: { projectId: string; d
       <header className="editor__bar">
         <h2 className="editor__title">{loaded?.title ?? ""}</h2>
         <span className="editor__words">{words === 1 ? "1 word" : `${words} words`}</span>
+        {/* Standard manuscript pages, which is what "how long is it" means to a
+            novelist. Not pages of this screen, which change with the window. */}
+        <span className="editor__pages" title="Standard manuscript pages, at 250 words a page">
+          {describePages(words)}
+        </span>
         <span className="editor__state" data-state={state} role="status">
           {LABELS[state]}
         </span>
