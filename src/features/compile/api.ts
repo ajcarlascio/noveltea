@@ -32,6 +32,10 @@ export interface Formats {
    * otherwise would make the interface lie about what the software can do.
    */
   unavailable: string[];
+  /** Where a finished export can be put, as this installation reports it. */
+  destinations: string[];
+  /** The same rule as `unavailable`, applied to destinations. Cloud is the commercial one. */
+  unavailableDestinations: string[];
 }
 
 export class CompileFailed extends Error {
@@ -79,7 +83,16 @@ export async function listFormats(auth: Authenticator, projectId: string): Promi
   const body = isRecord(raw) ? raw : {};
   const strings = (value: unknown) =>
     Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
-  return { supported: strings(body.supported), unavailable: strings(body.unavailable) };
+
+  const destinations = strings(body.destinations);
+  return {
+    supported: strings(body.supported),
+    unavailable: strings(body.unavailable),
+    // A server too old to report destinations still offers download, which every
+    // edition has. Assuming none would leave the author unable to export at all.
+    destinations: destinations.length > 0 ? destinations : ["download"],
+    unavailableDestinations: strings(body.unavailableDestinations),
+  };
 }
 
 export async function submit(

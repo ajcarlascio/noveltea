@@ -41,16 +41,37 @@ describe("formats", () => {
   it("reports what is unavailable rather than hiding it", async () => {
     // Open core: a format missing from this build is an upgrade, not a thing that
     // does not exist. Hiding it would make the interface lie about the software.
-    const { auth } = fakeAuth(() => ok({ supported: ["txt", "md", "html"], unavailable: ["docx", "pdf"] }));
+    const { auth } = fakeAuth(() =>
+      ok({
+        supported: ["txt", "md", "html"],
+        unavailable: ["docx", "pdf"],
+        destinations: ["download", "server"],
+        unavailableDestinations: ["cloud"],
+      }),
+    );
     await expect(listFormats(auth, "p1")).resolves.toEqual({
       supported: ["txt", "md", "html"],
       unavailable: ["docx", "pdf"],
+      destinations: ["download", "server"],
+      unavailableDestinations: ["cloud"],
     });
   });
 
   it("survives a response missing either list", async () => {
     const { auth } = fakeAuth(() => ok({}));
-    await expect(listFormats(auth, "p1")).resolves.toEqual({ supported: [], unavailable: [] });
+    await expect(listFormats(auth, "p1")).resolves.toEqual({
+      supported: [],
+      unavailable: [],
+      // A server too old to report destinations still offers download, which every
+      // edition has. Assuming none would leave the author unable to export at all.
+      destinations: ["download"],
+      unavailableDestinations: [],
+    });
+  });
+
+  it("keeps a reported destination list rather than substituting the fallback", async () => {
+    const { auth } = fakeAuth(() => ok({ destinations: ["server"] }));
+    await expect(listFormats(auth, "p1")).resolves.toMatchObject({ destinations: ["server"] });
   });
 
   it("ignores entries that are not format names", async () => {

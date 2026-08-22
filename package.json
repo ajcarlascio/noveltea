@@ -59,6 +59,7 @@
     "wordnet-db": "^3.1.14"
   },
   "workspaces": [
-    "vendor/noveltea-server/packages/client-db"
+    "vendor/noveltea-server/packages/client-db",
+    "vendor/noveltea-server/packages/compile"
   ]
 }
