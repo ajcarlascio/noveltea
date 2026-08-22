@@ -43,6 +43,32 @@ const save = (over: Partial<Parameters<typeof COMMANDS.saveDocument>[1]> = {}) =
   });
 
 describe("saveDocument", () => {
+  it("captures the content it is replacing when asked, in the same write", () => {
+    // Atomic on purpose: the capture has to see the previous content, so a second
+    // command after the save would be reading prose that had already gone.
+    save({ content: { type: "doc", content: [] }, searchText: "first", wordCount: 1 });
+    save({ snapshotBefore: true, searchText: "second", wordCount: 1 });
+
+    const snapshots = db.adapter.query<{ content: string; is_automatic: number }>(
+      "SELECT content, is_automatic FROM snapshot;",
+    );
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0]?.is_automatic).toBe(1);
+    expect(JSON.parse(snapshots[0]?.content ?? "null")).toEqual({ type: "doc", content: [] });
+  });
+
+  it("captures nothing when not asked", () => {
+    save();
+    expect(db.adapter.query("SELECT id FROM snapshot;")).toHaveLength(0);
+  });
+
+  it("does not queue the automatic capture for push", () => {
+    // It is this device's safety net. Every device's undo history on every other
+    // device is not a feature.
+    save({ snapshotBefore: true });
+    expect(queued().map((change) => change.entity_type)).toEqual(["document"]);
+  });
+
   it("stores the body, the search text and the count", () => {
     save();
     expect(JSON.parse(row().content)).toEqual(body);

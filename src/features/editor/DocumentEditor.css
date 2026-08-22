@@ -65,6 +65,21 @@
   overscroll-behavior: contain;
 }
 
+/*
+ * The manuscript never gives up all its room to the panels below it.
+ *
+ * Comments, history and lookup grow when opened. Unbounded, they squeeze the writing
+ * surface to a line or two — the opposite of what this layout is for — and push the
+ * pane past its own bottom edge, where it lands on top of the page footer. Capped and
+ * scrolling, they take a share and no more.
+ */
+.editor__panels {
+  flex: none;
+  max-height: 50%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 .editor__surface {
   /* The measure: prose past about 70 characters is hard for the eye to track back.
      The column is centred and the space around it is deliberate, not waste — it is
