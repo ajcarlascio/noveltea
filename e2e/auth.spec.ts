@@ -30,7 +30,7 @@ test("writing needs no account", async ({ page }) => {
   // would contradict the rule this client is built on.
   await page.getByRole("button", { name: "New project" }).click();
   await page.getByRole("link", { name: "Untitled project" }).first().click();
-  await expect(page.getByRole("heading", { name: "Binder" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Untitled project" })).toBeVisible();
 
   await expect(page.getByRole("link", { name: /sign in to sync/i })).toBeVisible();
 });

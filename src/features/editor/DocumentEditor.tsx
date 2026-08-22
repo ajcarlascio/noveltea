@@ -137,7 +137,7 @@ export function DocumentEditor({ projectId, documentId }: { projectId: string; d
         </p>
       )}
 
-      <EditorContent editor={editor} />
+      <EditorContent editor={editor} className="editor__scroll" />
       <LookupPanel editor={editor} />
     </section>
   );

@@ -24,7 +24,8 @@ export function LookupPanel({ editor }: { editor: Editor | null }) {
   };
 
   return (
-    <aside className="lookup" aria-label="Word lookup">
+    <details className="lookup">
+      <summary className="lookup__summary">Word lookup</summary>
       <div className="lookup__controls">
         <label className="lookup__field">
           <span className="lookup__label">Look up</span>
@@ -88,6 +89,6 @@ export function LookupPanel({ editor }: { editor: Editor | null }) {
           </ul>
         </div>
       )}
-    </aside>
+    </details>
   );
 }

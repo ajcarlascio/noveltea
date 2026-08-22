@@ -81,5 +81,5 @@ test("keeps working, and says so, when the engine cannot persist", async ({ page
   // as long as the net's absence is stated.
   await page.getByRole("button", { name: "New project" }).click();
   await page.getByRole("link", { name: "Untitled project" }).first().click();
-  await expect(page.getByRole("heading", { name: "Binder" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Untitled project" })).toBeVisible();
 });

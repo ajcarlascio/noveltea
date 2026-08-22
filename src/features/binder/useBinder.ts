@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useDatabase } from "@/app/db/DatabaseContext";
 import { loadBinder, type Binder } from "@/data/binder";
 import type { DatabaseClient } from "@/db/client";
 
 export interface UseBinder {
   binder: Binder | null;
+  /** The project's own title, for the page heading. Null until it loads. */
+  title: string | null;
   error: string | null;
   db: DatabaseClient;
   /** Runs a command, then reloads. Errors are surfaced, never swallowed. */
@@ -15,13 +17,27 @@ export interface UseBinder {
 export function useBinder(projectId: string): UseBinder {
   const { db } = useDatabase();
   const [binder, setBinder] = useState<Binder | null>(null);
+  const [title, setTitle] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Which project the hook is currently for. A load started before the reader opened
+  // another one must not land on it — the guard used to live in the mount effect,
+  // which is why there were two loading paths and only one of them read the title.
+  const active = useRef(projectId);
+  active.current = projectId;
 
   const reload = useCallback(async () => {
     try {
-      setBinder(await loadBinder(db, projectId));
+      const [next, rows] = await Promise.all([
+        loadBinder(db, projectId),
+        db.query<{ title: string }>("SELECT title FROM project WHERE id = ?", [projectId]),
+      ]);
+      if (active.current !== projectId) return;
+      setBinder(next);
+      setTitle(rows[0]?.title ?? null);
       setError(null);
     } catch (cause) {
+      if (active.current !== projectId) return;
       setError(message(cause));
     }
   }, [db, projectId]);
@@ -32,23 +48,8 @@ export function useBinder(projectId: string): UseBinder {
   useEffect(() => db.subscribeToChanges(() => void reload()), [db, reload]);
 
   useEffect(() => {
-    let current = true;
-    void loadBinder(db, projectId).then(
-      (next) => {
-        if (current) {
-          setBinder(next);
-          setError(null);
-        }
-      },
-      (cause: unknown) => {
-        if (current) setError(message(cause));
-      },
-    );
-    // Stops a read for one project landing after the reader has opened another.
-    return () => {
-      current = false;
-    };
-  }, [db, projectId]);
+    void reload();
+  }, [reload]);
 
   const run = useCallback(
     async (action: (client: DatabaseClient) => Promise<unknown>) => {
@@ -66,7 +67,7 @@ export function useBinder(projectId: string): UseBinder {
     [db, reload],
   );
 
-  return { binder, error, db, run, reload };
+  return { binder, title, error, db, run, reload };
 }
 
 function message(cause: unknown): string {

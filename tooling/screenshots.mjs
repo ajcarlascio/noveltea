@@ -69,7 +69,7 @@ const routes = [
     async prepare(page) {
       await page.getByRole("button", { name: "New project" }).click();
       await page.getByRole("link", { name: "Untitled project" }).first().click();
-      await page.getByRole("heading", { name: "Binder" }).waitFor();
+      await page.getByRole("heading", { name: "Untitled project" }).waitFor();
 
       // Each step waits for the tree to catch up. A click does not settle the
       // reload that follows it, and without waiting the capture is a frame behind.

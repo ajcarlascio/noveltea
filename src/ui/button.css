@@ -18,6 +18,10 @@
   background: var(--surface-raised);
   color: inherit;
   font: inherit;
+  /* A label never breaks inside a button. Let the row wrap between them instead —
+     "Move to / trash" stacked across two lines is three rows of chrome for one
+     action, and it reads as a mistake. */
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -55,7 +59,7 @@
   display: none;
 }
 
-@media (max-width: 34rem) {
+@media (max-width: 52rem) {
   .button {
     min-height: 36px;
     padding: var(--space-1) var(--space-3);

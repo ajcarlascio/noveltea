@@ -56,6 +56,7 @@ test("does not crash on a search FTS5 would refuse", async ({ page }) => {
 
 test("asks for an account before compiling, and says why", async ({ page }) => {
   await writeSomething(page);
+  await page.getByText("Compile and trash").click();
   // The export pipeline is on the server. Everything else works without one, so this
   // explains itself rather than appearing broken.
   await expect(page.getByText(/compiling happens on your server/i)).toBeVisible();
@@ -101,6 +102,9 @@ test("compiles and offers the finished file", async ({ page }) => {
   );
 
   await writeSomething(page);
+
+  // Compile sits behind a fold: it is occasional, and the manuscript is not.
+  await page.getByText("Compile and trash").click();
 
   // Unavailable formats are listed and disabled, not hidden: this is open core, and
   // an omitted format would claim the software cannot do something it can.

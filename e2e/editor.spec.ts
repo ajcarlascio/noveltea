@@ -11,7 +11,7 @@ async function openDocument(page: Page) {
   await expect(page.locator("html")).toHaveAttribute("data-db-status", "ready", { timeout: 30_000 });
   await page.getByRole("button", { name: "New project" }).click();
   await page.getByRole("link", { name: "Untitled project" }).first().click();
-  await expect(page.getByRole("heading", { name: "Binder" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Untitled project" })).toBeVisible();
 
   await page.getByRole("button", { name: "New document" }).click();
   await expect(page.getByRole("treeitem")).toHaveCount(1);
@@ -47,7 +47,7 @@ test("keeps the prose across a reload", async ({ page }) => {
   await expect(page.getByText("Saved")).toBeVisible({ timeout: 5000 });
 
   await page.reload();
-  await expect(page.getByRole("heading", { name: "Binder" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Untitled project" })).toBeVisible();
   await page.getByRole("treeitem").first().click();
 
   await expect(page.getByRole("textbox", { name: "Manuscript" })).toContainText(
@@ -116,6 +116,8 @@ test("finds synonyms offline, without sending anything", async ({ page }) => {
   await surface.click();
   await surface.pressSequentially("She was furious");
 
+  // Lookup sits behind a fold: it is occasional, and the prose is not.
+  await page.getByText("Word lookup").click();
   await page.getByRole("button", { name: "Synonyms" }).click();
 
   // Proves the generated index is served, parses, and answers in a real browser.
@@ -133,6 +135,8 @@ test("puts a chosen synonym into the manuscript", async ({ page }) => {
   // synonyms — the word under the cursor is what the panel is for.
   await surface.press("Shift+ControlOrMeta+ArrowLeft");
 
+  // Lookup sits behind a fold: it is occasional, and the prose is not.
+  await page.getByText("Word lookup").click();
   await page.getByRole("button", { name: "Synonyms" }).click();
   await page.getByRole("button", { name: "enraged" }).click({ timeout: 20_000 });
 
