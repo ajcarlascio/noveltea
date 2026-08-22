@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { useTransientNotice } from "./useTransientNotice";
 import { describeWhen, useSync } from "./useSync";
 import "./SyncStatus.css";
 
@@ -12,8 +13,15 @@ import "./SyncStatus.css";
 export function SyncStatus({ projectId }: { projectId: string }) {
   const { lastSyncedAt, pending, lastError, running, conflicts, possible, syncNow } =
     useSync(projectId);
+  // Hooks run before the early return, or this one would be skipped whenever an
+  // account exists and React would see a different hook order between renders.
+  const noticeVisible = useTransientNotice();
 
   if (!possible) {
+    // On a phone this stands down after a few seconds. It is worth saying and not
+    // worth keeping: the state it describes is the ordinary one, nothing is at risk
+    // that signing in later would not fix, and the screen is needed for writing.
+    if (!noticeVisible) return null;
     return (
       <p className="sync sync--muted">
         This project is on this device only. <Link to="/signin">Sign in</Link> to keep it on a
