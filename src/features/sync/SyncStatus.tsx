@@ -11,7 +11,7 @@ import "./SyncStatus.css";
  * writing, and nothing demands a decision.
  */
 export function SyncStatus({ projectId }: { projectId: string }) {
-  const { lastSyncedAt, pending, lastError, running, conflicts, possible, syncNow } =
+  const { lastSyncedAt, pending, lastError, running, conflicts, possible, metering, heldForWifi, syncNow } =
     useSync(projectId);
   // Hooks run before the early return, or this one would be skipped whenever an
   // account exists and React would see a different hook order between renders.
@@ -45,6 +45,22 @@ export function SyncStatus({ projectId }: { projectId: string }) {
           Sync now
         </button>
       </span>
+
+      {heldForWifi && (
+        <p className="sync__held" role="status">
+          {/* Not an error and not a prompt. The work is already safe on this device;
+              this only explains why the count is not going down. */}
+          Waiting for Wi-Fi. {pending === 1 ? "1 change is" : `${String(pending)} changes are`} held
+          back so this does not use mobile data — “Sync now” sends them anyway.
+        </p>
+      )}
+
+      {!heldForWifi && metering === "metered" && (
+        <p className="sync__metered" role="status">
+          This looks like mobile data. Syncing will use it — you can hold syncs for
+          Wi-Fi in <Link to="/settings">Settings</Link>.
+        </p>
+      )}
 
       {lastError !== null && (
         <p className="sync__error" role="status">

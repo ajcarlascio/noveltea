@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useDatabase } from "@/app/db/DatabaseContext";
 import { useAuth } from "@/features/auth/AuthContext";
+import { useSettings } from "@/app/settings/SettingsContext";
+import { mayAutoSync, meteringOf, subscribeToConnection, type Metering } from "./connection";
 import { syncProject, type SyncOutcome } from "./engine";
 import { createScheduler } from "./scheduler";
 
@@ -14,12 +16,27 @@ export interface SyncStatus {
   conflicts: SyncOutcome["conflicts"];
   /** False when there is no account, so nothing can sync at all. */
   possible: boolean;
+  /** What the platform will say about the connection, which is often nothing. */
+  metering: Metering;
+  /** True when the wifi-only setting is holding automatic syncs back right now. */
+  heldForWifi: boolean;
   syncNow: () => void;
 }
 
 export function useSync(projectId: string): SyncStatus {
   const { db } = useDatabase();
   const { authenticator } = useAuth();
+  const { settings } = useSettings();
+  const [metering, setMetering] = useState<Metering>(() =>
+    typeof navigator === "undefined" ? "unknown" : meteringOf(navigator),
+  );
+
+  useEffect(() => {
+    if (typeof navigator === "undefined") return;
+    const read = () => setMetering(meteringOf(navigator));
+    read();
+    return subscribeToConnection(navigator, read);
+  }, []);
   const [status, setStatus] = useState({ lastSyncedAt: null as string | null, pending: 0, lastError: null as string | null });
   const [running, setRunning] = useState(false);
   const [conflicts, setConflicts] = useState<SyncOutcome["conflicts"]>([]);
@@ -55,6 +72,11 @@ export function useSync(projectId: string): SyncStatus {
     }
   };
 
+  // Read through a ref so changing the setting does not tear down the scheduler and
+  // restart a fifteen-minute settle window that was most of the way through.
+  const mayRunRef = useRef(true);
+  mayRunRef.current = mayAutoSync(settings.syncOnWifiOnly, metering);
+
   const schedulerRef = useRef<ReturnType<typeof createScheduler> | null>(null);
   useEffect(() => {
     const scheduler = createScheduler({
@@ -62,6 +84,7 @@ export function useSync(projectId: string): SyncStatus {
       // Already recorded against the project and shown by `lastError`; rethrowing
       // here would only produce an unhandled rejection.
       onError: () => undefined,
+      mayRun: () => mayRunRef.current,
     });
     schedulerRef.current = scheduler;
     return () => {
@@ -79,6 +102,8 @@ export function useSync(projectId: string): SyncStatus {
     running,
     conflicts,
     possible: authenticator !== null,
+    metering,
+    heldForWifi: settings.syncOnWifiOnly && !mayAutoSync(settings.syncOnWifiOnly, metering),
     syncNow,
   };
 }

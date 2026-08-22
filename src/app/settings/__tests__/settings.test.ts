@@ -197,3 +197,20 @@ describe("round-tripping", () => {
     ).not.toThrow();
   });
 });
+
+describe("holding syncs for Wi-Fi", () => {
+  it("is off by default", () => {
+    // On by default would mean an author on mobile data quietly stops reaching their
+    // server without having asked for that. "I thought it was backed up" is a worse
+    // failure than a data charge.
+    expect(DEFAULT_SETTINGS.syncOnWifiOnly).toBe(false);
+  });
+
+  it("is read back from storage", () => {
+    expect(parseSettings({ syncOnWifiOnly: true }).syncOnWifiOnly).toBe(true);
+  });
+
+  it("falls back to the default when it is not a boolean", () => {
+    expect(parseSettings({ syncOnWifiOnly: "yes" }).syncOnWifiOnly).toBe(false);
+  });
+});
