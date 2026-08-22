@@ -31,8 +31,13 @@ test("writes, counts and saves", async ({ page }) => {
   // "Saved" is also the state before anything is typed, so asserting it alone proves
   // nothing. Waiting for the transition — dirty, then clean — is what shows a write
   // actually happened. Autosave settles on its own; the author is never asked.
+  //
+  // `exact` matters more than it looks: getByText's default is a case-INSENSITIVE
+  // substring, so a bare "Saved" is satisfied by "Unsaved changes". This waited for
+  // the dirty state twice and called it clean, and the reload test downstream passed
+  // only because the write happened to win the race.
   await expect(page.getByText("Unsaved changes")).toBeVisible();
-  await expect(page.getByText("Saved")).toBeVisible({ timeout: 5000 });
+  await expect(page.getByText("Saved", { exact: true })).toBeVisible({ timeout: 5000 });
 });
 
 test("keeps the prose across a reload", async ({ page }) => {
@@ -44,7 +49,7 @@ test("keeps the prose across a reload", async ({ page }) => {
   await surface.click();
   await surface.pressSequentially("Salt on the window.");
   await expect(page.getByText("Unsaved changes")).toBeVisible();
-  await expect(page.getByText("Saved")).toBeVisible({ timeout: 5000 });
+  await expect(page.getByText("Saved", { exact: true })).toBeVisible({ timeout: 5000 });
 
   await page.reload();
   await expect(page.getByRole("heading", { name: "Untitled project" })).toBeVisible();

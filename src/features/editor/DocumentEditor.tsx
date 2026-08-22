@@ -5,9 +5,20 @@ import { useSettings } from "@/app/settings/SettingsContext";
 import { loadDocument, saveDocument, type StoredDocument } from "@/data/documents";
 import { editorExtensions } from "./schema";
 import { summarise } from "./text";
+import { CommentsPanel } from "@/features/comments/CommentsPanel";
+import { HistoryPanel } from "@/features/history/HistoryPanel";
 import { LookupPanel } from "@/features/lookup/LookupPanel";
 import { useAutosave, type SaveState } from "./useAutosave";
 import "./DocumentEditor.css";
+
+/**
+ * How long between automatic captures of one document.
+ *
+ * Every autosave would bury the named versions an author actually made, and the bound
+ * is 25 per document. Every session start plus a capture every ten minutes of work is
+ * roughly a morning's history, which is the span someone reaches back over.
+ */
+const AUTO_SNAPSHOT_INTERVAL_MS = 10 * 60 * 1000;
 
 const LABELS: Record<SaveState, string> = {
   clean: "Saved",
@@ -25,10 +36,19 @@ export function DocumentEditor({ projectId, documentId }: { projectId: string; d
   const [error, setError] = useState<string | null>(null);
   const [words, setWords] = useState(0);
 
+  // Zero, not the mount time, so the first save of a session captures. What that
+  // snapshot holds is the document as it was *before* this session's edits, which is
+  // the state someone reaching for history actually wants back.
+  const lastAutoSnapshot = useRef(0);
+
   const autosave = useAutosave(
     async (payload) => {
       const { searchText, words: count } = summarise(payload as never);
-      await saveDocument(db, projectId, documentId, payload, searchText, count);
+      const due = Date.now() - lastAutoSnapshot.current >= AUTO_SNAPSHOT_INTERVAL_MS;
+      if (due) lastAutoSnapshot.current = Date.now();
+      // The capture rides along inside the save's own transaction, so it sees the
+      // content being replaced and costs no extra round trip to the worker.
+      await saveDocument(db, projectId, documentId, payload, searchText, count, due);
     },
     (next, message) => {
       setState(next);
@@ -95,6 +115,9 @@ export function DocumentEditor({ projectId, documentId }: { projectId: string; d
 
   useEffect(() => {
     let current = true;
+    // A different document has its own history and its own interval. Carrying the
+    // previous one's timer over means opening several in a row captures none of them.
+    lastAutoSnapshot.current = 0;
     void loadDocument(db, projectId, documentId).then(
       (row) => {
         if (!current) return;
@@ -138,7 +161,26 @@ export function DocumentEditor({ projectId, documentId }: { projectId: string; d
       )}
 
       <EditorContent editor={editor} className="editor__scroll" />
+
+      {/* One bounded region for everything under the prose. Left to grow on their own
+          the panels push the manuscript out of its own pane — and, at a small enough
+          height, out from under the page footer entirely. */}
+      <div className="editor__panels">
+      <CommentsPanel projectId={projectId} documentId={documentId} editor={editor} />
+      <HistoryPanel
+        projectId={projectId}
+        documentId={documentId}
+        // Restoring writes the document row, and the editor holds its own copy of the
+        // content. Without this the old draft is in the database and the new one is
+        // still on screen, and the next keystroke saves the words the author just
+        // asked to replace.
+        onRestored={(content) => {
+          editor?.commands.setContent(content, { emitUpdate: false });
+          setWords(summarise(content).words);
+        }}
+      />
       <LookupPanel editor={editor} />
+      </div>
     </section>
   );
 }

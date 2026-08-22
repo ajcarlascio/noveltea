@@ -22,7 +22,7 @@ async function writeSomething(page: Page) {
   await surface.click();
   await surface.pressSequentially("The lighthouse kept its own hours.");
   await expect(page.getByText("Unsaved changes")).toBeVisible();
-  await expect(page.getByText("Saved")).toBeVisible({ timeout: 5000 });
+  await expect(page.getByText("Saved", { exact: true })).toBeVisible({ timeout: 5000 });
 }
 
 test("finds a document by a word in its body, with no server", async ({ page }) => {

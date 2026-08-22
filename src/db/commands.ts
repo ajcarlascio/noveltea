@@ -1,4 +1,6 @@
 import { enqueueChange, type SqliteAdapter } from "@noveltea/client-db";
+import { COMMENT_COMMANDS } from "./comment-commands";
+import { SNAPSHOT_COMMANDS } from "./snapshot-commands";
 import { SYNC_COMMANDS } from "./sync-commands";
 import { between } from "@/data/order";
 
@@ -212,6 +214,15 @@ export interface SaveDocumentInput {
   /** Flattened prose, for offline search and for the server's tsvector. */
   searchText: string;
   wordCount: number;
+  /**
+   * Capture the content being replaced as an automatic snapshot, in this same write.
+   *
+   * A separate command would do the job, but not atomically and not in one round trip
+   * to the worker. Both matter: the capture has to read the previous content, so it
+   * must land before the overwrite, and making the author's words wait on a second
+   * transaction delays the only write that actually matters.
+   */
+  snapshotBefore?: boolean;
 }
 
 export interface DocumentRow {
@@ -420,6 +431,15 @@ export const COMMANDS = {
       throw new Error("A word count must be a non-negative whole number.");
     }
 
+    if (input.snapshotBefore === true) {
+      SNAPSHOT_COMMANDS.captureSnapshot(db, {
+        projectId: input.projectId,
+        documentId: input.id,
+        label: null,
+        automatic: true,
+      });
+    }
+
     const stamp = now();
     db.run(
       `UPDATE document SET content = ?, search_text = ?, word_count = ?, updated_at = ?
@@ -483,6 +503,8 @@ export const COMMANDS = {
     }
     return { deleted: ids.size };
   },
+  ...COMMENT_COMMANDS,
+  ...SNAPSHOT_COMMANDS,
   ...SYNC_COMMANDS,
 } satisfies Record<string, (db: SqliteAdapter, input: never) => unknown>;
 
