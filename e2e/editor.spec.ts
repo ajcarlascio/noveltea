@@ -120,7 +120,7 @@ test("finds synonyms offline, without sending anything", async ({ page }) => {
 
   // Proves the generated index is served, parses, and answers in a real browser.
   await expect(page.getByRole("button", { name: "enraged" })).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText(/on this device/)).toBeVisible();
+  await expect(page.locator(".lookup__local")).toContainText(/on this device/);
   expect(outbound).toEqual([]);
 });
 

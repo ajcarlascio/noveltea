@@ -1,4 +1,5 @@
 import type { SqlValue } from "@noveltea/client-db";
+import { READ_ONLY_COMMANDS } from "./commands";
 import type { CommandInput, CommandName, CommandResult } from "./commands";
 import {
   isLifecycle,
@@ -55,6 +56,7 @@ export class DatabaseClient {
   #inFlight = new Map<number, Deferred>();
   #status: DbStatus = { state: "opening" };
   #listeners = new Set<(status: DbStatus) => void>();
+  #changeListeners = new Set<() => void>();
   #closed = false;
 
   constructor(worker: WorkerLike) {
@@ -78,6 +80,20 @@ export class DatabaseClient {
     return () => this.#listeners.delete(listener);
   }
 
+  /**
+   * Notified after any successful command — that is, after anything that wrote.
+   *
+   * Without this every screen has to be told individually that something changed, and
+   * the ones nobody remembered go stale: a pending-changes count that only updates on
+   * sync, a binder that does not show what sync just pulled. Reads are cheap and
+   * local, so re-running them on a write is the simpler and more reliable answer than
+   * threading invalidation through by hand.
+   */
+  subscribeToChanges(listener: () => void): () => void {
+    this.#changeListeners.add(listener);
+    return () => this.#changeListeners.delete(listener);
+  }
+
   query<T = Record<string, unknown>>(sql: string, params: readonly SqlValue[] = []): Promise<T[]> {
     return this.#send({ id: this.#nextId++, kind: "query", sql, params }) as Promise<T[]>;
   }
@@ -88,13 +104,21 @@ export class DatabaseClient {
    * The command's implementation is never imported here — only its types — so the
    * worker's code does not end up in the main bundle.
    */
-  command<K extends CommandName>(name: K, input: CommandInput<K>): Promise<CommandResult<K>> {
-    return this.#send({
+  async command<K extends CommandName>(name: K, input: CommandInput<K>): Promise<CommandResult<K>> {
+    const result = (await this.#send({
       id: this.#nextId++,
       kind: "command",
       name,
       input,
-    }) as Promise<CommandResult<K>>;
+    })) as CommandResult<K>;
+
+    // Only after it succeeded, and only for commands that write: announcing a failed
+    // write would send every screen to re-read state that did not change, and
+    // announcing a read would wake whatever just performed it.
+    if (!READ_ONLY_COMMANDS.has(name)) {
+      for (const listener of this.#changeListeners) listener();
+    }
+    return result;
   }
 
   async run(sql: string, params: readonly SqlValue[] = []): Promise<void> {

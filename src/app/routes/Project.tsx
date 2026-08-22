@@ -13,6 +13,9 @@ import {
 } from "@/data/binder";
 import { BinderTree } from "@/features/binder/BinderTree";
 import { DocumentEditor } from "@/features/editor/DocumentEditor";
+import { CompilePanel } from "@/features/compile/CompilePanel";
+import { SearchPanel } from "@/features/search/SearchPanel";
+import { SyncStatus } from "@/features/sync/SyncStatus";
 import { useBinder } from "@/features/binder/useBinder";
 import { StorageWarning } from "@/ui/StorageWarning";
 import { ToolbarButton } from "@/ui/ToolbarButton";
@@ -45,6 +48,7 @@ export function Project() {
     <section className="page">
       <h1>Binder</h1>
       <StorageWarning />
+      <SyncStatus projectId={projectId} />
 
       {error !== null && (
         <p className="project__error" role="alert">
@@ -114,6 +118,14 @@ export function Project() {
 
       <div className="project__panes">
         <div className="project__binder">
+          <SearchPanel
+            projectId={projectId}
+            onOpen={(id) => {
+              setSelectedId(id);
+              // Opening a result from the trash should not silently look like an
+              // ordinary document; the binder shows where it actually sits.
+            }}
+          />
           <BinderTree
             label="Binder"
             nodes={nodes}
@@ -137,6 +149,8 @@ export function Project() {
           </p>
         )}
       </div>
+
+      <CompilePanel projectId={projectId} />
 
       <h2 className="project__trash-heading">Trash</h2>
       {binder !== null && binder.trash.length === 0 ? (

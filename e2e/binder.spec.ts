@@ -84,8 +84,13 @@ test("keeps the binder across a reload", async ({ page }) => {
 
   await newProject(page);
   await page.getByRole("button", { name: "New folder" }).click();
+  await expect(page.getByRole("treeitem")).toHaveCount(1);
   await row(page, "New folder").click();
   await page.getByRole("button", { name: "New document" }).click();
+  // Waiting for the tree to catch up before reloading. A click does not settle the
+  // write behind it, and a slower machine reloads first and finds an empty binder —
+  // which reads as data loss and is not.
+  await expect(page.getByRole("treeitem")).toHaveCount(2);
 
   await page.reload();
   await expect(page.getByRole("heading", { name: "Binder" })).toBeVisible();

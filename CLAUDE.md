@@ -244,6 +244,34 @@ One bundle runs in a browser tab, a desktop window and a phone webview. These ar
 - **No Node built-ins in app code**, enforced by ESLint. `src/test/**` is exempt; those
   helpers run under Node.
 
+### Search and compile
+
+- **Never pass author input to FTS5.** It raises syntax errors on a stray quote; the
+  query is tokenised and rebuilt in `toFtsQuery`. An empty query means no results,
+  never all of them.
+- **Anything showing database state must subscribe to `subscribeToChanges`.** Search
+  results, the binder and the pending count are all snapshots otherwise.
+- **Unavailable export formats are shown, not hidden.** Open core: a missing format is
+  an upgrade, and hiding it makes the interface lie about the software.
+- **The compile download is fetched with the bearer token**, not linked — a plain
+  `<a href>` sends no headers and downloads a 401 page. Revoke the blob URL.
+
+### Sync
+
+- **Pull before push.** Pushing into a stale picture resurrects what another device
+  deleted.
+- **The cursor is `latestId`, and an empty page advances it too.** A resync resumes at
+  `latestId`, never at 0 — a purged server answers `resyncRequired` for any cursor
+  below its purge point.
+- **A resync must not wipe the replica.** There is no endpoint returning a document's
+  current body, so local prose is the only copy of anything not changed recently.
+- **`version_mismatch` clears the queued change**; retrying breeds conflict copies.
+  Only `not_implemented` stays queued.
+- **`markAttempted` before the push, never after**, or a lost response resurrects a
+  deleted item as a ghost.
+- **`DatabaseClient` announces writes, not reads.** `READ_ONLY_COMMANDS` exists because
+  a read that announces a change wakes whatever just performed it, and the page spins.
+
 ### Accounts
 
 - **Signing in is not a gate.** The replica is local and complete; the app works signed out
@@ -498,6 +526,18 @@ npm run tauri android dev
 Server side, in a `noveltea-server` checkout: `docker compose up -d` then
 `./gradlew :api:bootRun`. Remember to list this client's dev origin in
 `noveltea.cors.allowed-origins`.
+
+### A click does not settle the write behind it
+
+This has cost time three times now, so it is written down. Every mutation in this app
+is a command to the worker followed by a re-read, and Playwright's `click()` returns
+as soon as the click lands — not when the database has changed and the tree has
+re-rendered.
+
+**Before a `reload()`, a screenshot, or any assertion about a later state, wait for
+something that proves the write finished** — a row count, a status transition, a piece
+of text. Without it a fast machine passes and a slow one reports data loss that never
+happened, and the first instinct is to go looking in the storage layer.
 
 ## Testing
 

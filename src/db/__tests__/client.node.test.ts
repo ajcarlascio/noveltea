@@ -164,3 +164,66 @@ describe("status", () => {
     expect(seen).toEqual(["ready"]);
   });
 });
+
+describe("change notification", () => {
+  it("announces a write so screens can re-read", async () => {
+    const fake = fakeWorker();
+    const db = new DatabaseClient(fake.worker);
+    let notified = 0;
+    db.subscribeToChanges(() => (notified += 1));
+
+    const pending = db.command("renameBinderItem", { projectId: "p", id: "b", title: "x" });
+    fake.reply({ id: fake.sent[0]!.id, ok: true, result: {} });
+    await pending;
+
+    expect(notified).toBe(1);
+  });
+
+  it("says nothing after a write that failed", async () => {
+    const fake = fakeWorker();
+    const db = new DatabaseClient(fake.worker);
+    let notified = 0;
+    db.subscribeToChanges(() => (notified += 1));
+
+    const pending = db.command("renameBinderItem", { projectId: "p", id: "b", title: "x" });
+    fake.reply({
+      id: fake.sent[0]!.id,
+      ok: false,
+      error: { name: "Error", message: "no" },
+    });
+    await expect(pending).rejects.toThrow();
+
+    // Sending every screen to re-read state that did not change is pure waste.
+    expect(notified).toBe(0);
+  });
+
+  it("says nothing for a command that only reads", async () => {
+    // The loop this prevents: a listener refreshes by calling syncState, syncState
+    // announces a change, the listener refreshes again. The page spins instead of
+    // rendering, and it is invisible until something times out waiting for it.
+    const fake = fakeWorker();
+    const db = new DatabaseClient(fake.worker);
+    let notified = 0;
+    db.subscribeToChanges(() => (notified += 1));
+
+    const pending = db.command("syncState", { projectId: "p" });
+    fake.reply({ id: fake.sent[0]!.id, ok: true, result: { lastChangeId: 0 } });
+    await pending;
+
+    expect(notified).toBe(0);
+  });
+
+  it("stops notifying after unsubscribe", async () => {
+    const fake = fakeWorker();
+    const db = new DatabaseClient(fake.worker);
+    let notified = 0;
+    const stop = db.subscribeToChanges(() => (notified += 1));
+    stop();
+
+    const pending = db.command("renameBinderItem", { projectId: "p", id: "b", title: "x" });
+    fake.reply({ id: fake.sent[0]!.id, ok: true, result: {} });
+    await pending;
+
+    expect(notified).toBe(0);
+  });
+});

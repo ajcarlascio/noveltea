@@ -26,6 +26,11 @@ export function useBinder(projectId: string): UseBinder {
     }
   }, [db, projectId]);
 
+  // Sync applies changes straight to the replica, so the binder has to follow the
+  // database and not only its own commands — otherwise what another device wrote
+  // does not appear until the page is reloaded.
+  useEffect(() => db.subscribeToChanges(() => void reload()), [db, reload]);
+
   useEffect(() => {
     let current = true;
     void loadBinder(db, projectId).then(
