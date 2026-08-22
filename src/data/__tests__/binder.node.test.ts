@@ -11,6 +11,7 @@ type Row = Parameters<typeof assemble>[0][number];
 
 const row = (over: Partial<Row> & Pick<Row, "id">): Row => ({
   parent_id: null,
+  conflict_of_id: null,
   type: "folder",
   title: over.id,
   order_key: "V",

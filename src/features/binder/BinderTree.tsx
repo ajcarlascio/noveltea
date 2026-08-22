@@ -172,6 +172,14 @@ export function BinderTree({
               {node.type === "folder" ? <FolderIcon /> : <DocumentIcon />}
             </span>
             <span className="binder__title">{node.title}</span>
+            {node.conflictOfId !== null && (
+              // A conflict copy holds words the server refused to merge. Left
+              // unmarked it looks like an ordinary document with an odd name, and an
+              // author eventually deletes it without realising what is in it.
+              <span className="binder__conflict" title="A conflicting version of another document">
+                conflict
+              </span>
+            )}
           </li>
         );
       })}

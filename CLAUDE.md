@@ -497,6 +497,41 @@ Compile is asynchronous and server-side: `POST /projects/{id}/compile` returns a
 - **The server prevents cycles**, but the client should refuse to drop an item into its own
   descendant in the drag layer too — a rejection after the drop looks like a broken UI.
 
+## Conflicts and merging
+
+The server never merges prose, and this client is where a conflict actually gets
+resolved. `src/features/conflicts` holds the whole of it.
+
+- **The panel is an interruption on purpose.** A conflict means an author's words exist
+  in two places and one of them is not in their manuscript. It sits above the fold, not
+  behind a disclosure like compile and trash. It renders nothing when signed out —
+  conflicts exist only because two devices synced.
+- **Both versions are rendered with the editor's own extensions**, so what an author
+  compares is what they would get rather than an approximation in a preview.
+- **There is no default side and no automatic merge.** The author picks a starting
+  point, and the third pane is an ordinary editor seeded from it. Resolve stays
+  disabled until they choose. Guessing which version someone wants is precisely what
+  the server refuses to do; doing it here would put the guess back.
+- **No diff is computed, here or on the server.** Only the editor understands
+  ProseMirror JSON, and a diff would be a second implementation of the document model.
+  No diff library was evaluated because none is needed.
+
+Three things that are easy to get wrong, each pinned by a test that goes red when the
+rule is removed:
+
+- **`baseVersion` is the *document's* version**, which is what `resolve` validates.
+  `binder_item` carries its own version for structural edits; sending that one produces
+  a `baseVersion` that can never match.
+- **A stale rejection leaves the merge on screen.** `409` / `stale_original` means the
+  pair moved on, not that anything broke — the server refuses rather than forking
+  again, because forking on merge would let copies breed without bound. Closing the
+  view would discard a merge the author had just built by hand.
+- **Conflict copies are badged in the binder** from `binder_item.conflict_of_id` —
+  never by matching the generated title, which is author-editable and ambiguous once
+  two copies exist. Tests match the badge by its tooltip for the same reason: the
+  generated title contains the word "conflicted", so a text match passes with the badge
+  deleted.
+
 ## Commands
 
 The schema lives in a submodule, so clone with `--recurse-submodules`, or run
@@ -595,8 +630,9 @@ Detail lives in `.claude/skills/noveltea-frontend-conventions/SKILL.md`. The sha
 2. Token storage in the browser, which has no OS keystore. May require a server change
    (`httpOnly` refresh cookie). See README.
 3. The canonical node/mark name set and where the shared schema package lives.
-4. Whether the merge view can be built before the server exposes a merge endpoint pair; the
-   server's `MergeService` returns both documents and their provenance, and computes no diff
-   — the diff is this client's job, and no library has been chosen.
+4. ~~Whether the merge view can be built before the server exposes a merge endpoint
+   pair.~~ Settled: it is built against `GET /projects/{id}/conflicts`,
+   `GET /conflicts/{copyId}` and `POST /conflicts/{copyId}/resolve`. No diff library
+   was chosen because no diff is computed — see *Conflicts and merging*.
 5. Android in v1 or not.
 6. Repository visibility and licence.

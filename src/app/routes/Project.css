@@ -1,25 +1,24 @@
+/**
+ * The project page is the app's main frame: a narrow binder beside a manuscript that
+ * gets everything else. Chrome is kept deliberately thin — every row of padding here
+ * is a line of prose the author cannot see.
+ */
 .project__toolbar {
   display: flex;
-  /* One row on a pointer device. Wrapping a toolbar of five actions across two lines
-     on a wide screen wastes the dimension there is most of. */
-  flex-wrap: nowrap;
-  gap: var(--space-2);
-  margin-bottom: var(--space-4);
-}
+  /* Wraps between buttons rather than inside them. On a wide screen the whole row
+     fits and this changes nothing; on a narrow one it is the difference between two
+     tidy rows and six two-line buttons.
 
-@media (max-width: 34rem) {
-  .project__toolbar {
-    /* Two rows at most on a phone, which is what the shortened labels buy. The row
-       gap clears the 12px the hit overlays span vertically; the column gap need not,
-       because the overlays do not widen the button. */
-    flex-wrap: wrap;
-    gap: var(--space-4) var(--space-2);
-  }
+     The row gap clears the 12px the hit overlays span vertically; the column gap need
+     not, because the overlays do not widen the button. */
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-2);
+  margin-bottom: var(--space-3);
 }
 
 .project__error {
-  margin: 0 0 var(--space-4);
-  padding: var(--space-3) var(--space-4);
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
   border: 1px solid var(--danger);
   border-radius: var(--radius-md);
   background: var(--danger-subtle);
@@ -28,9 +27,9 @@
 .project__rename {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-4) var(--space-2);
+  gap: var(--space-3) var(--space-2);
   align-items: center;
-  margin-bottom: var(--space-4);
+  margin-bottom: var(--space-3);
 }
 
 .project__rename input {
@@ -44,14 +43,89 @@
   font: inherit;
 }
 
-.project__trash-heading {
-  margin-top: var(--space-6);
-  font-family: var(--font-prose);
-  font-size: 1.1rem;
+.project__panes {
+  display: grid;
+  gap: var(--space-4);
+  /* One column when there is no room for two. Deliberately *not* stretched to fill
+     the frame here: stacked rows told to share a fixed height get compressed, and
+     the binder ends up drawn on top of the manuscript. The page scrolls instead. */
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 48rem) {
+  .project__panes {
+    /* Two columns, so filling the frame is safe: each pane is its own scroller and
+       neither can push the other. The binder is narrow because it is a table of
+       contents, not the work — a title that does not fit is truncated.  */
+    grid-template-columns: minmax(0, 15rem) minmax(0, 1fr);
+    align-items: stretch;
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* Folded away, the manuscript takes the whole frame. */
+  .project__panes--collapsed {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.project__binder {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  gap: var(--space-2);
+}
+
+.project__binder-scroll {
+  min-height: 0;
+}
+
+@media (min-width: 48rem) {
+  .project__binder-scroll {
+    /* Scrolls on its own so a long binder never pushes the manuscript off screen.
+       Only where the panes sit side by side; stacked, the page scroll is the right
+       one and a nested scroller would trap the reader. */
+    overflow: auto;
+    overscroll-behavior: contain;
+    flex: 1;
+  }
+}
+
+.project__aside {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.project__fold {
+  min-height: 36px;
+  padding: var(--space-1) var(--space-3);
+}
+
+.project__hint {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+/* Sits under the manuscript, so it must not compete with it. */
+.project__footer {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.project__footer summary {
+  min-height: 36px;
+  padding: var(--space-1) 0;
+  cursor: pointer;
 }
 
 .project__trash {
-  margin: 0 0 var(--space-4);
+  margin: var(--space-2) 0 0;
   padding: 0;
   list-style: none;
 }
@@ -61,31 +135,15 @@
   gap: var(--space-3);
   align-items: center;
   justify-content: space-between;
-  min-height: 44px;
+  min-height: 36px;
 }
 
-
-
-.project__panes {
-  display: grid;
-  gap: var(--space-5);
-  /* One column on a phone, binder beside manuscript when there is room. The binder
-     is given a fixed share so a long chapter title cannot squeeze the prose. */
-  grid-template-columns: minmax(0, 1fr);
+.project__trash button {
+  min-height: 36px;
+  padding: var(--space-1) var(--space-3);
 }
 
-@media (min-width: 48rem) {
-  .project__panes {
-    grid-template-columns: minmax(12rem, 18rem) minmax(0, 1fr);
-    align-items: start;
-  }
-}
-
-.project__binder {
-  min-width: 0;
-}
-
-.project__hint {
-  margin: 0;
-  color: var(--text-muted);
+.project__danger {
+  border-color: var(--danger);
+  color: var(--danger);
 }

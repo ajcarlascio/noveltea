@@ -67,30 +67,54 @@
 }
 
 .shell__main {
+  display: flex;
+  flex-direction: column;
   flex: 1;
+  min-height: 0;
   overflow: auto;
   /* The pane scrolls, so it owns the bottom inset (home indicator) itself. */
-  padding: var(--space-6) max(var(--space-5), env(safe-area-inset-right)) 
-    max(var(--space-6), env(safe-area-inset-bottom))
-    max(var(--space-5), env(safe-area-inset-left));
+  padding: var(--space-4) max(var(--space-4), env(safe-area-inset-right))
+    max(var(--space-4), env(safe-area-inset-bottom))
+    max(var(--space-4), env(safe-area-inset-left));
   /* Momentum scrolling stays inside the pane rather than dragging the whole page. */
   overscroll-behavior: contain;
 }
 
 .page {
-  max-width: 48rem;
+  /* Wide enough to stop a 1280px screen being mostly empty margin. Prose still has
+     its own measure inside the editor; this is the sheet, not the line length. */
+  max-width: 76rem;
+  width: 100%;
   margin: 0 auto;
-  padding: var(--space-6);
+  padding: var(--space-4) var(--space-5);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--surface-page);
   box-shadow: var(--shadow-raised);
 }
 
+/**
+ * The writing surface is the app, so the project page takes the whole frame: no
+ * centred column, no shadowed card, and the height to let the manuscript be tall
+ * rather than a slot inside a page that scrolls.
+ */
+.page--full {
+  display: flex;
+  flex-direction: column;
+  max-width: none;
+  flex: 1;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+
 .page h1 {
-  margin-top: 0;
+  margin: 0 0 var(--space-3);
   /* Scales with the viewport instead of taking a phone's width for a headline. */
-  font-size: clamp(1.5rem, 1.1rem + 2vw, 2rem);
+  font-size: clamp(1.25rem, 1rem + 1.4vw, 1.75rem);
   font-family: var(--font-prose);
   font-weight: 600;
 }

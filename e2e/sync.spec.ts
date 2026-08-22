@@ -29,7 +29,7 @@ async function openProject(page: Page) {
   await expect(page.locator("html")).toHaveAttribute("data-db-status", "ready", { timeout: 30_000 });
   await page.getByRole("button", { name: "New project" }).click();
   await page.getByRole("link", { name: "Untitled project" }).first().click();
-  await expect(page.getByRole("heading", { name: "Binder" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Untitled project" })).toBeVisible();
 }
 
 async function signIn(page: Page) {

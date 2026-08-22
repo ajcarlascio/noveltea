@@ -33,6 +33,8 @@ export interface Settings {
   smartTypography: boolean;
   /** Offline thesaurus. Local, so it needs no consent. */
   thesaurus: boolean;
+  /** Whether the binder pane is folded away, so the manuscript has the width. */
+  binderCollapsed: boolean;
   datamuse: {
     enabled: boolean;
   };
@@ -49,6 +51,8 @@ export const DEFAULT_SETTINGS: Settings = {
   // writing code or dialect who need them left alone.
   smartTypography: true,
   thesaurus: true,
+  // Open by default: someone who has never seen the binder should not have to find it.
+  binderCollapsed: false,
   // Everything that leaves the device is off until asked for, explicitly, twice.
   datamuse: { enabled: false },
   assistant: { enabled: false, provider: null },
@@ -83,6 +87,7 @@ export function parseSettings(raw: unknown): Settings {
   const settings: Settings = {
     smartTypography: bool(source.smartTypography, DEFAULT_SETTINGS.smartTypography),
     thesaurus: bool(source.thesaurus, DEFAULT_SETTINGS.thesaurus),
+    binderCollapsed: bool(source.binderCollapsed, DEFAULT_SETTINGS.binderCollapsed),
     datamuse: { enabled: bool(datamuse.enabled, false) },
     assistant: {
       enabled: bool(assistant.enabled, false),
