@@ -8,11 +8,21 @@
   display: flex;
   gap: var(--space-2);
   align-items: center;
-  /* Comfortable under a finger as well as a mouse. */
+  /*
+   * A tree row is the tap target for opening a document, so on a touch screen it
+   * keeps the 44px floor the rest of the app holds to. A mouse needs no such room,
+   * and the slack costs an author several chapters of visible outline.
+   */
   min-height: 44px;
   padding-right: var(--space-3);
   border-radius: var(--radius-sm);
   cursor: default;
+}
+
+@media (pointer: fine) {
+  .binder__row {
+    min-height: 1.75rem;
+  }
 }
 
 .binder__row:hover {
@@ -53,7 +63,7 @@
 
 .binder__empty {
   margin: 0;
-  padding: var(--space-4) 0;
+  padding: var(--space-3) 0;
   color: var(--text-muted);
 }
 

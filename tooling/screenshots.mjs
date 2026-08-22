@@ -66,7 +66,7 @@ const routes = [
     name: "binder",
     path: "/projects",
     /** The binder needs something in it, so build a small one through the interface. */
-    async prepare(page) {
+    async prepare(page, target) {
       await page.getByRole("button", { name: "New project" }).click();
       await page.getByRole("link", { name: "Untitled project" }).first().click();
       await page.getByRole("heading", { name: "Untitled project" }).waitFor();
@@ -100,6 +100,14 @@ const routes = [
         "The lighthouse kept its own hours, and the keeper kept them with it.",
       );
       await page.getByText("Saved").waitFor({ timeout: 10_000 });
+
+      // On a phone the tree stacks above the manuscript, so leaving it open means the
+      // shot is mostly outline — which is not what the app is for, and not how anyone
+      // writing on a phone would leave it.
+      if (target === "phone") {
+        await page.getByRole("button", { name: "Hide binder" }).click();
+        await page.getByRole("treeitem").first().waitFor({ state: "detached" });
+      }
     },
   },
 ];
@@ -121,7 +129,7 @@ for (const { name, device } of targets) {
         .locator("html[data-db-status='ready']")
         .waitFor({ timeout: 30_000 })
         .catch(() => {});
-      if (route.prepare) await route.prepare(page);
+      if (route.prepare) await route.prepare(page, name);
       await page.screenshot({ path: `${OUT}${name}-${theme}-${route.name}.png` });
       count += 1;
     }
