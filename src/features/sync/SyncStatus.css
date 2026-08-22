@@ -37,3 +37,14 @@
   margin: var(--space-2) 0 0;
   color: var(--text-secondary);
 }
+
+/*
+ * Both of these are ambient status, not warnings. The author's work is already safe on
+ * the device either way, so neither gets the colour or the weight of an error.
+ */
+.sync__held,
+.sync__metered {
+  margin: var(--space-1) 0 0;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}

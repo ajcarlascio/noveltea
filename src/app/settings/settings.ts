@@ -35,6 +35,15 @@ export interface Settings {
   thesaurus: boolean;
   /** Whether the binder pane is folded away, so the manuscript has the width. */
   binderCollapsed: boolean;
+  /**
+   * Hold automatic syncs until the connection is not a metered one.
+   *
+   * Off by default, and deliberately. On by default would mean an author on mobile
+   * data stops reaching their server without having asked for that, and the failure
+   * mode of "I thought it was backed up" is worse than a data charge. A manual "sync
+   * now" always runs regardless: asking for it is the consent.
+   */
+  syncOnWifiOnly: boolean;
   datamuse: {
     enabled: boolean;
   };
@@ -53,6 +62,7 @@ export const DEFAULT_SETTINGS: Settings = {
   thesaurus: true,
   // Open by default: someone who has never seen the binder should not have to find it.
   binderCollapsed: false,
+  syncOnWifiOnly: false,
   // Everything that leaves the device is off until asked for, explicitly, twice.
   datamuse: { enabled: false },
   assistant: { enabled: false, provider: null },
@@ -88,6 +98,7 @@ export function parseSettings(raw: unknown): Settings {
     smartTypography: bool(source.smartTypography, DEFAULT_SETTINGS.smartTypography),
     thesaurus: bool(source.thesaurus, DEFAULT_SETTINGS.thesaurus),
     binderCollapsed: bool(source.binderCollapsed, DEFAULT_SETTINGS.binderCollapsed),
+    syncOnWifiOnly: bool(source.syncOnWifiOnly, DEFAULT_SETTINGS.syncOnWifiOnly),
     datamuse: { enabled: bool(datamuse.enabled, false) },
     assistant: {
       enabled: bool(assistant.enabled, false),

@@ -1,4 +1,5 @@
 import { FontChooser } from "@/ui/FontChooser";
+import { SyncSettings } from "@/ui/SyncSettings";
 import { ThemeToggle } from "@/ui/ThemeToggle";
 import { WritingSettings } from "@/ui/WritingSettings";
 
@@ -9,6 +10,7 @@ export function Settings() {
       <ThemeToggle />
       <FontChooser />
       <WritingSettings />
+      <SyncSettings />
     </section>
   );
 }

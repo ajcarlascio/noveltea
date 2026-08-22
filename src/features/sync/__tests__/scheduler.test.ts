@@ -4,8 +4,9 @@ import { createScheduler } from "../scheduler";
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
-function setup(startOnline = true) {
+function setup(startOnline = true, startMayRun = true) {
   let online = startOnline;
+  let mayRun = startMayRun;
   const listeners: (() => void)[] = [];
   const run = vi.fn<() => Promise<unknown>>().mockResolvedValue(undefined);
   const onError = vi.fn();
@@ -19,6 +20,7 @@ function setup(startOnline = true) {
       listeners.push(listener);
       return () => listeners.splice(listeners.indexOf(listener), 1);
     },
+    mayRun: () => mayRun,
   });
 
   return {
@@ -30,6 +32,9 @@ function setup(startOnline = true) {
     setOnline: (next: boolean) => {
       online = next;
       for (const listener of [...listeners]) listener();
+    },
+    setMayRun: (next: boolean) => {
+      mayRun = next;
     },
   };
 }
@@ -172,5 +177,39 @@ describe("stopping", () => {
     scheduler.stop();
     await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
     expect(run).not.toHaveBeenCalled();
+  });
+});
+
+describe("holding a sync back", () => {
+  it("does not fire when the connection is one the author asked to avoid", async () => {
+    const { run } = setup(true, false);
+    await vi.advanceTimersByTimeAsync(15 * 60 * 1000);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("ASKS AT FIRE TIME, NOT WHEN THE WINDOW OPENED", async () => {
+    // The window is fifteen minutes long. A phone that finds wifi inside it should
+    // sync at the end of the window it already served, not start a new one.
+    const { run, setMayRun } = setup(true, false);
+    await vi.advanceTimersByTimeAsync(14 * 60 * 1000);
+    setMayRun(true);
+    await vi.advanceTimersByTimeAsync(60 * 1000);
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops firing when the connection becomes one to avoid mid-window", async () => {
+    const { run, setMayRun } = setup(true, true);
+    await vi.advanceTimersByTimeAsync(14 * 60 * 1000);
+    setMayRun(false);
+    await vi.advanceTimersByTimeAsync(60 * 1000);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("SYNC NOW OVERRIDES IT", async () => {
+    // Pressing the button is the consent. Refusing here would be the app overruling
+    // an explicit instruction about the author's own data.
+    const { scheduler, run } = setup(true, false);
+    await scheduler.syncNow();
+    expect(run).toHaveBeenCalledTimes(1);
   });
 });

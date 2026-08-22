@@ -20,6 +20,14 @@ export interface SchedulerOptions {
   /** Injectable so tests do not have to reach for globals. */
   online?: () => boolean;
   subscribe?: (listener: () => void) => () => void;
+  /**
+   * Whether an automatic sync may run right now.
+   *
+   * Read at fire time rather than at construction: the setting can be changed and the
+   * connection can move from wifi to cellular during the settle window, and the answer
+   * that matters is the one at the moment bytes would be sent.
+   */
+  mayRun?: () => boolean;
 }
 
 export interface Scheduler {
@@ -46,6 +54,7 @@ export function createScheduler({
   settleMs = 15 * 60 * 1000,
   online = () => (typeof navigator === "undefined" ? true : navigator.onLine),
   subscribe = defaultSubscribe,
+  mayRun = () => true,
 }: SchedulerOptions): Scheduler {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let inFlight: Promise<void> | null = null;
@@ -82,7 +91,9 @@ export function createScheduler({
     if (stopped || !online()) return;
     timer = setTimeout(() => {
       timer = null;
-      void fire();
+      // Checked here and not before the timer is set, because the window is fifteen
+      // minutes long and a phone can find wifi inside it.
+      if (mayRun()) void fire();
     }, settleMs);
   };
 
@@ -92,7 +103,9 @@ export function createScheduler({
 
   return {
     syncNow: async () => {
-      // Deliberately bypasses the settle window. Someone who asked for it is watching.
+      // Bypasses the settle window and the metered check both. Someone who pressed the
+      // button is watching, and asking for it is the consent — refusing here would be
+      // the app overruling an explicit instruction about the author's own data.
       clear();
       await fire();
     },
