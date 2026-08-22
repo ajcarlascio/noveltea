@@ -1,4 +1,8 @@
-import { useState } from "react";
+import type { CompilePlan } from "@noveltea/compile";
+import { useEffect, useState } from "react";
+import { useDatabase } from "@/app/db/DatabaseContext";
+import { planProject } from "@/data/preflight";
+import { PreflightNotice } from "./PreflightNotice";
 import { useCompile } from "./useCompile";
 import "./CompilePanel.css";
 
@@ -15,6 +19,14 @@ const FORMAT_LABELS: Record<string, string> = {
 
 const label = (format: string) => FORMAT_LABELS[format] ?? format.toUpperCase();
 
+const DESTINATION_LABELS: Record<string, string> = {
+  download: "Download to this device",
+  server: "Keep on the server",
+  cloud: "Cloud storage",
+};
+
+const destinationLabel = (value: string) => DESTINATION_LABELS[value] ?? value;
+
 /**
  * Turning the binder into a manuscript.
  *
@@ -23,8 +35,34 @@ const label = (format: string) => FORMAT_LABELS[format] ?? format.toUpperCase();
  * needs rather than appearing broken.
  */
 export function CompilePanel({ projectId }: { projectId: string }) {
+  const { db } = useDatabase();
   const { formats, job, error, busy, possible, compile, download } = useCompile(projectId);
   const [format, setFormat] = useState("md");
+  const [destination, setDestination] = useState("download");
+  const [plan, setPlan] = useState<CompilePlan | null>(null);
+
+  // The plan is worked out from the local replica, so it costs nothing and is right
+  // before anything is sent. It follows the binder: an author who trashes a chapter
+  // and looks back here should not be reading a stale count.
+  useEffect(() => {
+    let current = true;
+    const refresh = () => {
+      void planProject(db, projectId).then(
+        (next) => {
+          if (current) setPlan(next);
+        },
+        () => {
+          if (current) setPlan(null);
+        },
+      );
+    };
+    refresh();
+    const stop = db.subscribeToChanges(refresh);
+    return () => {
+      current = false;
+      stop();
+    };
+  }, [db, projectId]);
 
   if (!possible) {
     return (
@@ -37,6 +75,8 @@ export function CompilePanel({ projectId }: { projectId: string }) {
 
   const supported = formats?.supported ?? [];
   const unavailable = formats?.unavailable ?? [];
+  const destinations = formats?.destinations ?? ["download"];
+  const unavailableDestinations = formats?.unavailableDestinations ?? [];
 
   return (
     <section className="compile" aria-label="Compile">
@@ -62,15 +102,36 @@ export function CompilePanel({ projectId }: { projectId: string }) {
           </select>
         </label>
 
+        <label className="compile__field">
+          <span className="compile__label">Put it</span>
+          <select value={destination} onChange={(event) => setDestination(event.target.value)}>
+            {destinations.map((value) => (
+              <option key={value} value={value}>
+                {destinationLabel(value)}
+              </option>
+            ))}
+            {/* Same rule as the formats above. A destination this edition does not
+                offer is an upgrade, and omitting it would claim the software cannot
+                do something it can. */}
+            {unavailableDestinations.map((value) => (
+              <option key={value} value={value} disabled>
+                {destinationLabel(value)} — not in this edition
+              </option>
+            ))}
+          </select>
+        </label>
+
         <button
           type="button"
           className="button button--confirm"
-          disabled={busy || supported.length === 0}
-          onClick={() => compile(format, "download")}
+          disabled={busy || supported.length === 0 || plan?.included.length === 0}
+          onClick={() => compile(format, destination)}
         >
           {busy ? "Compiling…" : "Compile"}
         </button>
       </div>
+
+      <PreflightNotice plan={plan} />
 
       {job !== null && job.status !== "failed" && (
         <p className="compile__status" role="status">
