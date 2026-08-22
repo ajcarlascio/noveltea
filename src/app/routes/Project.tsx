@@ -17,13 +17,15 @@ import { CompilePanel } from "@/features/compile/CompilePanel";
 import { SearchPanel } from "@/features/search/SearchPanel";
 import { SyncStatus } from "@/features/sync/SyncStatus";
 import { useBinder } from "@/features/binder/useBinder";
+import { useSettings } from "@/app/settings/SettingsContext";
 import { StorageWarning } from "@/ui/StorageWarning";
 import { ToolbarButton } from "@/ui/ToolbarButton";
 import "./Project.css";
 
 export function Project() {
   const { projectId = "" } = useParams();
-  const { binder, error, run } = useBinder(projectId);
+  const { binder, title, error, run } = useBinder(projectId);
+  const { settings, update } = useSettings();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [expandedIds, setExpandedIds] = useState<ReadonlySet<string>>(new Set());
   const [renaming, setRenaming] = useState(false);
@@ -44,9 +46,15 @@ export function Project() {
     if (parentId !== null) setExpandedIds((current) => new Set(current).add(parentId));
   };
 
+  const collapsed = settings.binderCollapsed;
+  const toggleBinder = () =>
+    update((current) => ({ ...current, binderCollapsed: !current.binderCollapsed }));
+
   return (
-    <section className="page">
-      <h1>Binder</h1>
+    <section className="page page--full">
+      {/* The project's name, not the word "Binder": a heading is a landmark a screen
+          reader lands on, and it may as well say which book this is. */}
+      <h1 className="project__title">{title ?? "Project"}</h1>
       <StorageWarning />
       <SyncStatus projectId={projectId} />
 
@@ -57,6 +65,11 @@ export function Project() {
       )}
 
       <div className="project__toolbar" role="toolbar" aria-label="Binder actions">
+        <ToolbarButton
+          label={collapsed ? "Show binder" : "Hide binder"}
+          short={collapsed ? "Binder" : "Hide"}
+          onClick={toggleBinder}
+        />
         <ToolbarButton
           label="New folder"
           short="Folder"
@@ -116,26 +129,23 @@ export function Project() {
         />
       )}
 
-      <div className="project__panes">
-        <div className="project__binder">
-          <SearchPanel
-            projectId={projectId}
-            onOpen={(id) => {
-              setSelectedId(id);
-              // Opening a result from the trash should not silently look like an
-              // ordinary document; the binder shows where it actually sits.
-            }}
-          />
-          <BinderTree
-            label="Binder"
-            nodes={nodes}
-            selectedId={selectedId}
-            onSelect={setSelectedId}
-            expandedIds={expandedIds}
-            onToggle={toggle}
-            emptyMessage="This binder is empty. Start with a folder or a document."
-          />
-        </div>
+      <div className={`project__panes${collapsed ? " project__panes--collapsed" : ""}`}>
+        {!collapsed && (
+          <div className="project__binder">
+            <SearchPanel projectId={projectId} onOpen={setSelectedId} />
+            <div className="project__binder-scroll">
+              <BinderTree
+                label="Binder"
+                nodes={nodes}
+                selectedId={selectedId}
+                onSelect={setSelectedId}
+                expandedIds={expandedIds}
+                onToggle={toggle}
+                emptyMessage="This binder is empty. Start with a folder or a document."
+              />
+            </div>
+          </div>
+        )}
 
         {selected?.type === "document" ? (
           // Keyed on the id so switching documents remounts rather than reusing an
@@ -150,35 +160,41 @@ export function Project() {
         )}
       </div>
 
-      <CompilePanel projectId={projectId} />
+      {/* Folded away by default. Compiling and the trash are occasional; the
+          manuscript is not, and they were taking permanent height from it. */}
+      <details className="project__footer">
+        <summary>Compile and trash</summary>
+        <CompilePanel projectId={projectId} />
 
-      <h2 className="project__trash-heading">Trash</h2>
-      {binder !== null && binder.trash.length === 0 ? (
-        <p className="page__note">Nothing in the trash.</p>
-      ) : (
-        <>
-          <ul className="project__trash">
-            {(binder?.trash ?? []).map((node) => (
-              <li key={node.id}>
-                <span>{node.title}</span>
-                <button className="button"
-                  type="button"
-                  onClick={() => void run((db) => restoreItem(db, projectId, node.id))}
-                >
-                  Restore
-                </button>
-              </li>
-            ))}
-          </ul>
-          <button
-            type="button"
-            className="button button--danger"
-            onClick={() => void run((db) => emptyTrash(db, projectId))}
-          >
-            Empty trash
-          </button>
-        </>
-      )}
+        <h2 className="project__trash-heading">Trash</h2>
+        {binder !== null && binder.trash.length === 0 ? (
+          <p>Nothing in the trash.</p>
+        ) : (
+          <>
+            <ul className="project__trash">
+              {(binder?.trash ?? []).map((node) => (
+                <li key={node.id}>
+                  <span>{node.title}</span>
+                  <button
+                    type="button"
+                    className="button"
+                    onClick={() => void run((db) => restoreItem(db, projectId, node.id))}
+                  >
+                    Restore
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <button
+              type="button"
+              className="button project__danger"
+              onClick={() => void run((db) => emptyTrash(db, projectId))}
+            >
+              Empty trash
+            </button>
+          </>
+        )}
+      </details>
     </section>
   );
 }

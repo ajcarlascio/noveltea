@@ -1,7 +1,19 @@
+/**
+ * The manuscript. This is the app, so it gets the frame: the pane fills whatever the
+ * layout gives it, and the text column sits centred inside like a sheet on a desk.
+ * Chrome around it is kept to one thin line.
+ */
 .editor {
   display: flex;
   flex-direction: column;
+  flex: 1;
   min-width: 0;
+  /* Tall enough to be worth writing in even when the panes are stacked and the frame
+     is not filling the screen. */
+  min-height: 60vh;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
 }
 
 .editor__bar {
@@ -9,23 +21,26 @@
   gap: var(--space-3);
   align-items: baseline;
   flex-wrap: wrap;
-  margin-bottom: var(--space-3);
-  padding-bottom: var(--space-2);
+  padding: var(--space-2) var(--space-4);
   border-bottom: 1px solid var(--border);
 }
 
 .editor__title {
   flex: 1 1 auto;
+  min-width: 0;
   margin: 0;
+  overflow: hidden;
   font-family: var(--font-prose);
-  font-size: 1.1rem;
+  font-size: 1rem;
   font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .editor__words,
 .editor__state {
   color: var(--text-muted);
-  font-size: 0.85rem;
+  font-size: 0.8rem;
 }
 
 .editor__state[data-state="error"] {
@@ -34,21 +49,33 @@
 }
 
 .editor__error {
-  margin: 0 0 var(--space-3);
+  margin: var(--space-2) var(--space-4) 0;
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--danger);
   border-radius: var(--radius-md);
   background: var(--danger-subtle);
 }
 
+/* The scroller. Everything above it stays put while the prose moves. */
+.editor .tiptap,
+.editor__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
 .editor__surface {
-  /* The measure: prose past about 70 characters is hard for the eye to track back. */
+  /* The measure: prose past about 70 characters is hard for the eye to track back.
+     The column is centred and the space around it is deliberate, not waste — it is
+     what makes this read as a page rather than a form field. */
   max-width: var(--measure);
-  min-height: 12rem;
-  padding: var(--space-2) 0;
+  min-height: 100%;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-5) var(--space-8);
   font-family: var(--font-prose);
-  font-size: 1.05rem;
-  line-height: 1.7;
+  font-size: 1.0625rem;
+  line-height: 1.75;
 }
 
 .editor__surface:focus {
@@ -84,4 +111,27 @@
 
 .editor__missing {
   color: var(--text-muted);
+}
+
+@media (min-width: 48rem) {
+  .editor {
+    min-height: 0;
+  }
+}
+
+@media (max-width: 34rem) {
+  /* A phone has no width to spare on a frame around the page. */
+  .editor {
+    border: none;
+    border-radius: 0;
+    background: none;
+  }
+
+  .editor__bar {
+    padding-inline: 0;
+  }
+
+  .editor__surface {
+    padding: var(--space-4) 0 var(--space-6);
+  }
 }

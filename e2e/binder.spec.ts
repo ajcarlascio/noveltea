@@ -12,7 +12,7 @@ async function newProject(page: Page) {
   await expect(page.locator("html")).toHaveAttribute("data-db-status", "ready", { timeout: 30_000 });
   await page.getByRole("button", { name: "New project" }).click();
   await page.getByRole("link", { name: "Untitled project" }).click();
-  await expect(page.getByRole("heading", { name: "Binder" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Untitled project" })).toBeVisible();
 }
 
 const row = (page: Page, name: string) => page.getByRole("treeitem").filter({ hasText: name });
@@ -56,6 +56,8 @@ test("trashes an item and puts it back where it came from", async ({ page }) => 
 
   await page.getByRole("button", { name: "Move to trash" }).click();
   await expect(page.getByRole("treeitem", { name: /Untitled/ })).toHaveCount(0);
+
+  await page.getByText("Compile and trash").click();
   await expect(page.getByRole("button", { name: "Restore" })).toBeVisible();
 
   await page.getByRole("button", { name: "Restore" }).click();
@@ -64,16 +66,21 @@ test("trashes an item and puts it back where it came from", async ({ page }) => 
 });
 
 test("empties the trash and does not bring anything back", async ({ page }) => {
+  await page.goto("/projects");
+  test.skip(!(await hasOpfs(page)), "This engine has no OPFS; a reload keeps nothing.");
+
   await newProject(page);
   await page.getByRole("button", { name: "New folder" }).click();
   await row(page, "New folder").click();
   await page.getByRole("button", { name: "Move to trash" }).click();
 
+  await page.getByText("Compile and trash").click();
   await page.getByRole("button", { name: "Empty trash" }).click();
   await expect(page.getByText("Nothing in the trash.")).toBeVisible();
 
   await page.reload();
-  await expect(page.getByRole("heading", { name: "Binder" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Untitled project" })).toBeVisible();
+  await page.getByText("Compile and trash").click();
   await expect(page.getByText("Nothing in the trash.")).toBeVisible();
   await expect(page.getByRole("treeitem")).toHaveCount(0);
 });
@@ -93,7 +100,7 @@ test("keeps the binder across a reload", async ({ page }) => {
   await expect(page.getByRole("treeitem")).toHaveCount(2);
 
   await page.reload();
-  await expect(page.getByRole("heading", { name: "Binder" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Untitled project" })).toBeVisible();
 
   await expect(row(page, "New folder")).toBeVisible();
   // The child is inside a collapsed folder after a reload, so open it.

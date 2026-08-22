@@ -79,7 +79,7 @@ test("gives every control in the binder a target a finger can hit", async ({ pag
   await expect(page.locator("html")).toHaveAttribute("data-db-status", "ready", { timeout: 30_000 });
   await page.getByRole("button", { name: "New project" }).click();
   await page.getByRole("link", { name: "Untitled project" }).first().click();
-  await expect(page.getByRole("heading", { name: "Binder" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Untitled project" })).toBeVisible();
 
   await page.getByRole("button", { name: "New folder" }).click();
   await expect(page.getByRole("treeitem")).toHaveCount(1);
@@ -97,7 +97,7 @@ test("nothing is wider than the screen", async ({ page }) => {
   await expect(page.locator("html")).toHaveAttribute("data-db-status", "ready", { timeout: 30_000 });
   await page.getByRole("button", { name: "New project" }).click();
   await page.getByRole("link", { name: "Untitled project" }).first().click();
-  await expect(page.getByRole("heading", { name: "Binder" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Untitled project" })).toBeVisible();
   const binderPath = new URL(page.url()).pathname;
 
   for (const path of ["/projects", "/settings", binderPath, "/signin"]) {
@@ -146,7 +146,7 @@ test("keeps the binder toolbar to two rows at most", async ({ page }) => {
   await expect(page.locator("html")).toHaveAttribute("data-db-status", "ready", { timeout: 30_000 });
   await page.getByRole("button", { name: "New project" }).click();
   await page.getByRole("link", { name: "Untitled project" }).first().click();
-  await expect(page.getByRole("heading", { name: "Binder" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Untitled project" })).toBeVisible();
 
   const layout = await page.evaluate(() => {
     const toolbar = document.querySelector('[role="toolbar"]');
@@ -161,9 +161,9 @@ test("keeps the binder toolbar to two rows at most", async ({ page }) => {
     };
   });
 
-  expect(layout.buttons).toBe(5);
-  // Five actions across four rows pushes the binder off the screen before an author
-  // has written anything. Short labels are what buy the second row back.
+  expect(layout.buttons).toBe(6);
+  // Six actions across four rows pushes the manuscript off the screen before an author
+  // has written anything. Short labels are what buy the rows back.
   expect(layout.rows).toBeLessThanOrEqual(2);
   expect(layout.labels).toContain("Trash");
   // The accessible name stays the full wording whatever the screen is doing, so a
