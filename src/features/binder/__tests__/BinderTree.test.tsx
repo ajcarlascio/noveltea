@@ -12,6 +12,7 @@ const node = (id: string, children: BinderNode[] = [], type: BinderNode["type"] 
   title: id,
   orderKey: "V",
   trashedFromParentId: null,
+  conflictOfId: null,
   children,
 });
 
@@ -196,5 +197,22 @@ describe("the disclosure triangle", () => {
     // Opening a folder to look inside is not the same as choosing it, and the
     // toolbar acts on the selection.
     expect(onSelect).not.toHaveBeenCalled();
+  });
+});
+
+describe("conflict copies", () => {
+  it("marks a copy so it is not mistaken for an ordinary document", () => {
+    // Left unmarked it looks like a document with an odd name, and an author
+    // eventually deletes it without realising it holds words the server refused to
+    // merge.
+    const copy: BinderNode = { ...node("Chapter One (Conflicted Copy)"), conflictOfId: "original-1" };
+    render(<Harness nodes={[copy]} />);
+
+    expect(screen.getByText("conflict")).toBeInTheDocument();
+  });
+
+  it("marks nothing when there is no conflict", () => {
+    render(<Harness />);
+    expect(screen.queryByText("conflict")).not.toBeInTheDocument();
   });
 });

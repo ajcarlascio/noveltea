@@ -56,3 +56,15 @@
   padding: var(--space-4) 0;
   color: var(--text-muted);
 }
+
+.binder__conflict {
+  flex: none;
+  margin-left: auto;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--warning);
+  border-radius: 999px;
+  color: var(--warning);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
