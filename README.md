@@ -10,8 +10,9 @@ schema. This repository owns the interface and nothing else.
 
 ## Status
 
-**Scaffold, themes, the local replica, the binder, the editor, accounts, and sync.**
-All in place and covered by tests. Everything below that is not the build, the router, the theme
+**Feature-complete for the core loop: write, find, sync, compile.** Scaffold, themes,
+the local replica, the binder, the editor, accounts, sync, offline search and export
+are all in place and covered by tests. Everything below that is not the build, the router, the theme
 tokens, the database layer or the binder is still a decision rather than an observation.
 
 Start with `CLAUDE.md` for the rules, and `docs/architecture.md` for the reasoning behind
@@ -420,6 +421,49 @@ Two things it deliberately does not do:
 The rows a rebuild applies did not come from the feed, so they are applied with
 `advanceCursor: false`. Claiming position zero there would ask the server for another
 rebuild on the very next sync.
+
+## Search
+
+Offline, over the local replica, so it works on a plane. It covers **titles, synopses,
+body text and notes** — synopses and notes are never exported, but they are exactly what
+an author searches to find a scene again, so leaving them out would make them
+write-only. Weighted so a title beats a passing mention.
+
+**Author input never reaches FTS5 unparsed.** SQLite is not forgiving the way Postgres's
+`websearch_to_tsquery` is: a stray quote or a bare `AND` raises a syntax error, which
+would surface mid-sentence as a crash. The input is tokenised and rebuilt instead, and
+anything that cannot be understood is dropped rather than escaped and hoped for.
+
+- Bare words must all appear; `"quoted phrases"` must be adjacent; `-word` excludes.
+- **Adjacency is only implied when it was asked for.** `light(house)` becomes the two
+  words, not the phrase — requiring them to be adjacent would be guessing.
+- **An empty search finds nothing, not everything.** So does a search that is only
+  exclusions, which FTS5 cannot answer anyway.
+- Trashed items are excluded by default and **flagged** when included; tombstoned ones
+  never appear.
+- Results **follow the database**. Without that they are a snapshot of the moment the
+  search was typed, and keeping writing leaves the list describing a manuscript that no
+  longer exists.
+
+## Compile
+
+The one thing that genuinely needs a server: the export pipeline runs there, not on the
+device. Everything else works without one, so this says what it needs rather than
+appearing broken.
+
+- **Unavailable formats are listed and disabled, not hidden.** This is open core — a
+  format missing from a Core build is an upgrade, and omitting it would claim the
+  software cannot do something it can. A `501` is reported as an edition difference,
+  with the note that the author's writing is unaffected.
+- **Polling widens as the wait grows** (1s, 2s, 4s, to a ceiling). A short export
+  answers on the first ask; a novel should not be asked about every second for two
+  minutes.
+- **An unrecognised job status counts as still running**, never as done — reporting
+  "done" for something that is not would offer a download of nothing.
+- **The download is fetched, not linked.** The route needs a bearer token and an
+  `<a href>` sends no headers, so a plain link downloads a 401 page named like a
+  manuscript. The bytes become a blob URL which is revoked immediately; leaving it alive
+  pins the whole manuscript in memory for as long as the tab is open.
 
 ## Accounts and servers
 

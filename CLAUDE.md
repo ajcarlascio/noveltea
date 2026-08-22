@@ -244,6 +244,18 @@ One bundle runs in a browser tab, a desktop window and a phone webview. These ar
 - **No Node built-ins in app code**, enforced by ESLint. `src/test/**` is exempt; those
   helpers run under Node.
 
+### Search and compile
+
+- **Never pass author input to FTS5.** It raises syntax errors on a stray quote; the
+  query is tokenised and rebuilt in `toFtsQuery`. An empty query means no results,
+  never all of them.
+- **Anything showing database state must subscribe to `subscribeToChanges`.** Search
+  results, the binder and the pending count are all snapshots otherwise.
+- **Unavailable export formats are shown, not hidden.** Open core: a missing format is
+  an upgrade, and hiding it makes the interface lie about the software.
+- **The compile download is fetched with the bearer token**, not linked — a plain
+  `<a href>` sends no headers and downloads a 401 page. Revoke the blob URL.
+
 ### Sync
 
 - **Pull before push.** Pushing into a stale picture resurrects what another device

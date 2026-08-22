@@ -1,0 +1,70 @@
+.compile {
+  margin-top: var(--space-6);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+}
+
+.compile--muted {
+  margin: var(--space-6) 0 0;
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.compile__heading {
+  margin: 0 0 var(--space-3);
+  font-family: var(--font-prose);
+  font-size: 1.1rem;
+}
+
+.compile__controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4) var(--space-2);
+  align-items: end;
+}
+
+.compile__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  flex: 1 1 12rem;
+}
+
+.compile__label {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.compile__field select {
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-page);
+  color: inherit;
+  font: inherit;
+}
+
+.compile__status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+  margin: var(--space-3) 0 0;
+  color: var(--text-muted);
+}
+
+.compile__download {
+  min-height: 36px;
+}
+
+.compile__error {
+  margin: var(--space-3) 0 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-md);
+  background: var(--danger-subtle);
+}
