@@ -146,7 +146,7 @@ test("writes the merged text back, with the original's version to check against"
 test("keeps the merge on screen when another device moved the document first", async ({ page }) => {
   await stubServer(page, {
     conflicts: [SUMMARY],
-    resolve: () => json({ code: "stale_document", message: "stale" }, 409),
+    resolve: () => json({ code: "stale_original", message: "stale" }, 409),
   });
   await signIn(page);
   await openProject(page);

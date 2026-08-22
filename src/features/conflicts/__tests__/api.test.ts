@@ -115,12 +115,19 @@ describe("resolving", () => {
   it("reports a stale merge as something to redo, not as a failure", async () => {
     // The server refuses rather than forking again; forking on merge would let copies
     // breed without bound.
-    const { auth } = fakeAuth(() => fail(409, { code: "stale_document" }));
+    const { auth } = fakeAuth(() => fail(409, { code: "stale_original" }));
     const error = await rejection(resolveConflict(auth, "c1", {}, 7));
 
     expect(error.stale).toBe(true);
     expect(error.message).toMatch(/nothing was lost/i);
     expect(error.message).toMatch(/open the pair again/i);
+  });
+
+  it("trusts the server's code even under a status it does not expect", async () => {
+    // 409 is what the server sends today. Reading the code as well means a proxy or a
+    // later status change cannot turn "redo the merge" into "something broke".
+    const { auth } = fakeAuth(() => fail(400, { code: "stale_original" }));
+    expect((await rejection(resolveConflict(auth, "c1", {}, 7))).stale).toBe(true);
   });
 
   it("reports any other refusal plainly", async () => {
