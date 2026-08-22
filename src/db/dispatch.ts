@@ -1,5 +1,5 @@
 import type { SqliteAdapter } from "@noveltea/client-db";
-import { COMMANDS } from "./commands";
+import { COMMANDS, READ_ONLY_COMMANDS } from "./commands";
 import {
   toErrorPayload,
   type DbRequest,
@@ -31,7 +31,15 @@ export interface OpenResult {
  * offline-first client is indistinguishable from a lost write: the author sees
  * "saving…" and nothing ever contradicts it.
  */
-export function createDispatcher(post: (message: WorkerOutbound) => void) {
+/**
+ * @param onWrote called after any request that may have changed the database, so a
+ *   desktop host can be handed the new bytes. Never called for reads, which would
+ *   rewrite the whole file every time a panel refreshed.
+ */
+export function createDispatcher(
+  post: (message: WorkerOutbound) => void,
+  onWrote: () => void = () => undefined,
+) {
   let adapter: SqliteAdapter | null = null;
   let fatal: unknown = null;
   const queued: DbRequest[] = [];
@@ -47,14 +55,19 @@ export function createDispatcher(post: (message: WorkerOutbound) => void) {
     }
 
     let response: DbResponse;
+    let wrote = false;
     try {
       response = { id: request.id, ok: true, result: execute(adapter, request) };
+      wrote = mayWrite(request);
     } catch (error) {
       // Contained per request: one failing statement must not take down the
       // dispatcher and with it every request that comes after.
       response = { id: request.id, ok: false, error: toErrorPayload(error) };
     }
     post(response);
+    // After the response, so the caller is not kept waiting on a disk write it is not
+    // waiting for. A failed request writes nothing worth persisting.
+    if (wrote) onWrote();
   }
 
   function drain(): void {
@@ -82,6 +95,18 @@ export function createDispatcher(post: (message: WorkerOutbound) => void) {
       drain();
     },
   };
+}
+
+/**
+ * Whether a request could have changed anything.
+ *
+ * `run` and `transaction` carry arbitrary SQL, so they are assumed to write — parsing
+ * SQL here to find out would be a worse bet than an occasional redundant flush.
+ */
+function mayWrite(request: DbRequest): boolean {
+  if (request.kind === "query") return false;
+  if (request.kind === "command") return !READ_ONLY_COMMANDS.has(request.name);
+  return true;
 }
 
 function execute(db: SqliteAdapter, request: DbRequest): unknown {

@@ -1,17 +1,20 @@
 import type { SqlValue } from "@noveltea/client-db";
 import { READ_ONLY_COMMANDS } from "./commands";
 import type { CommandInput, CommandName, CommandResult } from "./commands";
+import { isHosted, loadDatabase, saveDatabase } from "./host";
 import {
   isLifecycle,
+  isPersist,
   type DbErrorPayload,
   type DbRequest,
   type StorageKind,
+  type WorkerInbound,
   type WorkerOutbound,
 } from "./protocol";
 
 /** The part of `Worker` this client uses, so tests can drive it with a double. */
 export interface WorkerLike {
-  postMessage(message: DbRequest): void;
+  postMessage(message: WorkerInbound): void;
   addEventListener(type: "message", listener: (event: MessageEvent<WorkerOutbound>) => void): void;
   addEventListener(type: "error", listener: (event: ErrorEvent) => void): void;
   terminate(): void;
@@ -58,6 +61,8 @@ export class DatabaseClient {
   #listeners = new Set<(status: DbStatus) => void>();
   #changeListeners = new Set<() => void>();
   #closed = false;
+  #pendingBytes: ArrayBuffer | null = null;
+  #flushing = false;
 
   constructor(worker: WorkerLike) {
     this.#worker = worker;
@@ -156,6 +161,10 @@ export class DatabaseClient {
   }
 
   #receive(message: WorkerOutbound): void {
+    if (isPersist(message)) {
+      this.#persist(message.bytes);
+      return;
+    }
     if (isLifecycle(message)) {
       if (message.kind === "ready") {
         this.#setStatus({
@@ -181,6 +190,37 @@ export class DatabaseClient {
     else pending.reject(new DatabaseError(message.error));
   }
 
+  /**
+   * Writes the database back to the desktop host.
+   *
+   * Coalesced rather than queued: while one flush is in the air, a later one only
+   * marks the database dirty, and the next flush takes the newest bytes. Queueing
+   * every flush would mean a burst of edits writing the whole file once per edit,
+   * each one already stale by the time it landed.
+   *
+   * A failure is not surfaced. The words are in the worker's memory and in the
+   * outbox, the next write flushes again, and interrupting someone mid-sentence to
+   * report a disk hiccup they cannot act on is not worth the interruption.
+   */
+  #persist(bytes: ArrayBuffer): void {
+    this.#pendingBytes = bytes;
+    if (this.#flushing) return;
+    this.#flushing = true;
+    void (async () => {
+      try {
+        while (this.#pendingBytes !== null) {
+          const next = this.#pendingBytes;
+          this.#pendingBytes = null;
+          await saveDatabase(new Uint8Array(next));
+        }
+      } catch {
+        // Left for the next write to retry.
+      } finally {
+        this.#flushing = false;
+      }
+    })();
+  }
+
   #fail(error: DbErrorPayload): void {
     this.#setStatus({ state: "failed", error });
     this.#rejectAll(new DatabaseError(error));
@@ -200,10 +240,25 @@ export class DatabaseClient {
 
 /** Spawns the real worker. Kept separate so tests never need one. */
 export function createDatabaseClient(): DatabaseClient {
-  return new DatabaseClient(
-    new Worker(new URL("./worker.ts", import.meta.url), {
-      type: "module",
-      name: "noveltea-db",
-    }),
-  );
+  const worker = new Worker(new URL("./worker.ts", import.meta.url), {
+    type: "module",
+    name: "noveltea-db",
+  });
+  const client = new DatabaseClient(worker);
+
+  // The worker waits for this before opening anything. Under a desktop host the file
+  // is on the host filesystem and only this thread can reach it, so the bytes are read
+  // here and handed over; in a browser tab there is nothing to hand and the worker
+  // takes its usual OPFS path.
+  void (async () => {
+    const hosted = isHosted();
+    const initial = hosted ? await loadDatabase() : null;
+    const buffer =
+      initial === null
+        ? null
+        : initial.buffer.slice(initial.byteOffset, initial.byteOffset + initial.byteLength);
+    worker.postMessage({ kind: "open", initial: buffer, hosted });
+  })();
+
+  return client;
 }

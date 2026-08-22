@@ -9,6 +9,8 @@ const DATABASE_FILE = "/noveltea.sqlite3";
 export interface OpenedDatabase {
   db: Database;
   storage: StorageKind;
+  /** Present only for a host-backed database, which is the thing that can be exported. */
+  sqlite3?: Sqlite3Static;
 }
 
 /**
@@ -26,8 +28,21 @@ export interface OpenedDatabase {
  * an in-memory replica loses every word on reload, and a writing app that fails
  * that way quietly is worse than one that refuses to start.
  */
-export async function openDatabase(): Promise<OpenedDatabase> {
+export async function openDatabase(initial: ArrayBuffer | null = null,
+                                   hosted = false): Promise<OpenedDatabase> {
   const sqlite3: Sqlite3Static = await sqlite3InitModule();
+
+  // A desktop host keeps the file; the webview only ever holds it in memory. That is
+  // not a downgrade — it is the only durable option on WebKitGTK, which has no
+  // navigator.storage at all (see tooling/webview-probe). "memory" would be a lie
+  // here, because the bytes do outlive the window; they just live on the host.
+  if (hosted) {
+    const db = new sqlite3.oo1.DB(":memory:");
+    if (initial !== null && initial.byteLength > 0) {
+      restore(sqlite3, db, new Uint8Array(initial));
+    }
+    return { db, storage: "host", sqlite3 };
+  }
 
   if (typeof sqlite3.installOpfsSAHPoolVfs === "function") {
     try {
@@ -44,4 +59,32 @@ export async function openDatabase(): Promise<OpenedDatabase> {
   }
 
   return { db: new sqlite3.oo1.DB(":memory:"), storage: "memory" };
+}
+
+/**
+ * Loads stored bytes into an open in-memory database.
+ *
+ * RESIZEABLE matters: without it SQLite refuses to grow the database past the buffer
+ * it was handed, so the first write past the restored size fails — which would look
+ * like the app working perfectly until an author had written enough to matter.
+ *
+ * FREEONCLOSE hands the allocation to SQLite, so closing the database frees it rather
+ * than leaking a copy of the whole manuscript per open.
+ */
+export function restore(sqlite3: Sqlite3Static, db: Database, bytes: Uint8Array): void {
+  const pointer = sqlite3.wasm.allocFromTypedArray(bytes);
+  const rc = sqlite3.capi.sqlite3_deserialize(
+    db.pointer!,
+    "main",
+    pointer,
+    bytes.length,
+    bytes.length,
+    sqlite3.capi.SQLITE_DESERIALIZE_FREEONCLOSE | sqlite3.capi.SQLITE_DESERIALIZE_RESIZEABLE,
+  );
+  db.checkRc(rc);
+}
+
+/** The whole database as bytes, for the host to write. */
+export function exportDatabase(sqlite3: Sqlite3Static, db: Database): Uint8Array {
+  return sqlite3.capi.sqlite3_js_db_export(db.pointer!);
 }
