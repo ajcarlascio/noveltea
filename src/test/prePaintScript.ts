@@ -13,6 +13,7 @@ export interface PrePaintResult {
   /** What the script stamped on <html>, if anything. */
   theme: string | null;
   font: string | null;
+  fontSize: string | null;
   threw: unknown;
 }
 
@@ -46,6 +47,7 @@ export function runPrePaintScript(storage: {
   return {
     theme: stamped["data-theme"] ?? null,
     font: stamped["data-font"] ?? null,
+    fontSize: stamped["data-font-size"] ?? null,
     threw,
   };
 }

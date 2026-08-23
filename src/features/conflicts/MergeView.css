@@ -103,3 +103,9 @@
   gap: var(--space-3) var(--space-2);
   justify-content: flex-end;
 }
+
+/* The same setting as the manuscript: comparing two versions at a size the author
+   cannot read is not comparing them. */
+.merge__surface {
+  font-size: calc(1.0625rem * var(--prose-scale, 1));
+}
