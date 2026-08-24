@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
   createDocument,
@@ -12,6 +12,14 @@ import {
   type BinderNode,
 } from "@/data/binder";
 import { BinderTree } from "@/features/binder/BinderTree";
+import {
+  ancestorIds,
+  readExpandedIds,
+  readLastDocumentId,
+  safeStorage,
+  writeExpandedIds,
+  writeLastDocumentId,
+} from "@/features/binder/binderState";
 import { DocumentEditor } from "@/features/editor/DocumentEditor";
 import { CompilePanel } from "@/features/compile/CompilePanel";
 import { ConflictsPanel } from "@/features/conflicts/ConflictsPanel";
@@ -28,13 +36,54 @@ export function Project() {
   const { binder, title, error, run } = useBinder(projectId);
   const { settings, update } = useSettings();
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [expandedIds, setExpandedIds] = useState<ReadonlySet<string>>(new Set());
+  // Seeded from storage so the tree opens the way the author left it rather than
+  // folded shut. The initializer only runs once, so a change of project is handled
+  // by the effect below, not by this.
+  const [expandedIds, setExpandedIds] = useState<ReadonlySet<string>>(
+    () => new Set(readExpandedIds(safeStorage(), projectId)),
+  );
   const [renaming, setRenaming] = useState(false);
+
+  // The same route component serves every project, so switching projects re-reads
+  // this project's remembered state instead of carrying the previous one's across.
+  useEffect(() => {
+    setSelectedId(null);
+    setExpandedIds(new Set(readExpandedIds(safeStorage(), projectId)));
+  }, [projectId]);
+
+  // Expansion is device-only view state: written whenever it changes, keyed by
+  // project, and never synced. Writing in an effect keeps the state updaters pure.
+  useEffect(() => {
+    writeExpandedIds(safeStorage(), projectId, expandedIds);
+  }, [projectId, expandedIds]);
 
   const nodes = binder?.roots ?? [];
   const selected = flatten(nodes).find((node) => node.id === selectedId) ?? null;
   // A document is a leaf, so new items go beside it rather than inside it.
   const parentForNew = selected === null ? null : selected.type === "folder" ? selected.id : selected.parentId;
+
+  // Once the binder has loaded, return the author to the document they were last
+  // reading, with its folders opened on the way down. A stale id — the document was
+  // trashed on another device — selects nothing rather than failing.
+  useEffect(() => {
+    if (binder === null || selectedId !== null) return;
+    const lastId = readLastDocumentId(safeStorage(), projectId);
+    if (lastId === null) return;
+    const last = flatten(binder.roots).find((node) => node.id === lastId);
+    if (!last || last.type !== "document") return;
+    setSelectedId(lastId);
+    setExpandedIds((current) => {
+      const next = new Set(current);
+      for (const id of ancestorIds(binder.roots, lastId)) next.add(id);
+      return next;
+    });
+  }, [binder, projectId, selectedId]);
+
+  const select = (id: string) => {
+    setSelectedId(id);
+    const node = flatten(nodes).find((candidate) => candidate.id === id);
+    if (node?.type === "document") writeLastDocumentId(safeStorage(), projectId, id);
+  };
 
   const toggle = (id: string) =>
     setExpandedIds((current) => {
@@ -134,13 +183,13 @@ export function Project() {
       <div className={`project__panes${collapsed ? " project__panes--collapsed" : ""}`}>
         {!collapsed && (
           <div className="project__binder">
-            <SearchPanel projectId={projectId} onOpen={setSelectedId} />
+            <SearchPanel projectId={projectId} onOpen={select} />
             <div className="project__binder-scroll">
               <BinderTree
                 label="Binder"
                 nodes={nodes}
                 selectedId={selectedId}
-                onSelect={setSelectedId}
+                onSelect={select}
                 expandedIds={expandedIds}
                 onToggle={toggle}
                 emptyMessage="This binder is empty. Start with a folder or a document."
