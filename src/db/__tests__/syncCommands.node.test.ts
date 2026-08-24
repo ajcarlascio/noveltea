@@ -84,6 +84,45 @@ describe("applyPull", () => {
     expect(JSON.parse(queuedMove!.payload!)).toMatchObject({ order_key: moved.order_key });
   });
 
+  it("re-queues a displaced never-acknowledged item as a create, not an update", () => {
+    // The C1 loss chain: a local create push lost the order_key race and was rejected
+    // INVALID_REQUEST, so the client cleared its pending row. The item now exists only
+    // here, version still 1, no pending change. A pull then displaces it off the key.
+    // If the re-queue were an update the server would answer ENTITY_MISSING, the client
+    // would clear it, and the item would vanish on the next resync. It must come back
+    // as a create so the server accepts it.
+    const mine = COMMANDS.createBinderItem(db.adapter, {
+      projectId,
+      parentId: null,
+      type: "folder",
+      title: "Mine",
+    });
+    const key = db.adapter.query<{ order_key: string }>(
+      "SELECT order_key FROM binder_item WHERE id = ?;",
+      [mine.id],
+    )[0]!.order_key;
+
+    // Simulate the rejected-and-cleared create push.
+    db.adapter.run("DELETE FROM pending_change WHERE entity_id = ?;", [mine.id]);
+
+    COMMANDS.applyPull(db.adapter, {
+      projectId,
+      changes: [binderChange(7, "theirs", { order_key: key, title: "Theirs" })],
+      latestId: 7,
+      syncEpoch: 1,
+    });
+
+    const requeued = queued().find((row) => row.entity_id === mine.id);
+    expect(requeued).toBeDefined();
+    expect(requeued!.op).toBe("create");
+    expect(requeued!.base_version).toBeNull();
+    expect(JSON.parse(requeued!.payload!)).toMatchObject({
+      id: mine.id,
+      type: "folder",
+      title: "Mine",
+    });
+  });
+
   it("inserts a row the client has never seen", () => {
     const result = COMMANDS.applyPull(db.adapter, {
       projectId,

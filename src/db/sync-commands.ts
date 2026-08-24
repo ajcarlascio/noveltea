@@ -117,6 +117,48 @@ function displaceLocalSibling(
   )[0];
 
   const moved = between(last?.order_key ?? null, null);
+
+  // A row the server has never acknowledged must stay a create. The normal trigger
+  // for reaching this branch with such a row: its create push lost the order_key race
+  // to another device and was rejected INVALID_REQUEST, and the client cleared that
+  // pending row. Enqueueing an update here comes back ENTITY_MISSING — also cleared —
+  // and the item then exists only on this device until a resync erases it. Re-creating
+  // with the fresh key is accepted and the item survives. Rows the server already has
+  // keep the cheaper update path.
+  const hasPending = db.query<{ n: number }>(
+    "SELECT COUNT(*) AS n FROM pending_change WHERE entity_type = 'binder_item' AND entity_id = ?;",
+    [holder.id],
+  )[0];
+  const neverAcknowledged = holder.version === 1 || (hasPending?.n ?? 0) > 0;
+
+  if (neverAcknowledged) {
+    const full = db.query<{ title: string; type: string }>(
+      "SELECT title, type FROM binder_item WHERE id = ?;",
+      [holder.id],
+    )[0];
+    db.run("UPDATE binder_item SET order_key = ?, updated_at = ? WHERE id = ?;", [
+      moved,
+      now,
+      holder.id,
+    ]);
+    enqueueChange(db, {
+      projectId,
+      entityType: "binder_item",
+      entityId: holder.id,
+      op: "create",
+      payload: {
+        id: holder.id,
+        type: full?.type ?? "document",
+        title: full?.title ?? "",
+        parent_id: parentId,
+        order_key: moved,
+        updated_at: now,
+      },
+      baseVersion: null,
+    });
+    return;
+  }
+
   db.run("UPDATE binder_item SET order_key = ?, updated_at = ? WHERE id = ?;", [
     moved,
     now,
