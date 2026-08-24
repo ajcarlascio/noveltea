@@ -54,8 +54,10 @@
 }
 
 /* One label is shown, the other is not; the accessible name comes from aria-label
-   and does not change with the viewport. */
-.button__short {
+   and does not change with the viewport. The icon is hidden until a narrow screen
+   asks for it, and only on buttons that actually have one. */
+.button__short,
+.button__icon {
   display: none;
 }
 
@@ -74,6 +76,18 @@
 
   .button__short {
     display: inline;
+  }
+
+  /* A button with an icon drops even the short word on a phone: the glyph is
+     narrower than any label, which is what keeps the toolbar on one row. */
+  .button--icon .button__short {
+    display: none;
+  }
+
+  .button--icon .button__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
 
   /* Invisible, and 6px past the button on each edge: 36 + 12 = 48, comfortably

@@ -13,6 +13,14 @@ import {
 } from "@/data/binder";
 import { BinderTree } from "@/features/binder/BinderTree";
 import {
+  ArrowToTopIcon,
+  DocumentPlusIcon,
+  FolderPlusIcon,
+  PanelIcon,
+  PencilIcon,
+  TrashIcon,
+} from "@/features/binder/icons";
+import {
   ancestorIds,
   readExpandedIds,
   readLastDocumentId,
@@ -119,11 +127,13 @@ export function Project() {
         <ToolbarButton
           label={collapsed ? "Show binder" : "Hide binder"}
           short={collapsed ? "Binder" : "Hide"}
+          icon={<PanelIcon />}
           onClick={toggleBinder}
         />
         <ToolbarButton
           label="New folder"
           short="Folder"
+          icon={<FolderPlusIcon />}
           onClick={() =>
             void run(async (db) => {
               await createFolder(db, projectId, parentForNew, "New folder");
@@ -134,6 +144,7 @@ export function Project() {
         <ToolbarButton
           label="New document"
           short="Document"
+          icon={<DocumentPlusIcon />}
           onClick={() =>
             void run(async (db) => {
               await createDocument(db, projectId, parentForNew, "Untitled");
@@ -143,12 +154,14 @@ export function Project() {
         />
         <ToolbarButton
           label="Rename"
+          icon={<PencilIcon />}
           disabled={selected === null}
           onClick={() => setRenaming(true)}
         />
         <ToolbarButton
           label="Move to trash"
           short="Trash"
+          icon={<TrashIcon />}
           disabled={selected === null}
           onClick={() =>
             void run(async (db) => {
@@ -160,6 +173,7 @@ export function Project() {
         <ToolbarButton
           label="Move to top level"
           short="To top"
+          icon={<ArrowToTopIcon />}
           disabled={selected === null || selected.parentId === null}
           onClick={() =>
             void run(async (db) => {

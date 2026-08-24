@@ -7,10 +7,16 @@ import type { ReactNode } from "react";
  * screen reader and a test both hear "Move to trash" whatever the screen is doing.
  * Only the visible text changes, which is what keeps five actions inside two rows on
  * a phone without abbreviating them for everyone.
+ *
+ * With an `icon`, a phone shows the icon instead of even the short word: six
+ * one-word buttons still wrap, and a glyph is narrower than any of them. The icon
+ * is decoration — `aria-hidden`, never the accessible name — so it must only ever
+ * stand in for a label that is still spoken in full.
  */
 export function ToolbarButton({
   label,
   short,
+  icon,
   onClick,
   disabled,
   variant,
@@ -18,6 +24,8 @@ export function ToolbarButton({
   label: string;
   /** Shown instead of `label` on narrow screens. Defaults to `label`. */
   short?: string;
+  /** Shown instead of both labels on narrow screens, when present. */
+  icon?: ReactNode;
   onClick: () => void;
   disabled?: boolean;
   variant?: "danger";
@@ -25,7 +33,11 @@ export function ToolbarButton({
   return (
     <button
       type="button"
-      className={variant === "danger" ? "button button--danger" : "button"}
+      className={
+        variant === "danger"
+          ? `button button--danger${icon ? " button--icon" : ""}`
+          : `button${icon ? " button--icon" : ""}`
+      }
       aria-label={label}
       disabled={disabled ?? false}
       onClick={onClick}
@@ -34,6 +46,11 @@ export function ToolbarButton({
       <span className="button__short" aria-hidden="true">
         {short ?? label}
       </span>
+      {icon !== undefined && (
+        <span className="button__icon" aria-hidden="true">
+          {icon}
+        </span>
+      )}
     </button>
   );
 }
