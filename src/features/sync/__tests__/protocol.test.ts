@@ -31,6 +31,8 @@ describe("parsePullResponse", () => {
       latestId: 3,
     });
     expect(parsed.changes.map((c) => c.entityId)).toEqual(["b3"]);
+    // The cursor moves past dropped rows, so the skip must be visible, not silent.
+    expect(parsed.dropped).toBe(4);
   });
 
   it("treats a non-object data field as absent rather than passing it through", () => {

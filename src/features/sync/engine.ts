@@ -21,6 +21,8 @@ export interface SyncOutcome {
   conflicts: ConflictRecord[];
   /** Entity types the server sent that this client's schema has no table for. */
   skipped: string[];
+  /** Feed rows the server sent that could not be parsed and were skipped. */
+  dropped: number;
   resynced: boolean;
 }
 
@@ -54,7 +56,7 @@ export async function syncProject(
   { db, auth, maxPages = 100, pageSize = 200 }: SyncDeps,
   projectId: string,
 ): Promise<SyncOutcome> {
-  const outcome: SyncOutcome = { pulled: 0, pushed: 0, conflicts: [], skipped: [], resynced: false };
+  const outcome: SyncOutcome = { pulled: 0, pushed: 0, conflicts: [], skipped: [], dropped: 0, resynced: false };
 
   try {
     const state = await db.command("syncState", { projectId });
@@ -101,6 +103,7 @@ export async function syncProject(
         syncEpoch: pull.syncEpoch,
       });
       outcome.pulled += applied.applied;
+      outcome.dropped += pull.dropped;
       for (const type of applied.skipped) {
         if (!outcome.skipped.includes(type)) outcome.skipped.push(type);
       }

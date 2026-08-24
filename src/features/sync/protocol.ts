@@ -21,6 +21,8 @@ export interface PullResponse {
   hasMore: boolean;
   resyncRequired: boolean;
   syncEpoch: number;
+  /** Rows the server sent that this client could not parse and had to skip. */
+  dropped: number;
 }
 
 export interface ChangeRequest {
@@ -78,11 +80,21 @@ export function parsePullResponse(raw: unknown): PullResponse {
   if (!isRecord(raw)) throw new Error("The server's sync response was not an object.");
 
   const changes: ChangeRecord[] = [];
+  let dropped = 0;
   const rows = Array.isArray(raw.changes) ? raw.changes : [];
   for (const row of rows) {
-    if (!isRecord(row)) continue;
-    if (typeof row.id !== "number" || typeof row.entityId !== "string") continue;
-    if (typeof row.entityType !== "string" || typeof row.op !== "string") continue;
+    if (!isRecord(row)) {
+      dropped += 1;
+      continue;
+    }
+    if (typeof row.id !== "number" || typeof row.entityId !== "string") {
+      dropped += 1;
+      continue;
+    }
+    if (typeof row.entityType !== "string" || typeof row.op !== "string") {
+      dropped += 1;
+      continue;
+    }
     changes.push({
       id: row.id,
       entityType: row.entityType,
@@ -99,6 +111,7 @@ export function parsePullResponse(raw: unknown): PullResponse {
     hasMore: raw.hasMore === true,
     resyncRequired: raw.resyncRequired === true,
     syncEpoch: typeof raw.syncEpoch === "number" ? raw.syncEpoch : 1,
+    dropped,
   };
 }
 

@@ -14,6 +14,8 @@ export interface SyncStatus {
   lastError: string | null;
   running: boolean;
   conflicts: SyncOutcome["conflicts"];
+  /** Feed rows the server sent that this client could not parse and had to skip. */
+  dropped: number;
   /** False when there is no account, so nothing can sync at all. */
   possible: boolean;
   /** What the platform will say about the connection, which is often nothing. */
@@ -40,6 +42,7 @@ export function useSync(projectId: string): SyncStatus {
   const [status, setStatus] = useState({ lastSyncedAt: null as string | null, pending: 0, lastError: null as string | null });
   const [running, setRunning] = useState(false);
   const [conflicts, setConflicts] = useState<SyncOutcome["conflicts"]>([]);
+  const [dropped, setDropped] = useState(0);
 
   const refresh = useCallback(async () => {
     const state = await db.command("syncState", { projectId });
@@ -66,6 +69,7 @@ export function useSync(projectId: string): SyncStatus {
     try {
       const outcome = await syncProject({ db, auth: authenticator }, projectId);
       setConflicts(outcome.conflicts);
+      setDropped(outcome.dropped);
     } finally {
       setRunning(false);
       await refresh();
@@ -101,6 +105,7 @@ export function useSync(projectId: string): SyncStatus {
     ...status,
     running,
     conflicts,
+    dropped,
     possible: authenticator !== null,
     metering,
     heldForWifi: settings.syncOnWifiOnly && !mayAutoSync(settings.syncOnWifiOnly, metering),
