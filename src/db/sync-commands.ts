@@ -194,6 +194,17 @@ export const SYNC_COMMANDS = {
         skipped.add(change.entityType);
         continue;
       }
+
+      // A server change must not replace work that has not reached the server yet.
+      // Leaving the old version in place makes the next push use its remembered
+      // baseVersion and lets the server create the conflict copy when necessary.
+      const hasPending = db.query<{ n: number }>(
+        `SELECT COUNT(*) AS n FROM pending_change
+          WHERE project_id = ? AND entity_type = ? AND entity_id = ?;`,
+        [input.projectId, change.entityType, change.entityId],
+      )[0]?.n ?? 0;
+      if (hasPending > 0) continue;
+
       const columns = columnsOf(db, table);
 
       if (change.op === "delete") {

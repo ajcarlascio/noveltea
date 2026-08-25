@@ -40,6 +40,15 @@
 .font-chooser__option[data-font-preview="merriweather"] span {
   font-family: "Merriweather Variable", Merriweather, Georgia, serif;
 }
+.font-chooser__option[data-font-preview="eb-garamond"] span {
+  font-family: "EB Garamond Variable", "EB Garamond", Garamond, Georgia, serif;
+}
+.font-chooser__option[data-font-preview="lora"] span {
+  font-family: "Lora Variable", Lora, Georgia, serif;
+}
+.font-chooser__option[data-font-preview="atkinson"] span {
+  font-family: "Atkinson Hyperlegible", system-ui, -apple-system, sans-serif;
+}
 .font-chooser__option[data-font-preview="georgia"] span {
   font-family: Georgia, "Iowan Old Style", serif;
 }

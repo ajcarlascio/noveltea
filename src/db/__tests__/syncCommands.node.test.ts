@@ -151,6 +151,27 @@ describe("applyPull", () => {
     ]);
   });
 
+  it("does not overwrite an entity with a pending local change", () => {
+    const local = COMMANDS.createBinderItem(db.adapter, {
+      projectId,
+      parentId: null,
+      type: "folder",
+      title: "Local title",
+    });
+
+    COMMANDS.applyPull(db.adapter, {
+      projectId,
+      changes: [binderChange(7, local.id, { title: "Remote title" })],
+      latestId: 7,
+      syncEpoch: 1,
+    });
+
+    expect(db.adapter.query("SELECT title FROM binder_item WHERE id = ?;", [local.id])).toEqual([
+      { title: "Local title" },
+    ]);
+    expect(queued().find((row) => row.entity_id === local.id)).toBeDefined();
+  });
+
   it("advances the cursor and the epoch together with the rows", () => {
     // A cursor that moves without its rows skips them permanently; rows applied
     // without the cursor moving arrive twice.

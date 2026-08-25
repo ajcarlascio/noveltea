@@ -79,6 +79,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export function parsePullResponse(raw: unknown): PullResponse {
   if (!isRecord(raw)) throw new Error("The server's sync response was not an object.");
 
+  if (
+    typeof raw.latestId !== "number" ||
+    !Number.isInteger(raw.latestId) ||
+    raw.latestId < 0
+  ) {
+    throw new Error("The server's sync response had no valid latestId.");
+  }
+
   const changes: ChangeRecord[] = [];
   let dropped = 0;
   const rows = Array.isArray(raw.changes) ? raw.changes : [];
@@ -104,7 +112,7 @@ export function parsePullResponse(raw: unknown): PullResponse {
     });
   }
 
-  const latestId = typeof raw.latestId === "number" ? raw.latestId : 0;
+  const latestId = raw.latestId;
   return {
     changes,
     latestId,
