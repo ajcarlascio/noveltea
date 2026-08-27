@@ -50,6 +50,11 @@ async function addCollection(page: Page, name: string, kind: "list" | "search") 
 /** The titles the binder pane is showing, whichever view it is in. */
 const showing = (page: Page) => page.getByRole("list", { name: "Marlowe" }).getByRole("button");
 
+// `{ exact: true }` on the "Words" field below is load-bearing. The word-targets panel
+// on the same page has "Words a day" and "Words in the finished manuscript", and a
+// substring match finds all three. Each name is distinct and descriptive; it was the
+// locator that was loose.
+
 test("a saved search finds every scene a name appears in, with no server", async ({ page }) => {
   await newProject(page);
   await writeScene(page, "The kerb", "Marlowe put the car in gear and drove north.");
@@ -57,7 +62,7 @@ test("a saved search finds every scene a name appears in, with no server", async
 
   await openPanel(page);
   await addCollection(page, "Marlowe", "search");
-  await page.getByLabel("Words").fill("marlowe");
+  await page.getByLabel("Words", { exact: true }).fill("marlowe");
   // Saved on leaving the field, so the blur is the write.
   await page.getByLabel("New collection").click();
   await openPanel(page);
@@ -72,7 +77,7 @@ test("A SAVED SEARCH FOLLOWS THE PROSE, WITH NO REFRESH", async ({ page }) => {
 
   await openPanel(page);
   await addCollection(page, "Marlowe", "search");
-  await page.getByLabel("Words").fill("marlowe");
+  await page.getByLabel("Words", { exact: true }).fill("marlowe");
   await page.getByLabel("New collection").click();
   await openPanel(page);
 
@@ -119,7 +124,7 @@ test("a list is not offered a saved search's members", async ({ page }) => {
   // A saved search collects its own members, so there is nothing to add by hand and
   // the button that would do it is not offered.
   await expect(page.getByRole("button", { name: "Add The kerb" })).toHaveCount(0);
-  await expect(page.getByLabel("Words")).toBeVisible();
+  await expect(page.getByLabel("Words", { exact: true })).toBeVisible();
 });
 
 test("deleting a collection puts the binder back", async ({ page }) => {

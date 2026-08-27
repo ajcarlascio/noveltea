@@ -530,6 +530,58 @@ export const COMMANDS = {
     }
     return { deleted: ids.size };
   },
+  /**
+   * Merges a patch into `project.settings`.
+   *
+   * Nothing is queued, and that is not an oversight: `pending_change` has no `project`
+   * entity type, because the sync endpoint is scoped by a project id in its path and so
+   * cannot carry a change to the project row itself. Word targets are therefore
+   * per-replica until the client learns to PATCH `/projects/{id}` directly — the same
+   * gap project creation has, and worth knowing before promising an author their target
+   * follows them to another machine.
+   *
+   * Merged rather than replaced. The column is a shared bag: a future build may keep
+   * compile defaults in it, and writing the whole object would delete whatever this
+   * version does not know about. That is the opposite of the rule for a collection's
+   * query, where an unknown key is dropped — there, keeping it would claim a condition
+   * this build cannot apply; here, dropping it destroys another client's configuration.
+   */
+  saveProjectSettings: (
+    db: SqliteAdapter,
+    input: { projectId: string; patch: Record<string, unknown> },
+  ): { settings: Record<string, unknown> } => {
+    const row = db.query<{ settings: string }>("SELECT settings FROM project WHERE id = ?;", [
+      input.projectId,
+    ])[0];
+    if (!row) throw new Error("That project is not on this device.");
+
+    let current: Record<string, unknown> = {};
+    try {
+      const parsed: unknown = JSON.parse(row.settings);
+      if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+        current = parsed as Record<string, unknown>;
+      }
+    } catch {
+      // A CHECK keeps malformed JSON out, so this is a value of another shape. Starting
+      // from empty loses less than refusing to save anything ever again.
+    }
+
+    const next = { ...current };
+    for (const [key, value] of Object.entries(input.patch)) {
+      // Null removes the key rather than storing a null, so "no target" is the absence
+      // of a target and every reader agrees about it without a special case.
+      if (value === null) delete next[key];
+      else next[key] = value;
+    }
+
+    db.run("UPDATE project SET settings = ?, updated_at = ? WHERE id = ?;", [
+      JSON.stringify(next),
+      now(),
+      input.projectId,
+    ]);
+    return { settings: next };
+  },
+
   ...COMMENT_COMMANDS,
   ...SNAPSHOT_COMMANDS,
   ...SYNC_COMMANDS,

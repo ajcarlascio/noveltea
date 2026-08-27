@@ -133,9 +133,33 @@ test("gives every control in the collections panel a target a finger can hit", a
   await page.getByLabel("New collection").fill("Marlowe");
   await page.getByLabel("Kind", { exact: true }).first().selectOption("search");
   await page.getByRole("button", { name: "Add", exact: true }).click();
-  await expect(page.getByLabel("Words")).toBeVisible();
+  await expect(page.getByLabel("Words", { exact: true })).toBeVisible();
 
   expect(await unhittableControls(page)).toEqual([]);
+});
+
+test("gives every control in the word targets panel a target a finger can hit", async ({
+  page,
+}) => {
+  // Folded away by default, so the check above skips it. Two number fields and their
+  // labels, which are flex items and so pick up the global 44px floor — asserted
+  // rather than assumed, because `min-height` is ignored on an inline box and that is
+  // one CSS change away.
+  await page.goto("/projects");
+  await expect(page.locator("html")).toHaveAttribute("data-db-status", "ready", { timeout: 30_000 });
+  await page.getByRole("button", { name: "New project" }).click();
+  await page.getByRole("link", { name: "Untitled project" }).first().click();
+
+  await page.getByText("Word targets", { exact: true }).click();
+  const daily = page.getByLabel("Words a day");
+  await expect(daily).toBeVisible();
+  await daily.scrollIntoViewIfNeeded();
+
+  expect(await unhittableControls(page)).toEqual([]);
+  for (const text of ["Words a day", "Words in the finished manuscript"]) {
+    const box = await page.getByText(text, { exact: true }).boundingBox();
+    expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+  }
 });
 
 test("gives every control in the custom fields panel a target a finger can hit", async ({

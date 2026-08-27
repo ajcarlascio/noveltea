@@ -567,6 +567,34 @@ into it. The table syncs, so a format set up on one machine is on the other.
   name; `created_at` ties at millisecond resolution and then falls back to a random uuid,
   which reshuffles the picker between renders.
 
+## Word targets
+
+`project.settings` is the column the schema set aside for "compile defaults, word count
+targets". The two targets live there; today's tally is worked out on the device.
+
+- **Nothing about a project syncs.** `pending_change` has no `project` entity type — the
+  sync endpoint is scoped by a project id in its path, so it cannot carry a change to the
+  project row. A target is therefore per replica until the client learns to `PATCH
+  /projects/{id}` directly, which is the same gap project creation has. Say so in the
+  interface rather than letting an author find out on their second machine.
+- **Merge into `settings`, never replace it.** The column is a shared bag: writing the
+  whole object deletes whatever this build does not know about. This is the *opposite* of
+  the rule for a collection's `query`, where an unknown key is dropped — there, keeping it
+  would claim a condition this build cannot apply; here, dropping it destroys another
+  client's configuration.
+- **Clearing a target removes the key.** "No target" is the absence of one, so every
+  reader agrees without a special case for zero or null.
+- **Today is a baseline, not an event log.** Store the word count as the day began and
+  subtract; the difference then cannot drift out of step with the manuscript, and deleting
+  a chapter takes the number down, which is the truth. Reset the baseline when the count
+  falls below it, or emptying the trash makes every number for the rest of the day
+  negative.
+- **Use the author's local date**, never UTC. Someone writing at one in the morning is
+  still on tonight's session.
+- **Count with the recursive trash walk** ([[DISCARDED]] in `data/binder.ts`), not a
+  `parent_id` check. Trashing reparents one item, so a discarded folder's scenes still
+  point at the folder — and a motivational number must never be wrong upwards.
+
 ## Custom metadata
 
 Author-defined fields per project, and one value per binder item per field. This is what
