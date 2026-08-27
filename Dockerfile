@@ -8,7 +8,13 @@
 # compile package are npm workspaces pointing into it, and without them nothing resolves.
 # `git clone --recurse-submodules`, or `git submodule update --init` in an existing clone.
 
-FROM node:24-alpine AS build
+# Pinned to the BUILD platform, not the target. The output of this stage is a static
+# bundle — the same bytes whatever the image will run on — so building it once natively
+# is not an optimisation, it is the difference between working and not: multi-arch
+# publishes emulate the arm64 leg with QEMU, and Node's JIT under qemu-aarch64 dies
+# intermittently with "uncaught target signal 4 (Illegal instruction)". That took out a
+# push to main whose code was fine.
+FROM --platform=$BUILDPLATFORM node:24-alpine AS build
 WORKDIR /src
 
 # devDependencies are needed here, unlike the worker: the build runs tsc, and the
