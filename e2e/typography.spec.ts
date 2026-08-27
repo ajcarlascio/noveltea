@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { writeManuscript } from "./support/manuscript";
 
 /**
  * Typography, in a real browser: the choices an author makes about how their own
@@ -71,9 +72,7 @@ test("changes the size of the manuscript and the column together", async ({ page
 
 test("PAGE COUNT DOES NOT MOVE WHEN THE READING SIZE DOES", async ({ page }) => {
   await openDocument(page);
-  const surface = page.getByRole("textbox", { name: "Manuscript" });
-  await surface.click({ position: { x: 12, y: 12 } });
-  await surface.fill("word ".repeat(300));
+  await writeManuscript(page, "word ".repeat(300));
   await expect(page.getByText(/2 pages/)).toBeVisible({ timeout: 10_000 });
 
   await visitSettings(page, async () => {

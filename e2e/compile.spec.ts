@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { writeManuscript } from "./support/manuscript";
 
 /**
  * Compile: what will be exported, where it goes, and what this edition cannot do.
@@ -62,9 +63,7 @@ async function openProject(page: Page) {
 async function writeChapter(page: Page, text: string) {
   await page.getByRole("button", { name: "New document" }).click();
   await page.getByRole("treeitem").last().click();
-  const surface = page.getByRole("textbox", { name: "Manuscript" });
-  await surface.click({ position: { x: 12, y: 12 } });
-  await surface.fill(text);
+  await writeManuscript(page, text);
   await expect(page.getByText("Saved", { exact: true })).toBeVisible({ timeout: 10_000 });
 }
 

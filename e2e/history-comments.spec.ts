@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { writeManuscript } from "./support/manuscript";
 
 /**
  * Revision history and margin comments, in a real browser.
@@ -23,24 +24,15 @@ async function openDocument(page: Page) {
 }
 
 /**
- * Replaces the manuscript with `text`.
+ * Replaces the manuscript with `text` and waits for it to be saved.
  *
- * The emptiness check is not ceremony. Select-all through `page.keyboard` did not
- * reach the contenteditable once focus had been in a panel, so the new prose was
- * appended to the old — which quietly made an orphaning test pass for the wrong
- * reason, the quotation still being right there.
+ * The replacement itself is `writeManuscript`, which every spec that rewrites a
+ * document shares — see the note there for why it is retried. The wait is this
+ * file's own: an orphaning test that silently appended instead of replacing passed
+ * for the wrong reason, the quotation still being right there.
  */
 async function write(page: Page, text: string) {
-  const surface = page.getByRole("textbox", { name: "Manuscript" });
-  // `fill`, not select-all-then-type. ProseMirror's Mod-A binding needs the editor to
-  // already hold focus and does not have it after typing in a side panel, and
-  // triple-click selects the paragraph on Chromium but not dependably on WebKit.
-  // `fill` clears the contenteditable itself, whatever the engine.
-  // Clicked near the top, not at the element's centre: the surface is taller than its
-  // scroller, so its midpoint can sit behind a panel and the click lands there.
-  await surface.click({ position: { x: 12, y: 12 } });
-  await surface.fill(text);
-  await expect(surface).toHaveText(text);
+  await writeManuscript(page, text);
   // The editor's own status, not any text reading "Saved": the history list carries
   // an "Autosaved" label and getByText matches substrings inside hidden details too.
   await expect(page.locator('[data-state="clean"]')).toBeVisible({ timeout: 10_000 });
