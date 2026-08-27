@@ -81,12 +81,44 @@ describe("formats", () => {
 });
 
 describe("submitting", () => {
-  it("posts the format and destination and returns the job id", async () => {
-    const { auth, calls } = fakeAuth(() => ok({ id: "job-1" }));
+  it("reads the job id out of the key the submit route actually answers with", async () => {
+    // The server returns `{"jobId": ...}` here and `{"id": ...}` from every other route
+    // on a job. Reading only `id` — which this did — meant a real server was always
+    // answered with "did not say which job it started", while a fixture written from
+    // the client agreed with the client and the tests stayed green.
+    const { auth } = fakeAuth(() => ok({ jobId: "job-1" }));
     await expect(submit(auth, "p1", "md", "download")).resolves.toBe("job-1");
 
+    const other = fakeAuth(() => ok({ id: "job-2" }));
+    await expect(submit(other.auth, "p1", "md", "download")).resolves.toBe("job-2");
+  });
+
+  it("posts an empty inline config when no preset was chosen", async () => {
+    // A submission carrying neither is refused outright: "a compile needs a preset_id
+    // or an inline config". An empty object is the honest value for "no configuration".
+    const { auth, calls } = fakeAuth(() => ok({ jobId: "job-1" }));
+    await submit(auth, "p1", "md", "download");
+
     expect(calls[0]!.path).toBe("/api/v1/projects/p1/compile");
-    expect(bodyOf(calls[0]!.init)).toEqual({ format: "md", destination: "download" });
+    expect(bodyOf(calls[0]!.init)).toEqual({
+      format: "md",
+      destination: "download",
+      inlineConfig: {},
+    });
+  });
+
+  it("posts the preset id instead when there is one", async () => {
+    // The preset is what the compile worker reads the selection from — it loads
+    // `included_binder_items` off the row and compiles only those. Sending an inline
+    // config alongside would be sending something nothing reads.
+    const { auth, calls } = fakeAuth(() => ok({ jobId: "job-1" }));
+    await submit(auth, "p1", "html", "download", "preset-1");
+
+    expect(bodyOf(calls[0]!.init)).toEqual({
+      format: "html",
+      destination: "download",
+      presetId: "preset-1",
+    });
   });
 
   it("explains a commercial format as an upgrade, not a fault", async () => {

@@ -4,11 +4,13 @@
   border-top: 1px solid var(--border);
 }
 
-.compile--muted {
-  margin: var(--space-6) 0 0;
-  padding-top: var(--space-4);
-  border-top: 1px solid var(--border);
+/* Said under the controls rather than in place of them: presets and the pre-flight
+   are local work an author can do with no server, so signing out must not take the
+   panel away — only the button that needs one. */
+.compile__muted {
+  margin: var(--space-3) 0 0;
   color: var(--text-muted);
+  font-size: 0.85rem;
 }
 
 .compile__heading {
@@ -77,4 +79,80 @@
   font-size: 0.8rem;
   line-height: 1.45;
   max-width: 42ch;
+}
+
+/* -- presets ---------------------------------------------------------------------- */
+
+.compile__presets {
+  margin-top: var(--space-3);
+}
+
+.compile__selection > summary {
+  padding: var(--space-1) 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+/* Capped and scrolled: a novel is hundreds of items, and a list that long would put
+   the Compile button an entire manuscript below the thing it acts on. */
+.compile__items {
+  max-height: 14rem;
+  margin: var(--space-2) 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.compile__item {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+@media (pointer: fine) {
+  .compile__item {
+    min-height: 1.75rem;
+  }
+}
+
+.compile__item:hover {
+  background: var(--surface-sunken);
+}
+
+.compile__preset-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: end;
+  margin-top: var(--space-3);
+}
+
+.compile__field--name {
+  flex: 1 1 10rem;
+}
+
+.compile__field--name input {
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-page);
+  color: inherit;
+  font: inherit;
+}
+
+@media (max-width: 52rem) {
+  /* Tapping the word focuses the control, so the word is a control, and holds to the
+     same 44px floor as everything else on a phone. Only the standalone labels: the
+     ones wrapping their own field already inherit the field's height. */
+  .compile__label label {
+    display: inline-flex;
+    min-height: 44px;
+    align-items: center;
+  }
 }

@@ -17,7 +17,7 @@ export interface CompileState {
   busy: boolean;
   /** False without an account: the export pipeline is not on the device. */
   possible: boolean;
-  compile: (format: string, destination: string) => void;
+  compile: (format: string, destination: string, presetId: string | null) => void;
   download: () => void;
 }
 
@@ -93,14 +93,14 @@ export function useCompile(projectId: string): CompileState {
   );
 
   const compile = useCallback(
-    (format: string, destination: string) => {
+    (format: string, destination: string, presetId: string | null) => {
       if (!authenticator) return;
       stopPolling();
       setError(null);
       setJob(null);
       setBusy(true);
 
-      void submit(authenticator, projectId, format, destination).then(
+      void submit(authenticator, projectId, format, destination, presetId).then(
         (jobId) => {
           setJob({
             id: jobId, format, destination, status: "queued",

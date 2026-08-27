@@ -54,7 +54,7 @@ import "./Project.css";
 
 export function Project() {
   const { projectId = "" } = useParams();
-  const { binder, taxonomy, collections, title, error, run } = useBinder(projectId);
+  const { binder, taxonomy, collections, presets, title, error, run } = useBinder(projectId);
   const { settings, update } = useSettings();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Seeded from storage so the tree opens the way the author left it rather than
@@ -428,7 +428,12 @@ export function Project() {
           manuscript is not, and they were taking permanent height from it. */}
       <details className="project__footer">
         <summary>Compile and trash</summary>
-        <CompilePanel projectId={projectId} />
+        <CompilePanel
+          projectId={projectId}
+          presets={presets}
+          items={flatten(nodes)}
+          run={run}
+        />
 
         <h2 className="project__trash-heading">Trash</h2>
         {binder !== null && binder.trash.length === 0 ? (

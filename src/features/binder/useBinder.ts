@@ -3,6 +3,7 @@ import { useDatabase } from "@/app/db/DatabaseContext";
 import { loadBinder, type Binder } from "@/data/binder";
 import { EMPTY_TAXONOMY, loadTaxonomy, type Taxonomy } from "@/data/taxonomy";
 import { loadCollections, type Collection } from "@/data/collections";
+import { loadCompilePresets, type CompilePreset } from "@/data/compile-presets";
 import type { DatabaseClient } from "@/db/client";
 
 export interface UseBinder {
@@ -18,6 +19,8 @@ export interface UseBinder {
   taxonomy: Taxonomy;
   /** The project's saved and smart collections, read on the same pass as the tree. */
   collections: Collection[];
+  /** The project's compile presets, read on the same pass for the same reason. */
+  presets: CompilePreset[];
   /** The project's own title, for the page heading. Null until it loads. */
   title: string | null;
   error: string | null;
@@ -32,6 +35,7 @@ export function useBinder(projectId: string): UseBinder {
   const [binder, setBinder] = useState<Binder | null>(null);
   const [taxonomy, setTaxonomy] = useState<Taxonomy>(EMPTY_TAXONOMY);
   const [collections, setCollections] = useState<Collection[]>([]);
+  const [presets, setPresets] = useState<CompilePreset[]>([]);
   const [title, setTitle] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -43,16 +47,18 @@ export function useBinder(projectId: string): UseBinder {
 
   const reload = useCallback(async () => {
     try {
-      const [next, terms, saved, rows] = await Promise.all([
+      const [next, terms, saved, exports, rows] = await Promise.all([
         loadBinder(db, projectId),
         loadTaxonomy(db, projectId),
         loadCollections(db, projectId),
+        loadCompilePresets(db, projectId),
         db.query<{ title: string }>("SELECT title FROM project WHERE id = ?", [projectId]),
       ]);
       if (active.current !== projectId) return;
       setBinder(next);
       setTaxonomy(terms);
       setCollections(saved);
+      setPresets(exports);
       setTitle(rows[0]?.title ?? null);
       setError(null);
     } catch (cause) {
@@ -91,7 +97,7 @@ export function useBinder(projectId: string): UseBinder {
     [db, reload],
   );
 
-  return { binder, taxonomy, collections, title, error, db, run, reload };
+  return { binder, taxonomy, collections, presets, title, error, db, run, reload };
 }
 
 function message(cause: unknown): string {
