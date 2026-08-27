@@ -372,6 +372,32 @@ term pushes and pulls on the ordinary path. (The server's `CLAUDE.md` still says
 authority.) The spec requires `name` and `order_key` on create, which is what the commands
 here send.
 
+## Custom fields
+
+The questions an author decides to ask of their binder — "Age", "Eyes", "First appears" —
+and every folder and document can answer them. Fields are defined once per project and
+their answers are per item; both sync, so a character sheet built on a desktop is the same
+character sheet on a phone.
+
+- **The kind is chosen once.** Text, number, date, yes-or-no, or a list of choices. It
+  cannot be changed afterwards: every answer already stored was checked against it, and
+  there is no honest conversion from "yes" to a number. A new field is how you change
+  your mind.
+- **A yes-or-no is a three-way control, not a checkbox.** A checkbox cannot tell "no" from
+  "not asked yet", and for a field added to a whole cast at once that is the difference
+  that matters.
+- **Native inputs throughout.** A date field is `<input type="date">`, so it opens the
+  platform's own picker and produces a calendar date rather than an instant — "first
+  appears" is a day, and a timezone-bearing timestamp reads as a different day abroad.
+- **Nothing is shown until a field exists.** Most projects never want a character sheet
+  and should not pay for one in manuscript height; the details row appears with the first
+  field and goes with the last.
+- **Clearing an answer removes it** rather than storing an empty one. The row has no
+  tombstone on either side, so a delete is what the change feed carries anyway.
+- **Deleting a field leaves its answers on disk.** They are invisible — nothing lists an
+  answer to a question no one can name — and if the field comes back from another device,
+  so do they. The alternative is one queue entry per item that ever filled it in.
+
 ## Collections
 
 A **list** is a set of scenes an author gathered by hand. A **search** is a set of conditions

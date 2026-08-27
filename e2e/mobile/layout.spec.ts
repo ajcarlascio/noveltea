@@ -138,6 +138,40 @@ test("gives every control in the collections panel a target a finger can hit", a
   expect(await unhittableControls(page)).toEqual([]);
 });
 
+test("gives every control in the custom fields panel a target a finger can hit", async ({
+  page,
+}) => {
+  // Folded away by default, so the check above skips it. Everything inside is new: a
+  // name field, a kind select, a choices field, and the per-item detail controls the
+  // panel brings into existence above it.
+  await page.goto("/projects");
+  await expect(page.locator("html")).toHaveAttribute("data-db-status", "ready", { timeout: 30_000 });
+  await page.getByRole("button", { name: "New project" }).click();
+  await page.getByRole("link", { name: "Untitled project" }).first().click();
+  await page.getByRole("button", { name: "New document" }).click();
+  await expect(page.getByRole("treeitem")).toHaveCount(1);
+  await page.getByRole("treeitem").first().click();
+
+  await page.getByText("Custom fields", { exact: true }).click();
+  await page.getByLabel("New field").fill("Eyes");
+  await page.getByLabel("Kind of field", { exact: true }).selectOption("select");
+  await page.getByLabel("Choices", { exact: true }).fill("Blue, Grey");
+  await page.getByRole("button", { name: "Add field" }).click();
+  await expect(page.getByLabel("Choices for Eyes")).toBeVisible();
+
+  await page.getByLabel("Name of Eyes").scrollIntoViewIfNeeded();
+  expect(await unhittableControls(page)).toEqual([]);
+
+  // The detail control the field creates sits above the manuscript, in its own row.
+  // Named explicitly because the sweep only reports on whatever is on screen when it
+  // runs, and this one is at the other end of a long page.
+  const details = page.getByLabel("Eyes", { exact: true });
+  await details.scrollIntoViewIfNeeded();
+  expect(await unhittableControls(page)).toEqual([]);
+  const box = await page.getByText("Eyes", { exact: true }).first().boundingBox();
+  expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+});
+
 test("gives every control in the compile panel a target a finger can hit", async ({ page }) => {
   // Folded away by default, so the check above skips it. Everything inside is new: a
   // preset picker, a name field, and a checkbox per binder item.

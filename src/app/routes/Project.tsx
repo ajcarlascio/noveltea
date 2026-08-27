@@ -44,6 +44,8 @@ import { CompilePanel } from "@/features/compile/CompilePanel";
 import { ConflictsPanel } from "@/features/conflicts/ConflictsPanel";
 import { SearchPanel } from "@/features/search/SearchPanel";
 import { SyncStatus } from "@/features/sync/SyncStatus";
+import { FieldsPanel } from "@/features/metadata/FieldsPanel";
+import { ItemDetails } from "@/features/metadata/ItemDetails";
 import { ItemTerms } from "@/features/taxonomy/ItemTerms";
 import { TaxonomyPanel } from "@/features/taxonomy/TaxonomyPanel";
 import { useBinder } from "@/features/binder/useBinder";
@@ -54,7 +56,7 @@ import "./Project.css";
 
 export function Project() {
   const { projectId = "" } = useParams();
-  const { binder, taxonomy, collections, presets, title, error, run } = useBinder(projectId);
+  const { binder, taxonomy, collections, presets, fields, title, error, run } = useBinder(projectId);
   const { settings, update } = useSettings();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Seeded from storage so the tree opens the way the author left it rather than
@@ -297,6 +299,9 @@ export function Project() {
       </div>
 
       <ItemTerms projectId={projectId} taxonomy={taxonomy} item={selected} run={run} />
+      {/* Renders nothing until the project defines a field, so a project that never
+          wants a character sheet never pays for one in manuscript height. */}
+      <ItemDetails projectId={projectId} fields={fields} item={selected} run={run} />
 
       {/* Outside the toolbar: a file input is not one of the toolbar's controls, and
           counting it as one would put a stray tab stop between the buttons. */}
@@ -411,6 +416,11 @@ export function Project() {
       <details className="project__footer">
         <summary>Labels and statuses</summary>
         <TaxonomyPanel projectId={projectId} taxonomy={taxonomy} run={run} />
+      </details>
+
+      <details className="project__footer">
+        <summary>Custom fields</summary>
+        <FieldsPanel projectId={projectId} fields={fields} run={run} />
       </details>
 
       <details className="project__footer">
