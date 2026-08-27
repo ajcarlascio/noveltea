@@ -8,6 +8,7 @@ import {
 import { COLLECTION_COMMANDS } from "./collection-commands";
 import { COMMENT_COMMANDS } from "./comment-commands";
 import { COMPILE_PRESET_COMMANDS } from "./compile-preset-commands";
+import { METADATA_COMMANDS } from "./metadata-commands";
 import { SNAPSHOT_COMMANDS } from "./snapshot-commands";
 import { SYNC_COMMANDS } from "./sync-commands";
 import { TAXONOMY_COMMANDS } from "./taxonomy-commands";
@@ -535,6 +536,7 @@ export const COMMANDS = {
   ...TAXONOMY_COMMANDS,
   ...COLLECTION_COMMANDS,
   ...COMPILE_PRESET_COMMANDS,
+  ...METADATA_COMMANDS,
 } satisfies Record<string, (db: SqliteAdapter, input: never) => unknown>;
 
 /**
@@ -554,6 +556,7 @@ export const READ_ONLY_COMMANDS: ReadonlySet<string> = new Set([
   "listTaxonomy",
   "listCollections",
   "listCompilePresets",
+  "listMetadataFields",
 ]);
 
 export type CommandName = keyof typeof COMMANDS;

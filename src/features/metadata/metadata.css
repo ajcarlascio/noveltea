@@ -1,0 +1,119 @@
+/* Custom metadata: an item's answers, and the panel that defines the questions. */
+
+.details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  align-items: center;
+  padding-bottom: var(--space-2);
+}
+
+.details__field {
+  display: inline-flex;
+  gap: var(--space-2);
+  align-items: center;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+}
+
+.details__field input,
+.details__field select {
+  min-width: 0;
+  min-height: 36px;
+  max-width: 12rem;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.8125rem;
+}
+
+.details__field input:disabled,
+.details__field select:disabled {
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+
+/* No 44px rule for the labels here, deliberately. `global.css` already gives every
+   `label` that floor under `(pointer: coarse)`, and `min-height` is ignored on an
+   inline box — so what makes it take effect is that these labels are flex items of
+   `.details__field`, which blockifies them. A rule of its own here would look
+   load-bearing and do nothing. */
+
+/* -- the panel -------------------------------------------------------------------- */
+
+.fields__empty {
+  margin: 0 0 var(--space-3);
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+}
+
+.fields__list {
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  list-style: none;
+}
+
+.fields__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  padding: var(--space-1) 0;
+}
+
+.fields__kind {
+  flex: none;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.fields__name,
+.fields__choices,
+.fields__add-field input {
+  min-width: 0;
+  min-height: 36px;
+  flex: 1 1 8rem;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.875rem;
+}
+
+.fields__add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: end;
+}
+
+.fields__add-field {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 8rem;
+  flex-direction: column;
+  gap: var(--space-1);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.fields__add-field select {
+  min-height: 36px;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.8125rem;
+}

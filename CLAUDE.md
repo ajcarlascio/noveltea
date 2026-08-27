@@ -567,6 +567,37 @@ into it. The table syncs, so a format set up on one machine is on the other.
   name; `created_at` ties at millisecond resolution and then falls back to a random uuid,
   which reshuffles the picker between renders.
 
+## Custom metadata
+
+Author-defined fields per project, and one value per binder item per field. This is what
+a character sheet is made of, and having it in the schema is why the app does not need a
+second system for character sheets and location notes.
+
+- **The two tables behave differently, and the schema says why.**
+  `custom_metadata_field` has `deleted_at`, so removing one is a tombstone.
+  `custom_metadata_value` has none on either side, so clearing one is a hard `DELETE` and
+  the delete in the change feed is the whole story.
+- **`custom_metadata_value` has no `project_id`.** The server scopes it through its binder
+  item, and both `binder_item_id` and `field_id` are `parentRefs` required on create and
+  checked against the project. Omitting either is an `invalid_request`, not a default.
+- **`value` is jsonb.** Send the parsed value, not the text it is stored in — the column
+  holds `"Grey"` including its quotes, and pushing that raw makes the quotes part of the
+  answer. `JSON_ANY`, so a scalar is fine; SQLite's `json_valid` accepts scalars too.
+- **`options` belong to a select and nothing else.** Both the CHECK
+  `custom_metadata_field_options_for_select` and the server invariant mirroring it refuse
+  them elsewhere, so omit the key rather than sending a JSON null — `hasNonNull` reads a
+  null as present and fails the whole push.
+- **Validate a value against its field's kind before writing it.** Nothing downstream
+  will notice that a "number" field is holding the word "soon"; the interface will simply
+  render something it did not expect, on another device, months later.
+- **A field's kind cannot change.** Every value stored was checked against the old one and
+  there is no honest conversion. A new field is how an author changes their mind.
+- **Deleting a field leaves its values.** They are unreachable the moment the field is
+  gone, the cascade is on a hard delete which a tombstone is not, and clearing them would
+  push one queue entry per item that ever filled the field in.
+- **Read values per item, not per project.** A cast of forty with a dozen fields is five
+  hundred rows, and only one item's worth is ever on screen.
+
 ## Binder semantics
 
 - **Trash is a move, not a delete.** Trashing reparents to the project's trash node and
