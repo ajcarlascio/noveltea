@@ -84,6 +84,45 @@ describe("applyPull", () => {
     expect(JSON.parse(queuedMove!.payload!)).toMatchObject({ order_key: moved.order_key });
   });
 
+  it("re-queues a displaced never-acknowledged item as a create, not an update", () => {
+    // The C1 loss chain: a local create push lost the order_key race and was rejected
+    // INVALID_REQUEST, so the client cleared its pending row. The item now exists only
+    // here, version still 1, no pending change. A pull then displaces it off the key.
+    // If the re-queue were an update the server would answer ENTITY_MISSING, the client
+    // would clear it, and the item would vanish on the next resync. It must come back
+    // as a create so the server accepts it.
+    const mine = COMMANDS.createBinderItem(db.adapter, {
+      projectId,
+      parentId: null,
+      type: "folder",
+      title: "Mine",
+    });
+    const key = db.adapter.query<{ order_key: string }>(
+      "SELECT order_key FROM binder_item WHERE id = ?;",
+      [mine.id],
+    )[0]!.order_key;
+
+    // Simulate the rejected-and-cleared create push.
+    db.adapter.run("DELETE FROM pending_change WHERE entity_id = ?;", [mine.id]);
+
+    COMMANDS.applyPull(db.adapter, {
+      projectId,
+      changes: [binderChange(7, "theirs", { order_key: key, title: "Theirs" })],
+      latestId: 7,
+      syncEpoch: 1,
+    });
+
+    const requeued = queued().find((row) => row.entity_id === mine.id);
+    expect(requeued).toBeDefined();
+    expect(requeued!.op).toBe("create");
+    expect(requeued!.base_version).toBeNull();
+    expect(JSON.parse(requeued!.payload!)).toMatchObject({
+      id: mine.id,
+      type: "folder",
+      title: "Mine",
+    });
+  });
+
   it("inserts a row the client has never seen", () => {
     const result = COMMANDS.applyPull(db.adapter, {
       projectId,
@@ -110,6 +149,66 @@ describe("applyPull", () => {
     expect(db.adapter.query("SELECT title, version FROM binder_item WHERE id = 'b1';")).toEqual([
       { title: "Renamed elsewhere", version: 4 },
     ]);
+  });
+
+  it("applies a server change even when the entity has a pending local change", () => {
+    // Skipping the row instead looks protective and is not: applyPull advances the cursor
+    // in the same call, so a row it declines to apply is never offered again and this
+    // replica drifts from the server in silence. Nothing is at risk here — the queued
+    // payload still carries the local wording, and the server answers a stale base with a
+    // conflict copy. The replica follows the server; the queue speaks for the author.
+    const local = COMMANDS.createBinderItem(db.adapter, {
+      projectId,
+      parentId: null,
+      type: "folder",
+      title: "Local title",
+    });
+    const before = queued().find((row) => row.entity_id === local.id)!;
+
+    COMMANDS.applyPull(db.adapter, {
+      projectId,
+      changes: [binderChange(7, local.id, { title: "Remote title" })],
+      latestId: 7,
+      syncEpoch: 1,
+    });
+
+    expect(db.adapter.query("SELECT title FROM binder_item WHERE id = ?;", [local.id])).toEqual([
+      { title: "Remote title" },
+    ]);
+
+    // The queue is what protects the author's version, so it must survive untouched —
+    // payload and base_version both. A pull that quietly rewrote either would make the
+    // next push look conflict-free and clobber the other device.
+    const after = queued().find((row) => row.entity_id === local.id)!;
+    expect(after.payload).toBe(before.payload);
+    expect(after.base_version).toBe(before.base_version);
+    expect(after.op).toBe(before.op);
+  });
+
+  it("applies a server delete even when the entity has a pending local change", () => {
+    // The delete case is the one that cannot heal. An update is repeated by the next edit
+    // to that entity; a delete is terminal, so a delete skipped here leaves the row live
+    // on this device forever while every other device shows it gone. The words still
+    // survive: the pending push reaches a server that no longer has the item, and it is
+    // preserved as a live orphan copy.
+    const local = COMMANDS.createBinderItem(db.adapter, {
+      projectId,
+      parentId: null,
+      type: "folder",
+      title: "Chapter 3",
+    });
+
+    const result = COMMANDS.applyPull(db.adapter, {
+      projectId,
+      changes: [{ id: 42, entityType: "binder_item", entityId: local.id, op: "delete", data: {} }],
+      latestId: 42,
+      syncEpoch: 1,
+    });
+
+    expect(item(local.id).deleted_at).not.toBeNull();
+    expect(result.applied).toBe(1);
+    // Applied and counted, so the cursor advancing past it is honest.
+    expect(state().lastChangeId).toBe(42);
   });
 
   it("advances the cursor and the epoch together with the rows", () => {

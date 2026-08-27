@@ -11,7 +11,7 @@ import "./SyncStatus.css";
  * writing, and nothing demands a decision.
  */
 export function SyncStatus({ projectId }: { projectId: string }) {
-  const { lastSyncedAt, pending, lastError, running, conflicts, possible, metering, heldForWifi, syncNow } =
+  const { lastSyncedAt, pending, lastError, running, conflicts, dropped, possible, metering, heldForWifi, syncNow } =
     useSync(projectId);
   // Hooks run before the early return, or this one would be skipped whenever an
   // account exists and React would see a different hook order between renders.
@@ -74,6 +74,16 @@ export function SyncStatus({ projectId }: { projectId: string }) {
           {conflicts.length === 1 ? "1 change" : `${String(conflicts.length)} changes`} could not be
           applied. Where your text was at risk it was kept as a conflict copy in the binder,
           so nothing was overwritten.
+        </p>
+      )}
+
+      {dropped > 0 && (
+        <p className="sync__dropped" role="status">
+          {/* The cursor moved past these rows, so they will not be offered again. Saying
+              nothing would let a device drift out of step with the server in silence. */}
+          {dropped === 1 ? "1 update" : `${String(dropped)} updates`} from the server could not be
+          read by this device and was skipped. Your writing is safe locally; if the binder
+          looks out of step, sign out and back in to rebuild from the server.
         </p>
       )}
     </div>

@@ -118,3 +118,49 @@ test("refuses to move an item inside itself, and says so", async ({ page }) => {
   // does not offer the move that would be refused.
   await expect(page.getByRole("button", { name: "Move to top level" })).toBeDisabled();
 });
+
+test("imports a Markdown file as a document, offline, with its formatting", async ({ page }) => {
+  await newProject(page);
+
+  // Offline before the import, not after: the point of the feature is that it never
+  // asks the network, and a test that goes offline afterwards would not show that.
+  await page.context().setOffline(true);
+
+  await page.setInputFiles('input[type="file"]', {
+    name: "chapter-one-draft.md",
+    mimeType: "text/markdown",
+    buffer: Buffer.from(
+      "# Chapter One\n\nThe lighthouse stood **alone** against the weather.\n\n- salt\n- rope\n",
+    ),
+  });
+
+  // Titled from the file name, and opened, which is the confirmation that it worked.
+  const imported = row(page, "chapter one draft");
+  await expect(imported).toBeVisible({ timeout: 15_000 });
+
+  const editor = page.locator(".ProseMirror");
+  await expect(editor.getByRole("heading", { name: "Chapter One" })).toBeVisible();
+  await expect(editor.locator("strong")).toHaveText("alone");
+  await expect(editor.locator("ul li")).toHaveCount(2);
+
+  // Survives a reload, so it reached the replica rather than only React state.
+  await page.context().setOffline(false);
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-db-status", "ready", { timeout: 30_000 });
+  await expect(row(page, "chapter one draft")).toBeVisible();
+});
+
+test("refuses a file it cannot read and says so, without importing it", async ({ page }) => {
+  await newProject(page);
+
+  await page.setInputFiles('input[type="file"]', {
+    name: "manuscript.docx",
+    mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    buffer: Buffer.from("not really a docx"),
+  });
+
+  await expect(page.getByRole("alert")).toContainText(/not a text or Markdown file/, {
+    timeout: 15_000,
+  });
+  await expect(row(page, "manuscript")).toHaveCount(0);
+});

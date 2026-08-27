@@ -19,8 +19,11 @@ const BLOCK_TYPES = new Set([
   "heading",
   "blockquote",
   "listItem",
+  "list_item",
   "codeBlock",
+  "code_block",
   "horizontalRule",
+  "horizontal_rule",
 ]);
 
 /**
@@ -35,9 +38,9 @@ export function documentText(doc: ProseMirrorNode | null | undefined): string {
 
   const walk = (node: ProseMirrorNode): void => {
     if (typeof node.text === "string") parts.push(node.text);
-    if (node.type === "hardBreak") parts.push("\n");
+    if (node.type === "hardBreak" || node.type === "hard_break") parts.push("\n");
     for (const child of node.content ?? []) walk(child);
-    if (node.type !== undefined && BLOCK_TYPES.has(node.type)) parts.push("\n");
+    if (node.type !== undefined && BLOCK_TYPES.has(node.type)) parts.push("\n\n");
   };
 
   walk(doc);
@@ -45,12 +48,10 @@ export function documentText(doc: ProseMirrorNode | null | undefined): string {
 }
 
 /**
- * Words, counted the way an author counts them.
+ * Words, counted the same way as the server compiler.
  *
- * Whitespace separates, and so do en and em dashes — which is what Word and
- * Scrivener do, and those are the numbers an author compares against. It also makes
- * the count independent of a habit: "stopped—then" and "stopped — then" are four
- * words either way, so tidying punctuation does not appear to change the day's work.
+ * Whitespace separates words. Keeping this rule identical to the compiler means the
+ * editor count and exported manuscript count cannot disagree.
  *
  * A hyphen does not separate: "well-lit" is one word to everyone who counts.
  *
@@ -58,7 +59,7 @@ export function documentText(doc: ProseMirrorNode | null | undefined): string {
  * character and change every existing total, and the familiar number is the useful
  * one here.
  */
-const WORD_SEPARATORS = /[\s\u2013\u2014]+/u;
+const WORD_SEPARATORS = /\s+/u;
 
 export function wordCount(text: string): number {
   const trimmed = text.trim();

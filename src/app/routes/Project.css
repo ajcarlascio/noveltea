@@ -147,3 +147,13 @@
   border-color: var(--danger);
   color: var(--danger);
 }
+
+.project__import-input {
+  /* Driven by the Import button beside it. Kept out of the layout without
+     display:none, which some webviews treat as unpickable. */
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}

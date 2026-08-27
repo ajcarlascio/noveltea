@@ -19,6 +19,30 @@ const FORMAT_LABELS: Record<string, string> = {
 
 const label = (format: string) => FORMAT_LABELS[format] ?? format.toUpperCase();
 
+/**
+ * What each format does about page layout.
+ *
+ * Standard manuscript format — US Letter, one-inch margins, 12pt, double-spaced,
+ * ragged right, half-inch first-line indent, a running head — is what a fiction
+ * submission is expected to look like, and it is what the HTML export already
+ * produces. Saying so is worth a line: an author who does not know their export
+ * is already in the shape an agent asks for will go and reformat it by hand.
+ *
+ * The other two say the opposite just as plainly, because they have to. Plain
+ * text and Markdown have no page to lay out, and claiming a manuscript format
+ * for them would be the one thing this interface does not do — sound certain
+ * about something that is not true. A format with nothing to promise says
+ * nothing rather than being given a reassuring sentence.
+ */
+const FORMAT_NOTES: Record<string, string> = {
+  html:
+    "Standard manuscript format: 12pt, double-spaced, one-inch margins, with your " +
+    "project title and a page number in the footer — what agents and publishers ask " +
+    "for. Print it, or save it as PDF, to submit.",
+  txt: "Plain text carries no page layout. Choose HTML if you need manuscript formatting.",
+  md: "Markdown carries no page layout. Choose HTML if you need manuscript formatting.",
+};
+
 const DESTINATION_LABELS: Record<string, string> = {
   download: "Download to this device",
   server: "Keep on the server",
@@ -100,6 +124,9 @@ export function CompilePanel({ projectId }: { projectId: string }) {
               </option>
             ))}
           </select>
+          {FORMAT_NOTES[format] !== undefined && (
+            <p className="compile__note">{FORMAT_NOTES[format]}</p>
+          )}
         </label>
 
         <label className="compile__field">

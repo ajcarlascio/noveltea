@@ -128,6 +128,34 @@ test("offers the destinations this edition has, and names the one it does not", 
   await expect(where.getByRole("option", { name: /Cloud storage/ })).toHaveAttribute("disabled", "");
 });
 
+test("says what each format does about page layout, and does not overclaim", async ({ page }) => {
+  await stub(page);
+  await signIn(page);
+  await openProject(page);
+  await writeChapter(page, "prose enough to export");
+  await openCompile(page);
+
+  const format = page.getByLabel("Format");
+  await expect(format).toBeVisible({ timeout: 10_000 });
+
+  // Markdown is the default. It has no page, so the note must say so rather than
+  // reassure — the export really does carry no manuscript formatting.
+  await expect(page.getByText(/Markdown carries no page layout/)).toBeVisible();
+
+  await format.selectOption("html");
+  // Standard manuscript format is a real convention with a real definition, so the
+  // note names the parts of it an author would otherwise go and set by hand.
+  const note = page.getByText(/Standard manuscript format/);
+  await expect(note).toBeVisible();
+  await expect(note).toContainText("double-spaced");
+  await expect(note).toContainText("one-inch margins");
+  await expect(page.getByText(/Markdown carries no page layout/)).toBeHidden();
+
+  await format.selectOption("txt");
+  await expect(page.getByText(/Plain text carries no page layout/)).toBeVisible();
+  await expect(page.getByText(/Standard manuscript format/)).toBeHidden();
+});
+
 test("submits the destination the author chose", async ({ page }) => {
   const posted: string[] = [];
   await stub(page);

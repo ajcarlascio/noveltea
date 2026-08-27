@@ -158,15 +158,21 @@ test("keeps the binder toolbar to two rows at most", async ({ page }) => {
       // is shown, so textContent would report the hidden one too.
       labels: buttons.map((el) => (el as HTMLElement).innerText.trim()),
       names: buttons.map((el) => el.getAttribute("aria-label") ?? ""),
+      icons: buttons.map((el) => el.querySelectorAll("svg").length),
     };
   });
 
-  expect(layout.buttons).toBe(6);
-  // Six actions across four rows pushes the manuscript off the screen before an author
-  // has written anything. Short labels are what buy the rows back.
+  expect(layout.buttons).toBe(7);
+  // Seven actions across four rows pushes the manuscript off the screen before an author
+  // has written anything. On a phone an icon is what buys the rows back — narrower than
+  // any word, including the short ones the tablet layout still shows.
   expect(layout.rows).toBeLessThanOrEqual(2);
-  expect(layout.labels).toContain("Trash");
-  // The accessible name stays the full wording whatever the screen is doing, so a
-  // screen reader never hears an abbreviation the sighted reader does not see.
+  expect(layout.labels.every((label) => label === "")).toBe(true);
+  expect(layout.icons.every((count) => count === 1)).toBe(true);
+  // This is the assertion the icons depend on. The glyph is decoration and carries no
+  // accessible name of its own, so the aria-label is now the ONLY thing a screen reader
+  // has: it must stay the full wording, and it must be checked here rather than left
+  // behind an earlier expectation that fails first.
   expect(layout.names).toContain("Move to trash");
+  expect(layout.names.every((name) => name.length > 0)).toBe(true);
 });

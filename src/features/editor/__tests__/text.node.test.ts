@@ -27,7 +27,7 @@ describe("documentText", () => {
     // Without a break "…end of chapter" and "Chapter Two…" become "chapterChapter",
     // which then matches neither search term.
     const text = documentText(doc(para("end of chapter"), para("Chapter Two")));
-    expect(text).toBe("end of chapter\nChapter Two");
+    expect(text).toBe("end of chapter\n\nChapter Two");
     expect(text).not.toContain("chapterChapter");
   });
 
@@ -105,12 +105,12 @@ describe("wordCount", () => {
     expect(wordCount("a well-lit room")).toBe(3);
   });
 
-  it("counts the same whether or not a dash is spaced", () => {
+  it("matches the compiler's whitespace word boundaries", () => {
     // Word and Scrivener both break on an em dash. Matching them means tidying
     // punctuation does not appear to change how much an author wrote that day.
-    expect(wordCount("she stopped—then turned")).toBe(4);
-    expect(wordCount("she stopped — then turned")).toBe(4);
-    expect(wordCount("1914–1918 was long")).toBe(4);
+    expect(wordCount("she stopped—then turned")).toBe(3);
+    expect(wordCount("she stopped — then turned")).toBe(5);
+    expect(wordCount("1914–1918 was long")).toBe(3);
   });
 
   it("still treats a hyphen as joining", () => {
@@ -126,7 +126,7 @@ describe("wordCount", () => {
 describe("summarise", () => {
   it("returns the text and its count together", () => {
     expect(summarise(doc(para("one two"), para("three")))).toEqual({
-      searchText: "one two\nthree",
+      searchText: "one two\n\nthree",
       words: 3,
     });
   });

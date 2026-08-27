@@ -31,6 +31,8 @@ describe("parsePullResponse", () => {
       latestId: 3,
     });
     expect(parsed.changes.map((c) => c.entityId)).toEqual(["b3"]);
+    // The cursor moves past dropped rows, so the skip must be visible, not silent.
+    expect(parsed.dropped).toBe(4);
   });
 
   it("treats a non-object data field as absent rather than passing it through", () => {
@@ -42,17 +44,19 @@ describe("parsePullResponse", () => {
   });
 
   it("defaults the flags conservatively when they are missing", () => {
-    const parsed = parsePullResponse({});
-    // hasMore false stops a loop; resyncRequired false avoids a destructive rebuild
-    // on a malformed answer.
-    expect(parsed).toMatchObject({ latestId: 0, hasMore: false, resyncRequired: false, syncEpoch: 1 });
-    expect(parsed.changes).toEqual([]);
+    expect(() => parsePullResponse({})).toThrow(/latestId/i);
+  });
+
+  it("rejects a missing or invalid cursor", () => {
+    for (const latestId of [undefined, -1, 1.5, Number.NaN]) {
+      expect(() => parsePullResponse({ latestId })).toThrow(/latestId/i);
+    }
   });
 
   it("only treats an explicit true as a resync instruction", () => {
-    expect(parsePullResponse({ resyncRequired: "yes" }).resyncRequired).toBe(false);
-    expect(parsePullResponse({ resyncRequired: 1 }).resyncRequired).toBe(false);
-    expect(parsePullResponse({ resyncRequired: true }).resyncRequired).toBe(true);
+    expect(parsePullResponse({ latestId: 0, resyncRequired: "yes" }).resyncRequired).toBe(false);
+    expect(parsePullResponse({ latestId: 0, resyncRequired: 1 }).resyncRequired).toBe(false);
+    expect(parsePullResponse({ latestId: 0, resyncRequired: true }).resyncRequired).toBe(true);
   });
 
   it("refuses a response that is not an object at all", () => {
