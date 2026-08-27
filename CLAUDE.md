@@ -683,6 +683,17 @@ Detail lives in `.claude/skills/noveltea-frontend-conventions/SKILL.md`. The sha
 - **Offline is a test mode, not a scenario.** The default fixture has no server at all. If a
   feature's tests need one to render, the feature has broken invariant 1.
 
+## Pull requests
+
+**Keep the description under 250 words.** A reviewer opens a PR to find out what changed and
+what to look at hardest; a page of prose buries both. Go over only when something genuinely
+load-bearing cannot be said in less — a protocol change, a migration, a failure mode that is
+not obvious from the diff — and then only by as much as that needs.
+
+The commit messages carry the reasoning. The description says what changed, anything the
+reviewer would not infer from the diff, and what was run to check it. Everything else the
+code and the tests already say.
+
 ## Open questions
 
 1. Where `@noveltea/client-db` comes from at install time — git dependency, submodule,
