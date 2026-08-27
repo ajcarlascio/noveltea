@@ -37,10 +37,20 @@ async function unhittableControls(page: import("@playwright/test").Page) {
       return parentText.length > (el.textContent ?? "").trim().length;
     };
 
+    /**
+     * A control inside a folded `<details>` is not on screen.
+     *
+     * Chromium does not hide that content with `display: none` — it uses
+     * `content-visibility`, so the boxes are still laid out and still have a size.
+     * Nothing paints there, so every one of them fails the hit test, and a panel
+     * that is folded away by default would read as a page full of failures.
+     */
+    const isFolded = (el: Element) => el.closest("details:not([open])") !== null;
+
     for (const el of document.querySelectorAll("a:not(.skip-link), button, label")) {
       const rect = el.getBoundingClientRect();
       if (rect.width === 0 && rect.height === 0) continue;
-      if (isInlineInProse(el)) continue;
+      if (isInlineInProse(el) || isFolded(el)) continue;
 
       const cx = rect.left + rect.width / 2;
       const cy = rect.top + rect.height / 2;
@@ -83,6 +93,25 @@ test("gives every control in the binder a target a finger can hit", async ({ pag
 
   await page.getByRole("button", { name: "New folder" }).click();
   await expect(page.getByRole("treeitem")).toHaveCount(1);
+
+  expect(await unhittableControls(page)).toEqual([]);
+});
+
+test("gives every control in the labels panel a target a finger can hit", async ({ page }) => {
+  // Folded away by default, and therefore skipped by the check above — so it gets its
+  // own test with the panel open. Everything inside it is new: a colour swatch, a
+  // name field, two buttons per row.
+  await page.goto("/projects");
+  await expect(page.locator("html")).toHaveAttribute("data-db-status", "ready", { timeout: 30_000 });
+  await page.getByRole("button", { name: "New project" }).click();
+  await page.getByRole("link", { name: "Untitled project" }).first().click();
+
+  await page.getByText("Labels and statuses").click();
+  await page.getByLabel("New label").fill("Bob's POV");
+  await page.getByRole("button", { name: "Add label" }).click();
+  await expect(page.getByLabel("Name of Bob's POV")).toBeVisible();
+  // Armed, because the confirm button is a control the folded state never shows.
+  await page.getByRole("button", { name: "Delete Bob's POV", exact: true }).click();
 
   expect(await unhittableControls(page)).toEqual([]);
 });

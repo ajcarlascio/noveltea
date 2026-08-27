@@ -45,7 +45,9 @@ test("keeps a named version and puts it back", async ({ page }) => {
   await page.getByText("History", { exact: false }).first().click();
   await page.getByLabel("Save this version as").fill("The first draft");
   await page.getByRole("button", { name: "Save a version" }).click();
-  await expect(page.getByText("The first draft")).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole("button", { name: "Restore The first draft" })).toBeVisible({
+    timeout: 10_000,
+  });
 
   await write(page, "She climbed the stair in the dark.");
   await expect(page.getByRole("textbox", { name: "Manuscript" })).toContainText("in the dark");
@@ -66,7 +68,11 @@ test("a restore is itself undoable", async ({ page }) => {
   await page.getByText("History", { exact: false }).first().click();
   await page.getByLabel("Save this version as").fill("Mark");
   await page.getByRole("button", { name: "Save a version" }).click();
-  await expect(page.getByText("Mark")).toBeVisible({ timeout: 10_000 });
+  // The button that restores it, not the bare name: a short name is a substring of
+  // half the prose on the page, and "Mark" matched "Import text or Markdown".
+  await expect(page.getByRole("button", { name: "Restore Mark" })).toBeVisible({
+    timeout: 10_000,
+  });
 
   await write(page, "the newer words");
   await page.getByRole("button", { name: "Restore Mark" }).click();

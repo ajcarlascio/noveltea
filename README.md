@@ -342,6 +342,35 @@ to carry. Snapshots are deliberately not taken: they exist to protect a manuscri
 bad revision pass, and capturing one every time somebody tidies a card would fill the
 history with nothing.
 
+## Labels and statuses
+
+Two per-project vocabularies an author invents for their own book: a **label** says what a
+scene *is* — "Bob's POV", "the B-plot", "London" — and a **status** says how far along it
+is — "Outline", "First draft", "Done". Both live in one `taxonomy` table, told apart by
+`kind`, with `binder_item.label_id` and `status_id` pointing into it. They are shown in the
+binder and on the index cards, and set from two selects under the toolbar.
+
+**A colour belongs to a label and not to a status.** A label is a thing you scan a whole
+outline for, so a dot beside the title is the fastest way to find it; a status is a word you
+read. The commands store null for a status's colour rather than trusting the caller, so
+there is never a value on screen that nothing draws.
+
+**The dot is never the only signal.** Colour alone reaches neither a screen reader nor a
+reader who cannot tell two hues apart, so the name is always beside it. A row of twelve
+coloured names is also simply unreadable, which is the practical half of the same rule.
+
+**Deleting a term takes it off everything wearing it**, in the same transaction, with a
+queue entry per item — so the other devices learn those items are unlabelled rather than
+pointing at a row they can never resolve. A tombstone does not fire the schema's
+`ON DELETE SET NULL`; only a hard delete would, and nothing here hard-deletes. Because that
+gesture changes items elsewhere in the binder, the button asks twice.
+
+**The server does not take these writes yet.** `SyncService` accepts `binder_item` and
+`document`; anything else answers `not_implemented`, and the client deliberately keeps such
+a change queued rather than dropping it. A label made today is therefore local until the
+server learns the type, at which point the queue drains on its own. Which item wears which
+term syncs immediately — that is a `binder_item` column, and those are writable.
+
 ## Reviewing the interface
 
 ```bash

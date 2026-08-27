@@ -544,6 +544,18 @@ Compile is asynchronous and server-side: `POST /projects/{id}/compile` returns a
   consecutive inserts between the same two siblings, and then reorders silently stop working.
 - **The server prevents cycles**, but the client should refuse to drop an item into its own
   descendant in the drag layer too — a rejection after the drop looks like a broken UI.
+- **Labels and statuses are one table.** `taxonomy` holds both, told apart by `kind`, and
+  `binder_item.label_id` / `status_id` point into it. A colour is meaningful on a label
+  and is stored as null on a status — `src/db/taxonomy-commands.ts` enforces that on the
+  way in rather than trusting callers.
+- **Deleting a term clears it off every item wearing it**, in the same transaction, with a
+  queue entry per item. A tombstone does not fire the `ON DELETE SET NULL`, so without
+  this the row keeps a foreign key to something no reader on any device can resolve.
+- **The server cannot take taxonomy writes yet.** `SyncService` accepts `binder_item` and
+  `document`; everything else comes back as a `not_implemented` conflict, which
+  `shouldStayQueued` deliberately keeps in the queue. So a label made today is local until
+  the server learns the type, and then it pushes on its own. The two id columns on
+  `binder_item` sync now, because that row is writable.
 
 ## Conflicts and merging
 

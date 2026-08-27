@@ -21,6 +21,9 @@ export interface IndexCard {
   wordCount: number | null;
   /** Folders only: how many live children, so a folder card says what is behind it. */
   childCount: number | null;
+  /** Resolved to names against the project's taxonomy by whoever draws the card. */
+  labelId: string | null;
+  statusId: string | null;
 }
 
 interface CardRow {
@@ -31,6 +34,8 @@ interface CardRow {
   synopsis: string | null;
   word_count: number | null;
   child_count: number;
+  label_id: string | null;
+  status_id: string | null;
 }
 
 /**
@@ -46,7 +51,8 @@ export async function loadCards(
   const rows = await db.query<CardRow>(
     // `IS` rather than `=` so one query serves the top level and every folder: in
     // SQLite `IS` is the null-safe comparison, and `parent_id = NULL` matches nothing.
-    `SELECT b.id, b.type, b.title, b.order_key, d.synopsis, d.word_count,
+    `SELECT b.id, b.type, b.title, b.order_key, b.label_id, b.status_id,
+            d.synopsis, d.word_count,
             (SELECT COUNT(*) FROM binder_item c
               WHERE c.parent_id = b.id AND c.deleted_at IS NULL) AS child_count
        FROM binder_item b
@@ -67,6 +73,8 @@ export async function loadCards(
     synopsis: row.type === "document" ? row.synopsis : null,
     wordCount: row.type === "document" ? row.word_count : null,
     childCount: row.type === "folder" ? row.child_count : null,
+    labelId: row.label_id,
+    statusId: row.status_id,
   }));
 }
 

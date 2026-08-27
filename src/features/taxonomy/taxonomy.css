@@ -1,0 +1,162 @@
+/* Labels and statuses: the marks on an item, and the panel that manages them. */
+
+.term-mark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.term-mark__dot {
+  display: inline-block;
+  width: 0.6rem;
+  height: 0.6rem;
+  border: 1px solid rgb(0 0 0 / 20%);
+  border-radius: 50%;
+}
+
+.term-mark--status {
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+}
+
+/* The binder's version: a dot and an initial, both explained by the title attribute
+   and by the name that only a screen reader reads. */
+.term-mark--dim {
+  min-width: 1.25rem;
+  justify-content: center;
+  padding: 0;
+}
+
+.term-mark__name--hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+/* -- the selected item's two terms ------------------------------------------------ */
+
+.item-terms {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  align-items: center;
+  padding-bottom: var(--space-2);
+}
+
+.item-terms__field {
+  display: inline-flex;
+  gap: var(--space-2);
+  align-items: center;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+}
+
+.item-terms__field select {
+  min-height: 36px;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.8125rem;
+}
+
+.item-terms__field select:disabled {
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+
+@media (max-width: 52rem) {
+  /* Tapping the word focuses the select, which makes the word a control — and every
+     control on a phone holds to the same 44px floor. The select stays 36px; the
+     label is taller than its text and centred against it. */
+  .item-terms__field label {
+    display: inline-flex;
+    min-height: 44px;
+    align-items: center;
+  }
+}
+
+/* -- the panel -------------------------------------------------------------------- */
+
+.taxonomy {
+  display: grid;
+  gap: var(--space-5);
+  /* Two columns where there is room, stacked where there is not. Labels and statuses
+     are read together — "which scenes are Bob's, and how far along are they" is one
+     question — and side by side is how that reads. */
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+}
+
+.taxonomy__heading {
+  margin: 0 0 var(--space-2);
+  font-size: 0.9rem;
+}
+
+.taxonomy__empty {
+  margin: 0 0 var(--space-3);
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+}
+
+.taxonomy__list {
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  list-style: none;
+}
+
+.taxonomy__row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  padding: var(--space-1) 0;
+}
+
+.taxonomy__color {
+  width: 2rem;
+  /* 36px, the same floor every other control in a toolbar row holds to. */
+  height: 36px;
+  flex: none;
+  padding: 2px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+}
+
+.taxonomy__name,
+.taxonomy__add-field input {
+  min-width: 0;
+  min-height: 36px;
+  flex: 1;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.875rem;
+}
+
+.taxonomy__add {
+  display: flex;
+  gap: var(--space-2);
+  align-items: end;
+}
+
+.taxonomy__add-field {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-1);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}

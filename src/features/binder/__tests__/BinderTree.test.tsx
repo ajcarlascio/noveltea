@@ -13,6 +13,8 @@ const node = (id: string, children: BinderNode[] = [], type: BinderNode["type"] 
   orderKey: "V",
   trashedFromParentId: null,
   conflictOfId: null,
+  labelId: null,
+  statusId: null,
   children,
 });
 

@@ -1,10 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useDatabase } from "@/app/db/DatabaseContext";
 import { loadBinder, type Binder } from "@/data/binder";
+import { EMPTY_TAXONOMY, loadTaxonomy, type Taxonomy } from "@/data/taxonomy";
 import type { DatabaseClient } from "@/db/client";
 
 export interface UseBinder {
   binder: Binder | null;
+  /**
+   * The project's labels and statuses.
+   *
+   * Read here rather than by a hook of its own: it is the same project, changing on
+   * the same writes, and a second subscription would only mean the tree and the terms
+   * re-rendering at different moments. Empty until the first read lands, which reads
+   * as "no labels yet" — the same thing a new project actually shows.
+   */
+  taxonomy: Taxonomy;
   /** The project's own title, for the page heading. Null until it loads. */
   title: string | null;
   error: string | null;
@@ -17,6 +27,7 @@ export interface UseBinder {
 export function useBinder(projectId: string): UseBinder {
   const { db } = useDatabase();
   const [binder, setBinder] = useState<Binder | null>(null);
+  const [taxonomy, setTaxonomy] = useState<Taxonomy>(EMPTY_TAXONOMY);
   const [title, setTitle] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -28,12 +39,14 @@ export function useBinder(projectId: string): UseBinder {
 
   const reload = useCallback(async () => {
     try {
-      const [next, rows] = await Promise.all([
+      const [next, terms, rows] = await Promise.all([
         loadBinder(db, projectId),
+        loadTaxonomy(db, projectId),
         db.query<{ title: string }>("SELECT title FROM project WHERE id = ?", [projectId]),
       ]);
       if (active.current !== projectId) return;
       setBinder(next);
+      setTaxonomy(terms);
       setTitle(rows[0]?.title ?? null);
       setError(null);
     } catch (cause) {
@@ -53,21 +66,26 @@ export function useBinder(projectId: string): UseBinder {
 
   const run = useCallback(
     async (action: (client: DatabaseClient) => Promise<unknown>) => {
+      // A refused move — a cycle, a document as a parent, a label name already taken —
+      // is an ordinary answer, not a crash. It is shown, and the tree is reloaded so
+      // what is on screen still matches the database.
+      //
+      // Reported *after* the reload, not before: `reload` clears the error on a
+      // successful read, so setting it first meant every refusal was wiped a
+      // microtask later and the author saw nothing at all.
+      let failure: string | null = null;
       try {
         await action(db);
-        setError(null);
       } catch (cause) {
-        // A refused move — a cycle, a document as a parent — is an ordinary answer,
-        // not a crash. It is shown, and the tree is reloaded so what is on screen
-        // still matches the database.
-        setError(message(cause));
+        failure = message(cause);
       }
       await reload();
+      if (failure !== null) setError(failure);
     },
     [db, reload],
   );
 
-  return { binder, title, error, db, run, reload };
+  return { binder, taxonomy, title, error, db, run, reload };
 }
 
 function message(cause: unknown): string {

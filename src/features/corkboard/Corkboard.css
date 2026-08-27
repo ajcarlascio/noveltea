@@ -163,6 +163,9 @@
 
 .corkboard__card-foot {
   display: flex;
+  /* Three groups now — marks, word count, reorder buttons — and a narrow card wraps
+     rather than squeezing the label's name to nothing. */
+  flex-wrap: wrap;
   gap: var(--space-2);
   align-items: center;
   justify-content: space-between;
@@ -209,4 +212,11 @@
   .corkboard__card {
     transition: none;
   }
+}
+
+.corkboard__card-marks {
+  display: flex;
+  min-width: 0;
+  gap: var(--space-2);
+  overflow: hidden;
 }

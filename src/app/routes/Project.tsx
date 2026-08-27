@@ -42,6 +42,8 @@ import { CompilePanel } from "@/features/compile/CompilePanel";
 import { ConflictsPanel } from "@/features/conflicts/ConflictsPanel";
 import { SearchPanel } from "@/features/search/SearchPanel";
 import { SyncStatus } from "@/features/sync/SyncStatus";
+import { ItemTerms } from "@/features/taxonomy/ItemTerms";
+import { TaxonomyPanel } from "@/features/taxonomy/TaxonomyPanel";
 import { useBinder } from "@/features/binder/useBinder";
 import { useSettings } from "@/app/settings/SettingsContext";
 import { StorageWarning } from "@/ui/StorageWarning";
@@ -50,7 +52,7 @@ import "./Project.css";
 
 export function Project() {
   const { projectId = "" } = useParams();
-  const { binder, title, error, run } = useBinder(projectId);
+  const { binder, taxonomy, title, error, run } = useBinder(projectId);
   const { settings, update } = useSettings();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Seeded from storage so the tree opens the way the author left it rather than
@@ -280,6 +282,8 @@ export function Project() {
         />
       </div>
 
+      <ItemTerms projectId={projectId} taxonomy={taxonomy} item={selected} run={run} />
+
       {/* Outside the toolbar: a file input is not one of the toolbar's controls, and
           counting it as one would put a stray tab stop between the buttons. */}
       <input
@@ -320,6 +324,7 @@ export function Project() {
                 onSelect={select}
                 expandedIds={expandedIds}
                 onToggle={toggle}
+                taxonomy={taxonomy}
                 emptyMessage="This binder is empty. Start with a folder or a document."
               />
             </div>
@@ -333,6 +338,7 @@ export function Project() {
             key={boardParentId ?? ""}
             projectId={projectId}
             parentId={boardParentId}
+            taxonomy={taxonomy}
             trail={boardTrail}
             onNavigate={(id) => {
               if (id === null) setSelectedId(null);
@@ -355,6 +361,13 @@ export function Project() {
           </p>
         )}
       </div>
+
+      {/* Folded away for the same reason the one below it is: making a label is a
+          thing an author does once a book, and using it is a thing they do all day. */}
+      <details className="project__footer">
+        <summary>Labels and statuses</summary>
+        <TaxonomyPanel projectId={projectId} taxonomy={taxonomy} run={run} />
+      </details>
 
       {/* Folded away by default. Compiling and the trash are occasional; the
           manuscript is not, and they were taking permanent height from it. */}
