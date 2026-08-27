@@ -44,6 +44,8 @@ import { CompilePanel } from "@/features/compile/CompilePanel";
 import { ConflictsPanel } from "@/features/conflicts/ConflictsPanel";
 import { SearchPanel } from "@/features/search/SearchPanel";
 import { SyncStatus } from "@/features/sync/SyncStatus";
+import { ProgressStrip } from "@/features/goals/ProgressStrip";
+import { TargetsPanel } from "@/features/goals/TargetsPanel";
 import { FieldsPanel } from "@/features/metadata/FieldsPanel";
 import { ItemDetails } from "@/features/metadata/ItemDetails";
 import { ItemTerms } from "@/features/taxonomy/ItemTerms";
@@ -56,7 +58,8 @@ import "./Project.css";
 
 export function Project() {
   const { projectId = "" } = useParams();
-  const { binder, taxonomy, collections, presets, fields, title, error, run } = useBinder(projectId);
+  const { binder, taxonomy, collections, presets, fields, goals, words, title, error, run } =
+    useBinder(projectId);
   const { settings, update } = useSettings();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Seeded from storage so the tree opens the way the author left it rather than
@@ -215,6 +218,9 @@ export function Project() {
       {/* The project's name, not the word "Binder": a heading is a landmark a screen
           reader lands on, and it may as well say which book this is. */}
       <h1 className="project__title">{title ?? "Project"}</h1>
+      {/* Under the title, on every view. A target an author has to go looking for is a
+          target they stop noticing. */}
+      <ProgressStrip projectId={projectId} words={words} goals={goals} />
       <StorageWarning />
       <SyncStatus projectId={projectId} />
       <ConflictsPanel projectId={projectId} />
@@ -416,6 +422,11 @@ export function Project() {
       <details className="project__footer">
         <summary>Labels and statuses</summary>
         <TaxonomyPanel projectId={projectId} taxonomy={taxonomy} run={run} />
+      </details>
+
+      <details className="project__footer">
+        <summary>Word targets</summary>
+        <TargetsPanel projectId={projectId} goals={goals} run={run} />
       </details>
 
       <details className="project__footer">

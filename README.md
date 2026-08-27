@@ -372,6 +372,27 @@ term pushes and pulls on the ordinary path. (The server's `CLAUDE.md` still says
 authority.) The spec requires `name` and `order_key` on create, which is what the commands
 here send.
 
+## Word targets
+
+A line under the project title on every view: how much was written today, and how much of
+the book exists. Both against a target when one is set. A target an author has to go
+looking for is a target they stop noticing.
+
+- **The count comes from the manuscript, not from a tally.** It is summed from the
+  documents every time, so deleting a chapter takes it down. A number that only ever goes
+  up stops being about the book.
+- **Today is measured from a baseline** — the count as the day began — kept per project on
+  this device. It resets when the date turns, and also when the manuscript drops below it,
+  which is what happens when you empty the trash; without that, the rest of the day reads
+  as punishment for tidying up.
+- **Your own date, not UTC.** Writing at one in the morning is still tonight's session.
+- **The bar is a real `<progress>` element**, so it is announced as one, and the number
+  beside it says the same thing for anyone who cannot see the fill.
+- **Targets stay on this device.** They live in `project.settings`, and nothing about a
+  project row travels through the change feed yet — the sync endpoint is scoped by a
+  project id in its path, so it cannot carry a change to the project itself. The panel
+  says so rather than letting you discover it on a second machine.
+
 ## Custom fields
 
 The questions an author decides to ask of their binder — "Age", "Eyes", "First appears" —

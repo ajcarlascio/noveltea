@@ -130,6 +130,28 @@ export function assemble(rows: readonly BinderRow[]): Binder {
 }
 
 /** Every node in the tree, depth first, as the reader sees it. */
+/**
+ * Every item in the project's trash, at any depth, as a CTE named `discarded`.
+ *
+ * Walks *down* from the trash node rather than checking each item's parent, because
+ * trashing is a reparent of one item: discarding a folder moves the folder, and its
+ * scenes keep pointing at the folder. A one-level `parent_id = trash` test therefore
+ * catches the folder and none of the chapters inside it, which is how a discarded act
+ * ends up in a saved search — and would end up in a word count.
+ *
+ * The compile planner's `trashedIds` walks the same direction for the same reason. This
+ * is the SQL half of that rule; the two must agree, or the pre-flight and the binder
+ * disagree about what is in the book.
+ *
+ * Its `?` is the first parameter of any statement it prefixes, so the project id goes
+ * first in the bound array.
+ */
+export const DISCARDED = `WITH RECURSIVE discarded(id) AS (
+      SELECT id FROM binder_item WHERE project_id = ? AND type = 'trash'
+      UNION ALL
+      SELECT b.id FROM binder_item b JOIN discarded ON b.parent_id = discarded.id
+    )`;
+
 export function flatten(nodes: readonly BinderNode[]): BinderNode[] {
   return nodes.flatMap((node) => [node, ...flatten(node.children)]);
 }

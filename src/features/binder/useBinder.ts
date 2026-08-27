@@ -5,6 +5,7 @@ import { EMPTY_TAXONOMY, loadTaxonomy, type Taxonomy } from "@/data/taxonomy";
 import { loadCollections, type Collection } from "@/data/collections";
 import { loadCompilePresets, type CompilePreset } from "@/data/compile-presets";
 import { loadMetadataFields, type MetadataField } from "@/data/metadata";
+import { loadGoals, loadWordCount, NO_GOALS, type Goals } from "@/data/goals";
 import type { DatabaseClient } from "@/db/client";
 
 export interface UseBinder {
@@ -24,6 +25,14 @@ export interface UseBinder {
   presets: CompilePreset[];
   /** The project's custom fields. Their values are per item and read where they show. */
   fields: MetadataField[];
+  /** The project's word targets. */
+  goals: Goals;
+  /**
+   * The manuscript's word count. Null until the first read lands — and the difference
+   * matters: today's tally is measured from it, and treating "not read yet" as zero
+   * would credit the author with the whole book this morning.
+   */
+  words: number | null;
   /** The project's own title, for the page heading. Null until it loads. */
   title: string | null;
   error: string | null;
@@ -40,6 +49,8 @@ export function useBinder(projectId: string): UseBinder {
   const [collections, setCollections] = useState<Collection[]>([]);
   const [presets, setPresets] = useState<CompilePreset[]>([]);
   const [fields, setFields] = useState<MetadataField[]>([]);
+  const [goals, setGoals] = useState<Goals>(NO_GOALS);
+  const [words, setWords] = useState<number | null>(null);
   const [title, setTitle] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -51,12 +62,14 @@ export function useBinder(projectId: string): UseBinder {
 
   const reload = useCallback(async () => {
     try {
-      const [next, terms, saved, exports, custom, rows] = await Promise.all([
+      const [next, terms, saved, exports, custom, targets, written, rows] = await Promise.all([
         loadBinder(db, projectId),
         loadTaxonomy(db, projectId),
         loadCollections(db, projectId),
         loadCompilePresets(db, projectId),
         loadMetadataFields(db, projectId),
+        loadGoals(db, projectId),
+        loadWordCount(db, projectId),
         db.query<{ title: string }>("SELECT title FROM project WHERE id = ?", [projectId]),
       ]);
       if (active.current !== projectId) return;
@@ -65,6 +78,8 @@ export function useBinder(projectId: string): UseBinder {
       setCollections(saved);
       setPresets(exports);
       setFields(custom);
+      setGoals(targets);
+      setWords(written);
       setTitle(rows[0]?.title ?? null);
       setError(null);
     } catch (cause) {
@@ -103,7 +118,7 @@ export function useBinder(projectId: string): UseBinder {
     [db, reload],
   );
 
-  return { binder, taxonomy, collections, presets, fields, title, error, db, run, reload };
+  return { binder, taxonomy, collections, presets, fields, goals, words, title, error, db, run, reload };
 }
 
 function message(cause: unknown): string {
