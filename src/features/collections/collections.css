@@ -1,0 +1,165 @@
+/* Collections: the member list that replaces the tree, and the panel that manages them. */
+
+.collection {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.collection__row {
+  display: flex;
+  width: 100%;
+  /* The same 44px floor the tree rows hold to, and the same relaxation on a mouse. */
+  min-height: 44px;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: default;
+}
+
+@media (pointer: fine) {
+  .collection__row {
+    min-height: 1.75rem;
+  }
+}
+
+.collection__row:hover {
+  background: var(--surface-sunken);
+}
+
+.collection__row[aria-current="true"] {
+  background: var(--accent-subtle);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.collection__icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  color: var(--text-muted);
+}
+
+.collection__title {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.collection__marks {
+  display: flex;
+  min-width: 0;
+  margin-left: auto;
+  gap: var(--space-2);
+  overflow: hidden;
+}
+
+.collection__empty,
+.collection__error {
+  margin: 0;
+  padding: var(--space-2) 0;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+}
+
+.collection__error {
+  color: var(--danger);
+}
+
+/* -- the panel -------------------------------------------------------------------- */
+
+.collections__empty {
+  margin: 0 0 var(--space-3);
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+}
+
+.collections__list {
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  list-style: none;
+}
+
+.collections__item + .collections__item {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+.collections__head,
+.collections__query,
+.collections__add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: end;
+}
+
+.collections__head {
+  align-items: center;
+}
+
+.collections__kind {
+  flex: none;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.collections__name,
+.collections__add-field input,
+.collections__query-field input {
+  min-width: 0;
+  min-height: 36px;
+  flex: 1 1 8rem;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.875rem;
+}
+
+.collections__add-field,
+.collections__query-field {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 8rem;
+  flex-direction: column;
+  gap: var(--space-1);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.collections__add-field select,
+.collections__query-field select {
+  min-height: 36px;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.8125rem;
+}
+
+@media (max-width: 52rem) {
+  /* Tapping the word focuses the control, so the word is a control, and holds to the
+     same 44px floor as everything else on a phone. */
+  .collections__add-field label,
+  .collections__query-field label {
+    display: inline-flex;
+    min-height: 44px;
+    align-items: center;
+  }
+}

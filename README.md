@@ -365,11 +365,36 @@ pointing at a row they can never resolve. A tombstone does not fire the schema's
 `ON DELETE SET NULL`; only a hard delete would, and nothing here hard-deletes. Because that
 gesture changes items elsewhere in the binder, the button asks twice.
 
-**The server does not take these writes yet.** `SyncService` accepts `binder_item` and
-`document`; anything else answers `not_implemented`, and the client deliberately keeps such
-a change queued rather than dropping it. A label made today is therefore local until the
-server learns the type, at which point the queue drains on its own. Which item wears which
-term syncs immediately — that is a `binder_item` column, and those are writable.
+**These sync like everything else.** `SyncService.applyOne` falls through to
+`applyDataEntity` for any type `SyncEntitySpec` declares, and taxonomy is one of them, so a
+term pushes and pulls on the ordinary path. (The server's `CLAUDE.md` still says only
+`binder_item` and `document` are writable — stale prose; the switch in `SyncService` is the
+authority.) The spec requires `name` and `order_key` on create, which is what the commands
+here send.
+
+## Collections
+
+A **list** is a set of scenes an author gathered by hand. A **search** is a set of conditions
+saved under a name — "every scene Marlowe appears in" — and it has no members of its own:
+it is answered against the local replica every time it is drawn. So it is never stale, never
+needs refreshing, and works on a train. What syncs is the query; the answering is local.
+
+**The kind is chosen once and cannot be changed.** Turning a search into a list throws away
+the query that was the collection; turning a list into a search makes its hand-picked members
+stop being what it holds. Making a second collection is the honest way to change your mind.
+
+**The saved query is deliberately four conditions and no expression builder** — words, label,
+status, kind — combined with AND. It is stored as opaque jsonb and travels between clients,
+so the only thing keeping two of them agreeing about what a saved search means is that the
+shape stays small enough to implement twice. A condition this build does not recognise is
+dropped rather than saved back unchanged, because a collection must not claim a condition
+nothing is applying.
+
+**A search whose words tokenise to nothing finds nothing** — the same rule search follows.
+The alternative is that one typo silently turns a collection into the whole manuscript.
+
+Both kinds exclude the trash. A trashed item keeps its place on a list and comes back when
+it is restored, because the row was never touched.
 
 ## Reviewing the interface
 

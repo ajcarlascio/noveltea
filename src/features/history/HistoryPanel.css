@@ -1,10 +1,21 @@
 .history {
   border-top: 1px solid var(--border);
+  /* Closed, this is one row of chrome between the manuscript and the next row of
+     chrome; the vertical padding belongs to the content, so it arrives with it. */
+  padding: 0 var(--space-3);
+}
+
+.history[open] {
   padding: var(--space-2) var(--space-3);
 }
 
 .history__summary {
+  /* Its own vertical padding, because the panel's is gone while it is closed. Not
+     `display: flex`, which drops the disclosure triangle — the marker is a list-item
+     box, and a flex summary has no marker at all. */
+  padding: var(--space-2) 0;
   color: var(--text-muted);
+  font-size: 0.8125rem;
   cursor: pointer;
 }
 
