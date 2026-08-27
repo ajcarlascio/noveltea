@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useState, type ReactNode } from "react";
-import { login, register, type Credentials } from "./api";
+import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
+import { changePassword as changePasswordRequest, login, register, type Credentials } from "./api";
 import { AuthContext, type AuthContextValue } from "./AuthContext";
 import { createAuthenticator, type Authenticator } from "./authenticate";
 import { readSession, writeSession, type Session, type SessionResponse } from "./session";
@@ -28,6 +28,7 @@ export function AuthProvider({
   );
   // Seeded when signing in, so the first request after does not spend a refresh.
   const [freshToken, setFreshToken] = useState<string | null>(null);
+  const authenticatorRef = useRef<Authenticator | null>(null);
 
   const persist = useCallback((next: Session | null) => {
     setSession(next);
@@ -42,6 +43,8 @@ export function AuthProvider({
         deviceId: response.deviceId,
         refreshToken: response.refreshToken,
         email,
+        mustChangePassword: response.mustChangePassword === true,
+        isAdmin: response.isAdmin === true,
       };
       persist(next);
       setFreshToken(response.accessToken);
@@ -65,6 +68,28 @@ export function AuthProvider({
       adopt(serverUrl, credentials.email, await register(serverUrl, credentials, fetcher));
     },
     [adopt, fetcher],
+  );
+
+  const changePassword = useCallback(
+    async (currentPassword: string, newPassword: string) => {
+      if (session === null) throw new Error("Not signed in.");
+      // The token in hand rather than one from the authenticator: an account being held
+      // at the door can reach exactly this route, so there is nothing to refresh against
+      // if the in-memory token has lapsed — and a refresh here would spend the rotation
+      // for no reason. If it has lapsed, the authenticator is the only way to renew.
+      const token = freshToken ?? (await authenticatorRef.current?.accessToken());
+      if (token === undefined || token === null) throw new Error("Not signed in.");
+      const response = await changePasswordRequest(
+        session.serverUrl,
+        token,
+        currentPassword,
+        newPassword,
+        fetcher,
+      );
+      adopt(session.serverUrl, session.email, response);
+      return response.devicesSignedOut;
+    },
+    [adopt, fetcher, freshToken, session],
   );
 
   const signOut = useCallback(() => {
@@ -92,9 +117,14 @@ export function AuthProvider({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.serverUrl, session?.userId, session?.deviceId, freshToken, persist, fetcher]);
 
+  // The authenticator changePassword needs is built below it, and a hook cannot read a
+  // later `const`. A ref keeps the ordering honest rather than reordering the file around
+  // one fallback path.
+  authenticatorRef.current = authenticator;
+
   const value = useMemo<AuthContextValue>(
-    () => ({ session, authenticator, signIn, signUp, signOut }),
-    [session, authenticator, signIn, signUp, signOut],
+    () => ({ session, authenticator, signIn, signUp, signOut, changePassword }),
+    [session, authenticator, signIn, signUp, signOut, changePassword],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

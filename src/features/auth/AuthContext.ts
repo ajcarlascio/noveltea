@@ -10,6 +10,13 @@ export interface AuthContextValue {
   signIn: (serverUrl: string, credentials: Credentials) => Promise<void>;
   signUp: (serverUrl: string, credentials: Credentials) => Promise<void>;
   signOut: () => void;
+  /**
+   * Changes the signed-in account's password and adopts the session that comes back.
+   *
+   * @returns how many other devices the change signed out, which is worth telling
+   *   someone about rather than doing silently.
+   */
+  changePassword: (currentPassword: string, newPassword: string) => Promise<number>;
 }
 
 export const AuthContext = createContext<AuthContextValue | null>(null);

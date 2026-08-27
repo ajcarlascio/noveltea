@@ -472,6 +472,43 @@ asked for**, not something buried in settings. Addresses already used are offere
 dropdown, most recent first, with the email prefilled — people move between two or three in
 practice.
 
+### The first account on a new server
+
+A freshly installed server creates one account so there is somebody to sign in as —
+`admin@localhost` / `admin` unless the operator set otherwise — and **refuses to let that
+password be kept.** Anything shorter than twelve characters marks the account
+`must_change_password`, and the API then answers `403 password_change_required` to every
+route except the one that fixes it.
+
+On this side that means signing in lands on **Choose your password** rather than on the
+projects list, and a banner sits under the header until it is done. What it deliberately
+does *not* mean is a locked app: the manuscripts are in the local replica and they are the
+author's whether or not a server is satisfied with them, so the binder and the editor stay
+open. Blocking them would break the rule this client is built on in order to enforce
+something it does not enforce anyway — the API is where that rule holds.
+
+The screen is a plain change-password form, not the emailed reset. **A home instance
+usually has no mail server**, and its reset links go to a log file the account holder cannot
+read; a first-run flow that depended on SMTP would not work on the machine it exists for.
+
+### Making accounts, when registration is closed
+
+Servers ship with self-registration **off**: on somebody's own instance an account comes
+from whoever runs it. `POST /auth/register` answers `403 registration_closed`, and this
+client turns that into "ask whoever runs it" rather than a credential error, because it is
+neither a wrong password nor a typo in the address.
+
+An account the server said administers it gets an **Accounts** item in the header, opening a
+screen that lists the accounts and creates new ones. A created account comes back with a
+generated password shown **once** — the server keeps only its hash — and has to choose its
+own before it can do anything else, because the person who made it knows the current one.
+The same screen can set a password for somebody locked out, which is the only recovery path
+on an instance with no SMTP.
+
+`isAdmin` on the session decides whether that item appears and nothing else. It is a hint
+about what to show, never a permission: the API re-reads the flag from the database on every
+administration call, so editing it in storage produces a screen that answers 404.
+
 ### Signing in is about syncing, not access
 
 **The app works signed out.** The replica is complete and local, so an author can write on a
@@ -514,6 +551,35 @@ unsynced changes.
   the warning that matters.
 - **A stored server list is untrusted input.** Entries that are not normalised origins are
   dropped rather than offered, because the app posts credentials to whatever it is given.
+
+## Running it as a container
+
+The client builds to a static bundle behind nginx, which also **proxies `/api` to the API
+container**, so both answer on one origin. That is what lets the server's CORS allow-list
+stay empty — and an empty allow-list means no other origin can drive this client. Split them
+across two hostnames and the server has to be told about this one.
+
+```bash
+docker build -t noveltea-web .          # needs vendor/noveltea-server checked out
+```
+
+Published to `ghcr.io/ajcarlascio/noveltea-web` on every push to `main`. The whole stack —
+Postgres, API, worker, this — is a `docker compose up` away; the compose file and its
+`.env.example` live in the **server** repository under `deploy/`.
+
+Two things `deploy/nginx.conf` does that are worth knowing:
+
+- **It sends `frame-ancestors 'none'` as a header.** The build-time policy arrives in a
+  `<meta>` element, and browsers ignore `frame-ancestors` there — see
+  [Content Security Policy](#content-security-policy). This is the half that has to come
+  from the server, and until there was a server to send it, nothing did.
+- **It sends no `Cross-Origin-Embedder-Policy`.** The replica uses sqlite-wasm's SAH Pool
+  VFS specifically so it does not need `SharedArrayBuffer`, so `require-corp` would buy
+  nothing and cost every cross-origin resource later.
+
+It also forwards `X-Forwarded-For`. The API's rate limiter reads its first entry, and
+without it every caller arrives as the proxy's address and the whole world shares one
+bucket — one person guessing a password would throttle everybody.
 
 ## Word lookup
 

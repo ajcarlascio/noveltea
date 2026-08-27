@@ -1,0 +1,80 @@
+.admin__create {
+  padding-bottom: var(--space-5);
+  border-bottom: 1px solid var(--border);
+}
+
+.admin__check {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.admin__issued {
+  margin: var(--space-4) 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+}
+
+.admin__issued h2 {
+  margin-top: 0;
+}
+
+/* Monospace and selectable: this is read off the screen and pasted into a message,
+   and an ambiguous glyph in a one-time password is a support conversation. */
+.admin__password {
+  margin: var(--space-2) 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 1.15rem;
+  letter-spacing: 0.04em;
+  user-select: all;
+  word-break: break-all;
+}
+
+.admin__users {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.admin__user {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  align-items: center;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.admin__who {
+  flex: 1 1 14rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.admin__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.admin__badge {
+  padding: 2px var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.admin__badge--pending {
+  border-color: var(--warning);
+  background: var(--warning-subtle);
+  color: inherit;
+}

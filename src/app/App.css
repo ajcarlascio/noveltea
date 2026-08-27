@@ -185,3 +185,18 @@
     box-shadow: none;
   }
 }
+
+/* Sits under the header, above everything, because it is the one thing that has to be
+   read before the app is useful. Not a modal: the local replica still works, and blocking
+   the editor over a server-side account state would be a lie about what is unavailable. */
+.shell__banner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  align-items: center;
+  justify-content: space-between;
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--warning);
+  background: var(--warning-subtle);
+}

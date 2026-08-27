@@ -30,6 +30,23 @@ export interface Session {
   refreshToken: string;
   /** Email, for showing who is signed in and prefilling a re-authentication. */
   email: string;
+  /**
+   * The server is holding this account until it chooses a password of its own — a
+   * first-run administrator, or an account someone else created.
+   *
+   * Never trusted as a permission. The server refuses every route but the one that
+   * fixes it, so this is here to show the right screen, not to enforce anything; a
+   * client that ignored it would simply see 403s.
+   */
+  mustChangePassword?: boolean;
+  /**
+   * This account administers the server it is signed in to.
+   *
+   * Only ever used to decide whether to offer the administration screen. The server
+   * re-reads the flag on every administration call, so it is a hint about what to show,
+   * never a permission — setting it by hand would produce a screen that answers 404.
+   */
+  isAdmin?: boolean;
 }
 
 /** What the server returns from register, login, refresh and pair. */
@@ -39,6 +56,8 @@ export interface SessionResponse {
   accessToken: string;
   refreshToken: string;
   expiresIn: number;
+  mustChangePassword?: boolean;
+  isAdmin?: boolean;
 }
 
 export function isSessionResponse(value: unknown): value is SessionResponse {

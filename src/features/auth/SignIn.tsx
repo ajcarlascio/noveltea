@@ -7,6 +7,28 @@ import "./SignIn.css";
 /** Sentinel for "not one of the remembered servers". Never a valid origin. */
 const ANOTHER = "\u0000another";
 
+/**
+ * The address this page was served from, when that could plausibly be a NovelTea server.
+ *
+ * The Docker stack serves the client and the API from one origin, so for anyone who
+ * deployed it the answer to "what is your server's address?" is the address already in
+ * their browser's bar. Offered as a button rather than prefilled into the field: it is a
+ * good guess for a self-hoster and a wrong one for somebody running the app from a file
+ * or pointed at a server elsewhere, and a wrong prefill is worse than no prefill.
+ */
+function thisPageOrigin(): string | null {
+  try {
+    if (typeof window === "undefined") return null;
+    const origin = window.location.origin;
+    // file:// and about:blank have no server behind them, and normaliseServerUrl would
+    // cheerfully turn "null" into https://null.
+    if (!/^https?:\/\//.test(origin)) return null;
+    return normaliseServerUrl(origin);
+  } catch {
+    return null;
+  }
+}
+
 function safeStorage(): Storage | undefined {
   try {
     return typeof window === "undefined" ? undefined : window.localStorage;
@@ -27,6 +49,7 @@ function safeStorage(): Storage | undefined {
 export function SignIn() {
   const { signIn, signUp } = useAuth();
   const known = useMemo(() => readServers(safeStorage()), []);
+  const servedFrom = useMemo(thisPageOrigin, []);
 
   const [choice, setChoice] = useState<string>(known[0]?.url ?? ANOTHER);
   const [typedServer, setTypedServer] = useState("");
@@ -109,6 +132,15 @@ export function SignIn() {
               inputMode="url"
               onChange={(event) => setTypedServer(event.target.value)}
             />
+            {servedFrom !== null && typedServer.trim() !== servedFrom && (
+              <button
+                type="button"
+                className="signin__suggest"
+                onClick={() => setTypedServer(servedFrom)}
+              >
+                Use this server ({servedFrom})
+              </button>
+            )}
           </label>
         )}
 
