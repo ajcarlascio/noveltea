@@ -184,6 +184,15 @@ describe("the pre-paint script and the app agree", () => {
     expect(result.font).toBeNull();
     expect(result.fontSize).toBeNull();
   });
+
+  it("ignores an imported-font value without throwing", () => {
+    // A custom:<id> selection cannot be applied before first paint — the bytes
+    // register asynchronously — so the script must leave it alone and let the
+    // startup loader apply it, not crash on it.
+    const result = runPrePaintScript(fakeStorage({ [FONT_STORAGE_KEY]: "custom:f1abc" }));
+    expect(result.threw).toBeNull();
+    expect(result.font).toBeNull();
+  });
 });
 
 describe("font size", () => {

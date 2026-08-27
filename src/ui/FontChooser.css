@@ -40,15 +40,6 @@
 .font-chooser__option[data-font-preview="merriweather"] span {
   font-family: "Merriweather Variable", Merriweather, Georgia, serif;
 }
-.font-chooser__option[data-font-preview="eb-garamond"] span {
-  font-family: "EB Garamond Variable", "EB Garamond", Garamond, Georgia, serif;
-}
-.font-chooser__option[data-font-preview="lora"] span {
-  font-family: "Lora Variable", Lora, Georgia, serif;
-}
-.font-chooser__option[data-font-preview="atkinson"] span {
-  font-family: "Atkinson Hyperlegible", system-ui, -apple-system, sans-serif;
-}
 .font-chooser__option[data-font-preview="georgia"] span {
   font-family: Georgia, "Iowan Old Style", serif;
 }
@@ -83,6 +74,53 @@
   display: block;
   color: var(--text-muted);
   font-size: 0.8rem;
+}
+
+.font-chooser__custom {
+  /* Same full-width row treatment as the size group: the imported faces belong
+     with the faces, not inside the wrap of bundled ones. */
+  flex: 1 0 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  align-items: center;
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+.font-chooser__custom-row {
+  display: inline-flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+/* An imported face is previewed in itself — the only honest preview there is,
+   once the face has registered. Until then the fallback stack shows. */
+.font-chooser__option[data-font-preview="custom"] span {
+  font-family: var(--font-prose);
+}
+
+.font-chooser__remove {
+  min-height: 44px;
+}
+
+.font-chooser__file-input {
+  /* The visible "Import font…" button drives it; the input itself stays out of
+     the layout without being display:none, which some webviews treat as
+     unpickable. */
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.font-chooser__error {
+  flex: 1 0 100%;
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.85rem;
 }
 
 .font-chooser__size {
