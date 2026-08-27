@@ -232,3 +232,42 @@ describe("a saved search", () => {
     expect(await contents(saved.id)).toEqual(["Chapter One", "Chapter Two"]);
   });
 });
+
+it("EXCLUDES A SCENE INSIDE A TRASHED FOLDER, NOT JUST THE FOLDER", async () => {
+  // Discarding an act reparents the *folder* to the trash node; its scenes still point
+  // at the folder. Testing `parent_id = trash` therefore catches the folder and none of
+  // the chapters in it, and a whole discarded act turns up in a saved search. The
+  // recursive walk down from the trash node is what makes this hold.
+  const act = folder("Act Three");
+  const scene = COMMANDS.createBinderItem(db.adapter, {
+    projectId,
+    parentId: act,
+    type: "document",
+    title: "The kerb",
+  }).id;
+  COMMANDS.saveDocument(db.adapter, {
+    projectId,
+    id: scene,
+    content: { type: "doc", content: [] },
+    searchText: "Marlowe drove north",
+    wordCount: 3,
+  });
+  COMMANDS.trashBinderItem(db.adapter, { projectId, id: act });
+
+  const search = smart("Marlowe", { text: "marlowe" });
+  expect(await contents(search.id)).toEqual([]);
+
+  // And the same for a hand-made list, which is a different query in the same function.
+  const list = COMMANDS.createCollection(db.adapter, {
+    projectId,
+    name: "Act Three",
+    color: null,
+    query: null,
+  });
+  COMMANDS.addToCollection(db.adapter, {
+    projectId,
+    collectionId: list.id,
+    binderItemId: scene,
+  });
+  expect(await contents(list.id)).toEqual([]);
+});

@@ -3,6 +3,7 @@ import type { DatabaseClient } from "@/db/client";
 import type { Reader } from "@/data/projects";
 import type { CollectionQuery } from "@/db/collection-commands";
 import { toFtsQuery } from "@/data/search";
+import { DISCARDED } from "@/data/binder";
 
 /**
  * Collections, read from the local replica.
@@ -161,22 +162,22 @@ export async function loadCollectionMembers(
   projectId: string,
   collection: Collection,
 ): Promise<CollectionMember[]> {
-  // `LEFT JOIN ... trash` rather than a subquery on every row: a trashed item's parent
-  // *is* the trash node, so one join answers it.
+  // The recursive form, not a join on `parent_id`: discarding a folder reparents the
+  // folder alone, so its scenes still point at it and a one-level test misses every one
+  // of them. See [[DISCARDED]].
   const live = `b.project_id = ?
       AND b.deleted_at IS NULL
       AND b.type IN ('folder', 'document')
-      AND trash.id IS NULL`;
-  const from = `FROM binder_item b
-       LEFT JOIN binder_item trash ON trash.id = b.parent_id AND trash.type = 'trash'`;
+      AND b.id NOT IN (SELECT id FROM discarded)`;
 
   if (!collection.isSmart) {
     const rows = await db.query<MemberRow>(
-      `SELECT ${MEMBER_COLUMNS} ${from}
+      `${DISCARDED}
+       SELECT ${MEMBER_COLUMNS} FROM binder_item b
          JOIN collection_item ci ON ci.binder_item_id = b.id
         WHERE ci.collection_id = ? AND ${live}
         ORDER BY ci.order_key, b.id`,
-      [collection.id, projectId],
+      [projectId, collection.id, projectId],
     );
     return rows.map(toMember);
   }
@@ -185,10 +186,11 @@ export async function loadCollectionMembers(
   if (impossible) return [];
 
   const rows = await db.query<MemberRow>(
-    `SELECT ${MEMBER_COLUMNS} ${from}
+    `${DISCARDED}
+     SELECT ${MEMBER_COLUMNS} FROM binder_item b
       WHERE ${live}${clauses.map((clause) => `\n        AND ${clause}`).join("")}
       ORDER BY b.order_key, b.id`,
-    [projectId, ...params],
+    [projectId, projectId, ...params],
   );
   return rows.map(toMember);
 }
