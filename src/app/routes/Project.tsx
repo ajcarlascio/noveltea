@@ -14,6 +14,7 @@ import {
 import { BinderTree } from "@/features/binder/BinderTree";
 import {
   ArrowToTopIcon,
+  CorkboardIcon,
   DocumentPlusIcon,
   FolderPlusIcon,
   ImportIcon,
@@ -29,6 +30,7 @@ import {
   writeExpandedIds,
   writeLastDocumentId,
 } from "@/features/binder/binderState";
+import { Corkboard } from "@/features/corkboard/Corkboard";
 import { DocumentEditor } from "@/features/editor/DocumentEditor";
 import { IMPORT_EXTENSIONS } from "@/features/import/markdown";
 import {
@@ -58,6 +60,14 @@ export function Project() {
     () => new Set(readExpandedIds(safeStorage(), projectId)),
   );
   const [renaming, setRenaming] = useState(false);
+  /**
+   * Writing, or looking at the shape of it.
+   *
+   * Deliberately not remembered between visits. The corkboard is where an author goes
+   * to think about structure, and returning to it days later instead of to the page
+   * they were writing would be the app deciding what they came back for.
+   */
+  const [view, setView] = useState<"write" | "corkboard">("write");
   const [importErrors, setImportErrors] = useState<string[]>([]);
   const importInput = useRef<HTMLInputElement>(null);
 
@@ -65,6 +75,7 @@ export function Project() {
   // this project's remembered state instead of carrying the previous one's across.
   useEffect(() => {
     setSelectedId(null);
+    setView("write");
     setExpandedIds(new Set(readExpandedIds(safeStorage(), projectId)));
   }, [projectId]);
 
@@ -79,11 +90,21 @@ export function Project() {
   // A document is a leaf, so new items go beside it rather than inside it.
   const parentForNew = selected === null ? null : selected.type === "folder" ? selected.id : selected.parentId;
 
-  // Once the binder has loaded, return the author to the document they were last
-  // reading, with its folders opened on the way down. A stale id — the document was
-  // trashed on another device — selects nothing rather than failing.
+  /**
+   * Once the binder has loaded, return the author to the document they were last
+   * reading, with its folders opened on the way down. A stale id — the document was
+   * trashed on another device — selects nothing rather than failing.
+   *
+   * Once per project, tracked in a ref, and not "whenever nothing is selected". The
+   * second reading is what it used to do, and it made clearing the selection
+   * impossible: the corkboard's own trail sets it to null to go back to the top of
+   * the manuscript, this effect put the last document straight back, and the button
+   * did nothing at all. Nothing had asked to deselect before, so nothing had noticed.
+   */
+  const restoredFor = useRef<string | null>(null);
   useEffect(() => {
-    if (binder === null || selectedId !== null) return;
+    if (binder === null || restoredFor.current === projectId) return;
+    restoredFor.current = projectId;
     const lastId = readLastDocumentId(safeStorage(), projectId);
     if (lastId === null) return;
     const last = flatten(binder.roots).find((node) => node.id === lastId);
@@ -94,7 +115,7 @@ export function Project() {
       for (const id of ancestorIds(binder.roots, lastId)) next.add(id);
       return next;
     });
-  }, [binder, projectId, selectedId]);
+  }, [binder, projectId]);
 
   const select = (id: string) => {
     setSelectedId(id);
@@ -112,6 +133,27 @@ export function Project() {
   const afterCreate = (parentId: string | null) => {
     if (parentId !== null) setExpandedIds((current) => new Set(current).add(parentId));
   };
+
+  /**
+   * Which level the corkboard is showing.
+   *
+   * The level the author is already looking at, not a place of its own: a selected
+   * folder means "the scenes in this folder", a selected document means "this scene and
+   * the ones beside it", and nothing selected means the top of the manuscript. Choosing
+   * anything else would make the two views disagree about where the reader is.
+   */
+  const boardParentId =
+    selected === null ? null : selected.type === "folder" ? selected.id : selected.parentId;
+
+  const boardTrail = [
+    { id: null, title: title ?? "Manuscript" },
+    ...(boardParentId === null
+      ? []
+      : [...ancestorIds(nodes, boardParentId), boardParentId].map((id) => ({
+          id,
+          title: flatten(nodes).find((node) => node.id === id)?.title ?? "Folder",
+        }))),
+  ];
 
   const collapsed = settings.binderCollapsed;
   const toggleBinder = () =>
@@ -201,6 +243,13 @@ export function Project() {
           onClick={() => importInput.current?.click()}
         />
         <ToolbarButton
+          label={view === "corkboard" ? "Back to writing" : "Corkboard"}
+          short={view === "corkboard" ? "Write" : "Cards"}
+          icon={<CorkboardIcon />}
+          pressed={view === "corkboard"}
+          onClick={() => setView((current) => (current === "write" ? "corkboard" : "write"))}
+        />
+        <ToolbarButton
           label="Rename"
           icon={<PencilIcon />}
           disabled={selected === null}
@@ -277,7 +326,24 @@ export function Project() {
           </div>
         )}
 
-        {selected?.type === "document" ? (
+        {view === "corkboard" ? (
+          // Keyed on the level so drilling into a folder starts a fresh board rather
+          // than briefly showing the previous folder's cards under the new heading.
+          <Corkboard
+            key={boardParentId ?? ""}
+            projectId={projectId}
+            parentId={boardParentId}
+            trail={boardTrail}
+            onNavigate={(id) => {
+              if (id === null) setSelectedId(null);
+              else select(id);
+            }}
+            onOpenDocument={(id) => {
+              select(id);
+              setView("write");
+            }}
+          />
+        ) : selected?.type === "document" ? (
           // Keyed on the id so switching documents remounts rather than reusing an
           // editor still holding the previous one's history and unsaved changes.
           <DocumentEditor key={selected.id} projectId={projectId} documentId={selected.id} />

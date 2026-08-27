@@ -105,3 +105,11 @@
     inset: -6px 0;
   }
 }
+
+/* A toggle that is on. Hangs off the same attribute the screen reader reads, so a
+   button that looks pressed and one that says it is pressed cannot come apart. */
+.button[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-subtle);
+  color: var(--accent);
+}

@@ -297,6 +297,51 @@ client-generated project id posted to `POST /projects` from an outbox, idempoten
 so a lost response does not create two — the same shape as the rest of the queue, drained on
 reconnect. That belongs with the sync phase.
 
+## The corkboard
+
+The binder answers "what is in this book". The corkboard answers **"what happens, and in
+what order"** — a different question, asked at a different moment, which is why it is a
+second view over the same rows rather than a mode inside the first.
+
+`document.synopsis` has been in both schemas since the first migration and until now had
+nowhere to be written. A card's summary is that column: an ordinary local edit that queues
+for sync like any other and needs no connection.
+
+**One level at a time.** A wall of every scene in a novel is not something anyone can look
+at, so the board shows the children of wherever the author already is — a selected folder
+means the scenes inside it, a selected document means that scene and the ones beside it,
+nothing selected means the top. Choosing anything else would let the two views disagree
+about where the reader is standing.
+
+**Folders get cards too**, and drill in when opened. A folder has no `document` row and so
+no summary of its own; its card says how much is behind it instead, which is what you want
+to know before deciding whether to look.
+
+**Reordering is drag *and* buttons**, and the buttons are not a fallback. A drag needs a
+pointer, a steady hand and a screen wide enough to show both ends of the move; the buttons
+work with a keyboard, on a phone, and one card at a time — which is how most reordering
+actually happens. Both write the same fractional `order_key` the binder reads, so the two
+views are one order and not two.
+
+### The rule that shapes the writes
+
+`pending_change` holds **at most one entry per entity**, and merging a second change
+replaces the payload rather than combining it. So a partial document payload is a promise
+that no other pane will write this document before the queue drains — and the editor writes
+prose while the corkboard writes index cards, so that promise is false. Whichever saved
+last would silently drop the other's field from the push.
+
+Every document write therefore queues the **whole row**. That makes coalescing correct by
+construction rather than by everyone remembering. The server independently reads a missing
+key as "leave it alone", so the two halves cover each other: an older client's autosave
+cannot wipe a synopsis, and a new client's card save cannot wipe prose.
+
+A synopsis is saved when the field is left, not on every keystroke — it is prose about
+prose, rewritten several times per card, and every save is a queue entry the next sync has
+to carry. Snapshots are deliberately not taken: they exist to protect a manuscript from a
+bad revision pass, and capturing one every time somebody tidies a card would fill the
+history with nothing.
+
 ## Reviewing the interface
 
 ```bash

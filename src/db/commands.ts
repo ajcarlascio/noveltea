@@ -230,8 +230,68 @@ export interface DocumentRow {
   content: string;
   search_text: string | null;
   word_count: number;
+  /** The index-card summary. Null and empty mean the same thing: there isn't one. */
+  synopsis: string | null;
+  notes: string | null;
   version: number;
   updated_at: string;
+}
+
+export interface SaveSynopsisInput {
+  projectId: string;
+  id: string;
+  /** Null, or blank, clears it. */
+  synopsis: string | null;
+}
+
+/** Every syncable column on a document row, in one place so no reader can forget one. */
+const DOCUMENT_COLUMNS =
+  "id, content, search_text, word_count, synopsis, notes, version, updated_at";
+
+function requireDocumentRow(db: SqliteAdapter, id: string): DocumentRow {
+  const row = db.query<DocumentRow>(
+    `SELECT ${DOCUMENT_COLUMNS} FROM document WHERE id = ?;`,
+    [id],
+  )[0];
+  if (!row) throw new Error("That document has no body row.");
+  return row;
+}
+
+/**
+ * Queues a document for sync, always as the whole row.
+ *
+ * Not an efficiency choice — the opposite. `pending_change` holds **at most one entry
+ * per entity**, and merging a second change replaces the payload outright rather than
+ * combining it. So a partial payload is a promise that no other pane will ever write
+ * this document before the queue drains, and that promise is false: the editor saves
+ * prose while the corkboard saves index cards, and whichever went last would silently
+ * drop the other's field from the push.
+ *
+ * Sending the row back in full makes coalescing correct by construction. The server
+ * reads a missing key as "leave it alone", so this is belt and braces — but the belt is
+ * the half that survives someone adding a third pane.
+ */
+function queueDocument(db: SqliteAdapter, projectId: string, row: DocumentRow): void {
+  enqueueChange(db, {
+    projectId,
+    entityType: "document",
+    entityId: row.id,
+    op: "update",
+    payload: {
+      id: row.id,
+      // Valid JSON by the table's own CHECK constraint, so this cannot be the thing
+      // that throws here.
+      content: JSON.parse(row.content) as unknown,
+      search_text: row.search_text,
+      word_count: row.word_count,
+      synopsis: row.synopsis,
+      notes: row.notes,
+      updated_at: row.updated_at,
+    },
+    // Local edits never bump version; the server assigns it. This is the version
+    // last synced, which is what the server checks the push against.
+    baseVersion: row.version,
+  });
 }
 
 export const COMMANDS = {
@@ -447,29 +507,43 @@ export const COMMANDS = {
       [JSON.stringify(input.content), input.searchText, input.wordCount, stamp, input.id],
     );
 
-    const row = db.query<DocumentRow>(
-      "SELECT id, content, search_text, word_count, version, updated_at FROM document WHERE id = ?;",
-      [input.id],
-    )[0];
-    if (!row) throw new Error("That document has no body row.");
+    const row = requireDocumentRow(db, input.id);
+    queueDocument(db, input.projectId, row);
+    return row;
+  },
 
-    enqueueChange(db, {
-      projectId: input.projectId,
-      entityType: "document",
-      entityId: row.id,
-      op: "update",
-      payload: {
-        id: row.id,
-        content: input.content,
-        search_text: row.search_text,
-        word_count: row.word_count,
-        updated_at: row.updated_at,
-      },
-      // Local edits never bump version; the server assigns it. This is the version
-      // last synced, which is what the server checks the push against.
-      baseVersion: row.version,
-    });
+  /**
+   * Writes a document's index card.
+   *
+   * Its own command rather than an argument to `saveDocument`, because the two are
+   * written by different panes at different moments and neither should have to know
+   * the other's field. What they do share is the queue entry, which is why both go
+   * through `queueDocument`.
+   *
+   * No snapshot is taken. Snapshots exist to protect prose from a bad revision pass;
+   * a synopsis is a note about the prose, and capturing the whole manuscript every time
+   * somebody tidies a card would fill the history with nothing.
+   */
+  saveSynopsis: (db: SqliteAdapter, input: SaveSynopsisInput): DocumentRow => {
+    // Scoped through the binder item, exactly as saveDocument is: without this an id
+    // learned from anywhere would write into another project.
+    const item = requireItem(db, input.projectId, input.id);
+    if (item.type !== "document") throw new Error("That item is not a document.");
+    if (item.deleted_at !== null) throw new Error("That document has been deleted.");
 
+    // An emptied card has no synopsis; it does not have an empty one. Stored as null so
+    // "is there a summary?" is one question everywhere rather than two.
+    const trimmed = input.synopsis === null ? null : input.synopsis.trim();
+    const synopsis = trimmed === null || trimmed.length === 0 ? null : trimmed;
+
+    db.run("UPDATE document SET synopsis = ?, updated_at = ? WHERE id = ?;", [
+      synopsis,
+      now(),
+      input.id,
+    ]);
+
+    const row = requireDocumentRow(db, input.id);
+    queueDocument(db, input.projectId, row);
     return row;
   },
 
