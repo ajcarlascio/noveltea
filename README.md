@@ -393,6 +393,20 @@ flicker and fail halfway each time. Waiting costs an author nothing: their work 
 already safe locally. **"Sync now" always overrides**, including while `navigator.onLine`
 says offline, because it is often simply wrong and the author may know better.
 
+**The first sync of a project does not wait.** That last justification — waiting costs
+nothing, the work is already local — is only true of a replica that already has the work
+in it. A device signed in a minute ago holds nothing, so the window would cost an author
+their entire book for fifteen minutes, at exactly the moment they are watching for it to
+appear. So when there is no cursor for the project, the sync runs as soon as the
+connection is up, and every sync after that waits like any other.
+
+It is still not a free pass: the wifi-only setting applies. Being empty is a reason not
+to wait, not a reason to pull a whole manuscript over cellular against an explicit
+instruction. And "no cursor" means *known* to have no cursor — the scheduler is built
+before the project's state has been read, and treating "not read yet" as "never synced"
+would make every app open sync every replica immediately, which is the behaviour the
+window exists to prevent.
+
 ### Rebuilding after a resync
 
 Three steps, in this order:
