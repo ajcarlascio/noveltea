@@ -3,6 +3,50 @@
  * gets everything else. Chrome is kept deliberately thin — every row of padding here
  * is a line of prose the author cannot see.
  */
+/**
+ * The project page's own heading, smaller than a page heading elsewhere.
+ *
+ * Every row above the manuscript is a line of prose the author cannot see, and on this
+ * screen the title is the least of what is on it — the book's name, which they know.
+ * The landmark matters more than the size, and a screen reader gets the same h1 either
+ * way.
+ */
+.page h1.project__title {
+  margin-bottom: var(--space-2);
+  font-size: clamp(1.0625rem, 0.9rem + 0.7vw, 1.25rem);
+}
+
+.project__showing {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.project__showing select {
+  min-width: 0;
+  min-height: 32px;
+  flex: 1;
+  padding: 0 var(--space-1);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.8125rem;
+}
+
+@media (max-width: 52rem) {
+  .project__showing {
+    min-height: 44px;
+  }
+
+  .project__showing select {
+    min-height: 36px;
+  }
+}
+
 .project__toolbar {
   display: flex;
   /* Wraps between buttons rather than inside them. On a wide screen the whole row
@@ -13,7 +57,7 @@
      not, because the overlays do not widen the button. */
   flex-wrap: wrap;
   gap: var(--space-3) var(--space-2);
-  margin-bottom: var(--space-3);
+  margin-bottom: var(--space-2);
 }
 
 .project__error {
@@ -116,17 +160,26 @@
 
 /* Sits under the manuscript, so it must not compete with it. */
 .project__footer {
-  margin-top: var(--space-4);
-  padding-top: var(--space-3);
   border-top: 1px solid var(--border);
   color: var(--text-muted);
   font-size: 0.875rem;
+}
+
+/* Closed, these are three stacked rows of chrome under the manuscript and nothing
+   else — so they get a row's worth of height and no more. Open, they need room to
+   breathe, and the padding comes back with the content it belongs to. */
+.project__footer[open] {
+  padding-bottom: var(--space-4);
 }
 
 .project__footer summary {
   min-height: 36px;
   padding: var(--space-1) 0;
   cursor: pointer;
+}
+
+.project__footer[open] summary {
+  margin-bottom: var(--space-2);
 }
 
 .project__trash {

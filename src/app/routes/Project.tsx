@@ -30,6 +30,8 @@ import {
   writeExpandedIds,
   writeLastDocumentId,
 } from "@/features/binder/binderState";
+import { CollectionView } from "@/features/collections/CollectionView";
+import { CollectionsPanel } from "@/features/collections/CollectionsPanel";
 import { Corkboard } from "@/features/corkboard/Corkboard";
 import { DocumentEditor } from "@/features/editor/DocumentEditor";
 import { IMPORT_EXTENSIONS } from "@/features/import/markdown";
@@ -52,7 +54,7 @@ import "./Project.css";
 
 export function Project() {
   const { projectId = "" } = useParams();
-  const { binder, taxonomy, title, error, run } = useBinder(projectId);
+  const { binder, taxonomy, collections, title, error, run } = useBinder(projectId);
   const { settings, update } = useSettings();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Seeded from storage so the tree opens the way the author left it rather than
@@ -70,6 +72,14 @@ export function Project() {
    * they were writing would be the app deciding what they came back for.
    */
   const [view, setView] = useState<"write" | "corkboard">("write");
+  /**
+   * The collection showing in place of the tree, or null for the binder itself.
+   *
+   * Not remembered between visits, and cleared when the collection is deleted below:
+   * the binder is the manuscript, and coming back days later to a filtered view of it
+   * would be the app deciding what the author came back for.
+   */
+  const [showingCollectionId, setShowingCollectionId] = useState<string | null>(null);
   const [importErrors, setImportErrors] = useState<string[]>([]);
   const importInput = useRef<HTMLInputElement>(null);
 
@@ -78,6 +88,7 @@ export function Project() {
   useEffect(() => {
     setSelectedId(null);
     setView("write");
+    setShowingCollectionId(null);
     setExpandedIds(new Set(readExpandedIds(safeStorage(), projectId)));
   }, [projectId]);
 
@@ -88,6 +99,9 @@ export function Project() {
   }, [projectId, expandedIds]);
 
   const nodes = binder?.roots ?? [];
+  // Falls back to the binder when the chosen collection is gone — deleted here, or
+  // deleted on another device and arrived in a pull.
+  const showing = collections.find((collection) => collection.id === showingCollectionId) ?? null;
   const selected = flatten(nodes).find((node) => node.id === selectedId) ?? null;
   // A document is a leaf, so new items go beside it rather than inside it.
   const parentForNew = selected === null ? null : selected.type === "folder" ? selected.id : selected.parentId;
@@ -316,17 +330,46 @@ export function Project() {
         {!collapsed && (
           <div className="project__binder">
             <SearchPanel projectId={projectId} onOpen={select} />
+            {collections.length > 0 && (
+              <label className="project__showing">
+                <span>Showing</span>
+                <select
+                  value={showing === null ? "" : showing.id}
+                  onChange={(event) => setShowingCollectionId(event.target.value || null)}
+                >
+                  <option value="">The binder</option>
+                  {collections.map((collection) => (
+                    <option key={collection.id} value={collection.id}>
+                      {collection.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <div className="project__binder-scroll">
-              <BinderTree
-                label="Binder"
-                nodes={nodes}
-                selectedId={selectedId}
-                onSelect={select}
-                expandedIds={expandedIds}
-                onToggle={toggle}
-                taxonomy={taxonomy}
-                emptyMessage="This binder is empty. Start with a folder or a document."
-              />
+              {showing === null ? (
+                <BinderTree
+                  label="Binder"
+                  nodes={nodes}
+                  selectedId={selectedId}
+                  onSelect={select}
+                  expandedIds={expandedIds}
+                  onToggle={toggle}
+                  taxonomy={taxonomy}
+                  emptyMessage="This binder is empty. Start with a folder or a document."
+                />
+              ) : (
+                // Keyed on the collection so switching starts a fresh read rather than
+                // briefly showing the previous one's members under the new name.
+                <CollectionView
+                  key={showing.id}
+                  projectId={projectId}
+                  collection={showing}
+                  taxonomy={taxonomy}
+                  selectedId={selectedId}
+                  onSelect={select}
+                />
+              )}
             </div>
           </div>
         )}
@@ -362,11 +405,23 @@ export function Project() {
         )}
       </div>
 
-      {/* Folded away for the same reason the one below it is: making a label is a
-          thing an author does once a book, and using it is a thing they do all day. */}
+      {/* Folded away for the same reason the ones below it are: making a label or a
+          saved search is a thing an author does once a book, and using it is a thing
+          they do all day. */}
       <details className="project__footer">
         <summary>Labels and statuses</summary>
         <TaxonomyPanel projectId={projectId} taxonomy={taxonomy} run={run} />
+      </details>
+
+      <details className="project__footer">
+        <summary>Collections</summary>
+        <CollectionsPanel
+          projectId={projectId}
+          collections={collections}
+          taxonomy={taxonomy}
+          selected={selected}
+          run={run}
+        />
       </details>
 
       {/* Folded away by default. Compiling and the trash are occasional; the

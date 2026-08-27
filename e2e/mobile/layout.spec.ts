@@ -116,6 +116,28 @@ test("gives every control in the labels panel a target a finger can hit", async 
   expect(await unhittableControls(page)).toEqual([]);
 });
 
+test("gives every control in the collections panel a target a finger can hit", async ({
+  page,
+}) => {
+  // Folded away by default, so the check above skips it. Everything inside is new: two
+  // name fields, three selects for a saved search's conditions, and two buttons a row.
+  await page.goto("/projects");
+  await expect(page.locator("html")).toHaveAttribute("data-db-status", "ready", { timeout: 30_000 });
+  await page.getByRole("button", { name: "New project" }).click();
+  await page.getByRole("link", { name: "Untitled project" }).first().click();
+  await page.getByRole("button", { name: "New document" }).click();
+  await expect(page.getByRole("treeitem")).toHaveCount(1);
+  await page.getByRole("treeitem").first().click();
+
+  await page.getByText("Collections", { exact: true }).click();
+  await page.getByLabel("New collection").fill("Marlowe");
+  await page.getByLabel("Kind", { exact: true }).first().selectOption("search");
+  await page.getByRole("button", { name: "Add", exact: true }).click();
+  await expect(page.getByLabel("Words")).toBeVisible();
+
+  expect(await unhittableControls(page)).toEqual([]);
+});
+
 test("keeps the corkboard usable on a phone", async ({ page }) => {
   // A whole second view of the manuscript, and one built out of a grid — which is the
   // thing most likely to insist on a minimum width the screen has not got.

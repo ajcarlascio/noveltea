@@ -551,11 +551,36 @@ Compile is asynchronous and server-side: `POST /projects/{id}/compile` returns a
 - **Deleting a term clears it off every item wearing it**, in the same transaction, with a
   queue entry per item. A tombstone does not fire the `ON DELETE SET NULL`, so without
   this the row keeps a foreign key to something no reader on any device can resolve.
-- **The server cannot take taxonomy writes yet.** `SyncService` accepts `binder_item` and
-  `document`; everything else comes back as a `not_implemented` conflict, which
-  `shouldStayQueued` deliberately keeps in the queue. So a label made today is local until
-  the server learns the type, and then it pushes on its own. The two id columns on
-  `binder_item` sync now, because that row is writable.
+- **Taxonomy writes are spec-driven on the server**, not hand-written: `SyncService.applyOne`
+  falls through to `applyDataEntity`, which accepts any type `SyncEntitySpec` declares —
+  taxonomy, collections, custom metadata, compile presets. The server's own `CLAUDE.md` still
+  says only `binder_item` and `document` are writable; that sentence is stale, and the switch
+  in `SyncService` is what to read. `not_implemented` now means only "no spec for that type".
+
+## Collections
+
+- **Two kinds, one table, and the kind is permanent.** `collection.is_smart` with
+  `collection.query`; a static list keeps its members in `collection_item`. Neither can be
+  turned into the other — one discards the query that *was* the collection, the other makes
+  hand-picked members stop being what it holds. `updateCollection` refuses both.
+- **A smart collection is answered at read time, against the replica.** There is no
+  materialised membership, nothing to refresh and nothing to invalidate; a scene joins the
+  moment its prose matches. That is also why it works with no server.
+- **The saved query is a small, closed shape** (`labelIds`, `statusIds`, `text`, `types`),
+  not an expression tree. The server stores it as opaque jsonb and never interprets it, so
+  what keeps two clients agreeing about what a saved search *means* is that the shape stays
+  simple enough to implement twice. `normaliseQuery` drops keys this build cannot evaluate
+  rather than round-tripping them back unchanged.
+- **A text condition that tokenises to nothing means no results**, exactly as search does.
+  Falling through to "everything" would silently turn one typo into the whole manuscript.
+- **`collection_item` has no `deleted_at` on either side**, so removing a member is a hard
+  delete and the queue entry is the only thing that tells another device. Deleting a
+  *collection* leaves its membership rows alone: they are unreachable once it is tombstoned,
+  and a queue entry each would push forty changes to say one thing.
+- **The payload is the server's `SyncEntitySpec`, not this table's columns.** `query` must be
+  a JSON **object** and `is_smart` a **boolean** — SQLite's 0/1 is refused as
+  `invalid_request`, not coerced — and `collection_item` must carry both parent ids on
+  create.
 
 ## Conflicts and merging
 

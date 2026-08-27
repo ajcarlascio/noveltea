@@ -1,13 +1,18 @@
 .lookup {
-  padding: var(--space-2) var(--space-4) var(--space-3);
+  padding: 0 var(--space-4);
   border-top: 1px solid var(--border);
   font-size: 0.9rem;
 }
 
+.lookup[open] {
+  padding: var(--space-2) var(--space-4) var(--space-3);
+}
+
 .lookup__summary {
-  min-height: 36px;
-  padding: var(--space-1) 0;
+  /* See CommentsPanel.css: a flex summary loses its disclosure triangle. */
+  padding: var(--space-2) 0;
   color: var(--text-muted);
+  font-size: 0.8125rem;
   cursor: pointer;
 }
 
