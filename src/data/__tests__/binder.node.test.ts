@@ -16,6 +16,8 @@ const row = (over: Partial<Row> & Pick<Row, "id">): Row => ({
   title: over.id,
   order_key: "V",
   trashed_from_parent_id: null,
+  label_id: null,
+  status_id: null,
   ...over,
 });
 

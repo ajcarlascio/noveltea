@@ -78,3 +78,14 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+
+/* The label and status marks, pushed to the end of the row and allowed to shrink
+   away before the title does: which chapter this is matters more than how far along
+   it is, and on a phone there is room for one of the two. */
+.binder__marks {
+  display: flex;
+  min-width: 0;
+  margin-left: auto;
+  gap: var(--space-2);
+  overflow: hidden;
+}

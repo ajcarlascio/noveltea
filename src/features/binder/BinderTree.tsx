@@ -1,5 +1,7 @@
 import { useCallback, useMemo, useRef, type KeyboardEvent } from "react";
 import type { BinderNode } from "@/data/binder";
+import { EMPTY_TAXONOMY, type Taxonomy } from "@/data/taxonomy";
+import { TermMarks } from "@/features/taxonomy/TermMarks";
 import { ChevronIcon, DocumentIcon, FolderIcon } from "./icons";
 import "./BinderTree.css";
 
@@ -23,6 +25,8 @@ export interface BinderTreeProps {
   onToggle: (id: string) => void;
   emptyMessage: string;
   label: string;
+  /** The project's labels and statuses, for turning an item's two ids into marks. */
+  taxonomy?: Taxonomy;
 }
 
 interface Row {
@@ -54,6 +58,7 @@ export function BinderTree({
   onToggle,
   emptyMessage,
   label,
+  taxonomy = EMPTY_TAXONOMY,
 }: BinderTreeProps) {
   const treeRef = useRef<HTMLUListElement>(null);
   const rows = useMemo(() => visibleRows(nodes, expandedIds), [nodes, expandedIds]);
@@ -172,6 +177,14 @@ export function BinderTree({
               {node.type === "folder" ? <FolderIcon /> : <DocumentIcon />}
             </span>
             <span className="binder__title">{node.title}</span>
+            <span className="binder__marks">
+              <TermMarks
+                taxonomy={taxonomy}
+                labelId={node.labelId}
+                statusId={node.statusId}
+                compact
+              />
+            </span>
             {node.conflictOfId !== null && (
               // A conflict copy holds words the server refused to merge. Left
               // unmarked it looks like an ordinary document with an odd name, and an

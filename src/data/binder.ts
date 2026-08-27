@@ -25,6 +25,9 @@ export interface BinderItem {
    * ambiguous the moment two copies exist.
    */
   conflictOfId: string | null;
+  /** The project's label and status terms, by id. Resolved by the reader, not here. */
+  labelId: string | null;
+  statusId: string | null;
 }
 
 export interface BinderNode extends BinderItem {
@@ -47,11 +50,14 @@ interface BinderRow {
   order_key: string;
   trashed_from_parent_id: string | null;
   conflict_of_id: string | null;
+  label_id: string | null;
+  status_id: string | null;
 }
 
 export async function loadBinder(db: Reader, projectId: string): Promise<Binder> {
   const rows = await db.query<BinderRow>(
-    `SELECT id, parent_id, type, title, order_key, trashed_from_parent_id, conflict_of_id
+    `SELECT id, parent_id, type, title, order_key, trashed_from_parent_id, conflict_of_id,
+            label_id, status_id
        FROM binder_item
       WHERE project_id = ? AND deleted_at IS NULL
       ORDER BY order_key, id`,
@@ -77,6 +83,8 @@ export function assemble(rows: readonly BinderRow[]): Binder {
       orderKey: row.order_key,
       trashedFromParentId: row.trashed_from_parent_id,
       conflictOfId: row.conflict_of_id,
+      labelId: row.label_id,
+      statusId: row.status_id,
       children: [],
     });
   }

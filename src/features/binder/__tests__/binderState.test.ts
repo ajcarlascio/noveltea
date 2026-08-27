@@ -17,6 +17,8 @@ const leaf = (id: string, type: "folder" | "document" = "document"): BinderNode 
   orderKey: "a0",
   trashedFromParentId: null,
   conflictOfId: null,
+  labelId: null,
+  statusId: null,
   children: [],
 });
 

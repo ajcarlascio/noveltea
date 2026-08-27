@@ -544,6 +544,18 @@ Compile is asynchronous and server-side: `POST /projects/{id}/compile` returns a
   consecutive inserts between the same two siblings, and then reorders silently stop working.
 - **The server prevents cycles**, but the client should refuse to drop an item into its own
   descendant in the drag layer too — a rejection after the drop looks like a broken UI.
+- **Labels and statuses are one table.** `taxonomy` holds both, told apart by `kind`, and
+  `binder_item.label_id` / `status_id` point into it. A colour is meaningful on a label
+  and is stored as null on a status — `src/db/taxonomy-commands.ts` enforces that on the
+  way in rather than trusting callers.
+- **Deleting a term clears it off every item wearing it**, in the same transaction, with a
+  queue entry per item. A tombstone does not fire the `ON DELETE SET NULL`, so without
+  this the row keeps a foreign key to something no reader on any device can resolve.
+- **The server cannot take taxonomy writes yet.** `SyncService` accepts `binder_item` and
+  `document`; everything else comes back as a `not_implemented` conflict, which
+  `shouldStayQueued` deliberately keeps in the queue. So a label made today is local until
+  the server learns the type, and then it pushes on its own. The two id columns on
+  `binder_item` sync now, because that row is writable.
 
 ## Conflicts and merging
 
@@ -670,6 +682,17 @@ Detail lives in `.claude/skills/noveltea-frontend-conventions/SKILL.md`. The sha
   not spin.
 - **Offline is a test mode, not a scenario.** The default fixture has no server at all. If a
   feature's tests need one to render, the feature has broken invariant 1.
+
+## Pull requests
+
+**Keep the description under 250 words.** A reviewer opens a PR to find out what changed and
+what to look at hardest; a page of prose buries both. Go over only when something genuinely
+load-bearing cannot be said in less — a protocol change, a migration, a failure mode that is
+not obvious from the diff — and then only by as much as that needs.
+
+The commit messages carry the reasoning. The description says what changed, anything the
+reviewer would not infer from the diff, and what was run to check it. Everything else the
+code and the tests already say.
 
 ## Open questions
 

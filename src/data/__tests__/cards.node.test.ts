@@ -126,6 +126,8 @@ describe("where a dragged card lands", () => {
       synopsis: null,
       wordCount: 0,
       childCount: null,
+      labelId: null,
+      statusId: null,
     }));
 
   it("puts a card in front of the one it was dropped on", () => {
@@ -153,6 +155,8 @@ describe("moving one place at a time", () => {
       synopsis: null,
       wordCount: 0,
       childCount: null,
+      labelId: null,
+      statusId: null,
     }));
 
   it("moves earlier by following the card two places back", () => {

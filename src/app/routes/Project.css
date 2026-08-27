@@ -60,7 +60,12 @@
     grid-template-columns: minmax(0, 15rem) minmax(0, 1fr);
     align-items: stretch;
     flex: 1;
-    min-height: 0;
+    /* A floor, not zero. `flex: 1` alone lets a tall footer — the labels panel
+       unfolded, a long trash — take the panes' height away, and the binder ends up a
+       scroller a few pixels high with the tree hidden inside it. Past this the frame
+       stops sharing and `.shell__main` scrolls instead, which is the right answer:
+       the manuscript is what the height is for. */
+    min-height: 20rem;
   }
 
   /* Folded away, the manuscript takes the whole frame. */

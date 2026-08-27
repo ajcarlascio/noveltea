@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { writeManuscript } from "./support/manuscript";
 
 /**
  * Holding syncs for Wi-Fi, in a real browser.
@@ -131,8 +132,6 @@ test("keeps writing possible while syncs are held", async ({ page }) => {
   // The whole premise: holding a sync delays the copy on the server and nothing else.
   await page.getByRole("button", { name: "New document" }).click();
   await page.getByRole("treeitem").last().click();
-  const surface = page.getByRole("textbox", { name: "Manuscript" });
-  await surface.click({ position: { x: 12, y: 12 } });
-  await surface.fill("She climbed the stair by lamplight.");
+  await writeManuscript(page, "She climbed the stair by lamplight.");
   await expect(page.getByText("Saved", { exact: true })).toBeVisible({ timeout: 10_000 });
 });

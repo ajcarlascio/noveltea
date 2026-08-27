@@ -1,7 +1,14 @@
 import { enqueueChange, type SqliteAdapter } from "@noveltea/client-db";
+import {
+  ITEM_COLUMNS,
+  queueItem as queue,
+  requireItem,
+  type BinderItemRow,
+} from "./binder-item";
 import { COMMENT_COMMANDS } from "./comment-commands";
 import { SNAPSHOT_COMMANDS } from "./snapshot-commands";
 import { SYNC_COMMANDS } from "./sync-commands";
+import { TAXONOMY_COMMANDS } from "./taxonomy-commands";
 import { between } from "@/data/order";
 
 /**
@@ -19,25 +26,9 @@ import { between } from "@/data/order";
 
 export type BinderItemType = "folder" | "document";
 
-export interface BinderItemRow {
-  id: string;
-  project_id: string;
-  parent_id: string | null;
-  type: string;
-  title: string;
-  order_key: string;
-  icon: string | null;
-  label_id: string | null;
-  status_id: string | null;
-  trashed_from_parent_id: string | null;
-  deleted_at: string | null;
-  version: number;
-  created_at: string;
-  updated_at: string;
-}
-
-const ITEM_COLUMNS = `id, project_id, parent_id, type, title, order_key, icon, label_id,
-  status_id, trashed_from_parent_id, deleted_at, version, created_at, updated_at`;
+// Re-exported: the row shape moved to `binder-item.ts` when the taxonomy commands
+// needed it too, and the tests and callers that name it here need not care.
+export type { BinderItemRow };
 
 function now(): string {
   return new Date().toISOString();
@@ -48,15 +39,6 @@ function newId(): string {
   // because an author creates items offline; `duplicate_create` exists for the
   // retry case where it has already seen this one.
   return crypto.randomUUID();
-}
-
-function requireItem(db: SqliteAdapter, projectId: string, id: string): BinderItemRow {
-  const row = db.query<BinderItemRow>(
-    `SELECT ${ITEM_COLUMNS} FROM binder_item WHERE id = ? AND project_id = ?;`,
-    [id, projectId],
-  )[0];
-  if (!row) throw new Error("That item is not in this project.");
-  return row;
 }
 
 function trashNodeId(db: SqliteAdapter, projectId: string): string {
@@ -140,38 +122,6 @@ function requireReparentIsSafe(
   if (subtreeIds(db, projectId, id).includes(newParentId)) {
     throw new Error("An item cannot be moved inside itself.");
   }
-}
-
-/** The payload the server will be sent for this row. */
-function payloadOf(row: BinderItemRow): Record<string, unknown> {
-  return {
-    id: row.id,
-    project_id: row.project_id,
-    parent_id: row.parent_id,
-    type: row.type,
-    title: row.title,
-    order_key: row.order_key,
-    icon: row.icon,
-    label_id: row.label_id,
-    status_id: row.status_id,
-    trashed_from_parent_id: row.trashed_from_parent_id,
-    deleted_at: row.deleted_at,
-    updated_at: row.updated_at,
-  };
-}
-
-function queue(db: SqliteAdapter, row: BinderItemRow, op: "create" | "update" | "delete"): void {
-  enqueueChange(db, {
-    projectId: row.project_id,
-    entityType: "binder_item",
-    entityId: row.id,
-    op,
-    payload: op === "delete" ? undefined : payloadOf(row),
-    // The version this client last synced. Local edits deliberately do not bump
-    // `version` — the server assigns it — so the current value is that number, and
-    // enqueueChange keeps whichever base_version an existing pending row already had.
-    baseVersion: row.version,
-  });
 }
 
 // ---------------------------------------------------------------------------------
@@ -580,6 +530,7 @@ export const COMMANDS = {
   ...COMMENT_COMMANDS,
   ...SNAPSHOT_COMMANDS,
   ...SYNC_COMMANDS,
+  ...TAXONOMY_COMMANDS,
 } satisfies Record<string, (db: SqliteAdapter, input: never) => unknown>;
 
 /**
@@ -594,7 +545,7 @@ export const COMMANDS = {
  * this direction only costs a redundant read, while being wrong in the other costs a
  * loop.
  */
-export const READ_ONLY_COMMANDS: ReadonlySet<string> = new Set(["syncState"]);
+export const READ_ONLY_COMMANDS: ReadonlySet<string> = new Set(["syncState", "listTaxonomy"]);
 
 export type CommandName = keyof typeof COMMANDS;
 export type CommandInput<K extends CommandName> = Parameters<(typeof COMMANDS)[K]>[1];
