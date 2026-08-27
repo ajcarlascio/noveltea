@@ -162,8 +162,8 @@ test("keeps the binder toolbar to two rows at most", async ({ page }) => {
     };
   });
 
-  expect(layout.buttons).toBe(6);
-  // Six actions across four rows pushes the manuscript off the screen before an author
+  expect(layout.buttons).toBe(7);
+  // Seven actions across four rows pushes the manuscript off the screen before an author
   // has written anything. On a phone an icon is what buys the rows back — narrower than
   // any word, including the short ones the tablet layout still shows.
   expect(layout.rows).toBeLessThanOrEqual(2);

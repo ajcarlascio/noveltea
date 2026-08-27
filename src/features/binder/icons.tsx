@@ -107,3 +107,15 @@ export function ArrowToTopIcon() {
     </svg>
   );
 }
+
+export function ImportIcon() {
+  return (
+    <svg {...base}>
+      {/* An arrow coming down into an open tray: bringing something in, which is the
+          opposite of the compile panel's outward arrow. */}
+      <path d="M8 2v7" />
+      <path d="M4.5 5.5 8 9l3.5-3.5" />
+      <path d="M2.5 10.5v2c0 .55.45 1 1 1h9c.55 0 1-.45 1-1v-2" />
+    </svg>
+  );
+}

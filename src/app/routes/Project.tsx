@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
   createDocument,
@@ -16,6 +16,7 @@ import {
   ArrowToTopIcon,
   DocumentPlusIcon,
   FolderPlusIcon,
+  ImportIcon,
   PanelIcon,
   PencilIcon,
   TrashIcon,
@@ -29,6 +30,12 @@ import {
   writeLastDocumentId,
 } from "@/features/binder/binderState";
 import { DocumentEditor } from "@/features/editor/DocumentEditor";
+import { IMPORT_EXTENSIONS } from "@/features/import/markdown";
+import {
+  importDocuments,
+  readFileText,
+  type ImportSource,
+} from "@/features/import/importDocuments";
 import { CompilePanel } from "@/features/compile/CompilePanel";
 import { ConflictsPanel } from "@/features/conflicts/ConflictsPanel";
 import { SearchPanel } from "@/features/search/SearchPanel";
@@ -51,6 +58,8 @@ export function Project() {
     () => new Set(readExpandedIds(safeStorage(), projectId)),
   );
   const [renaming, setRenaming] = useState(false);
+  const [importErrors, setImportErrors] = useState<string[]>([]);
+  const importInput = useRef<HTMLInputElement>(null);
 
   // The same route component serves every project, so switching projects re-reads
   // this project's remembered state instead of carrying the previous one's across.
@@ -108,6 +117,39 @@ export function Project() {
   const toggleBinder = () =>
     update((current) => ({ ...current, binderCollapsed: !current.binderCollapsed }));
 
+  /**
+   * Brings text and Markdown files in as documents beside the selection.
+   *
+   * No network anywhere in this path. Reading and parsing are local, and the writes
+   * are the same commands the New document button uses, so an import made on a train
+   * is queued for sync like any other edit rather than being refused.
+   */
+  async function onFilesChosen(files: FileList | null) {
+    setImportErrors([]);
+    if (files === null || files.length === 0) return;
+
+    const sources: ImportSource[] = [];
+    const failures: string[] = [];
+    for (const file of Array.from(files)) {
+      try {
+        sources.push({ fileName: file.name, text: await readFileText(file) });
+      } catch {
+        failures.push(`“${file.name}” could not be read.`);
+      }
+    }
+
+    await run(async (db) => {
+      const outcome = await importDocuments(db, projectId, parentForNew, sources);
+      setImportErrors([...failures, ...outcome.errors]);
+      // Opening the last import is the confirmation that it worked.
+      const last = outcome.created.at(-1);
+      if (last !== undefined) select(last);
+    });
+
+    // Let the same file be picked again.
+    if (importInput.current !== null) importInput.current.value = "";
+  }
+
   return (
     <section className="page page--full">
       {/* The project's name, not the word "Binder": a heading is a landmark a screen
@@ -153,6 +195,12 @@ export function Project() {
           }
         />
         <ToolbarButton
+          label="Import text or Markdown"
+          short="Import"
+          icon={<ImportIcon />}
+          onClick={() => importInput.current?.click()}
+        />
+        <ToolbarButton
           label="Rename"
           icon={<PencilIcon />}
           disabled={selected === null}
@@ -182,6 +230,23 @@ export function Project() {
           }
         />
       </div>
+
+      {/* Outside the toolbar: a file input is not one of the toolbar's controls, and
+          counting it as one would put a stray tab stop between the buttons. */}
+      <input
+        ref={importInput}
+        type="file"
+        multiple
+        accept={IMPORT_EXTENSIONS.map((ext) => `.${ext}`).join(",")}
+        className="project__import-input"
+        onChange={(event) => void onFilesChosen(event.target.files)}
+      />
+
+      {importErrors.length > 0 && (
+        <p className="project__error" role="alert">
+          {importErrors.join(" ")}
+        </p>
+      )}
 
       {renaming && selected !== null && (
         <RenameForm
