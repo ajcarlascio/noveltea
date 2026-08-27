@@ -20,6 +20,7 @@ export function ToolbarButton({
   onClick,
   disabled,
   variant,
+  pressed,
 }: {
   label: string;
   /** Shown instead of `label` on narrow screens. Defaults to `label`. */
@@ -29,6 +30,15 @@ export function ToolbarButton({
   onClick: () => void;
   disabled?: boolean;
   variant?: "danger";
+  /**
+   * Marks a button that turns something on and leaves it on.
+   *
+   * `aria-pressed` rather than a styling flag, because that is the difference a screen
+   * reader has to hear: "Corkboard, toggle button, pressed" is the whole state of the
+   * view, and a class name says none of it. The stylesheet hangs off the same attribute,
+   * so the two can never drift apart.
+   */
+  pressed?: boolean;
 }): ReactNode {
   return (
     <button
@@ -39,6 +49,7 @@ export function ToolbarButton({
           : `button${icon ? " button--icon" : ""}`
       }
       aria-label={label}
+      {...(pressed === undefined ? {} : { "aria-pressed": pressed })}
       disabled={disabled ?? false}
       onClick={onClick}
     >

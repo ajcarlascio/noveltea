@@ -87,6 +87,29 @@ test("gives every control in the binder a target a finger can hit", async ({ pag
   expect(await unhittableControls(page)).toEqual([]);
 });
 
+test("keeps the corkboard usable on a phone", async ({ page }) => {
+  // A whole second view of the manuscript, and one built out of a grid — which is the
+  // thing most likely to insist on a minimum width the screen has not got.
+  await page.setViewportSize({ width: 320, height: 640 });
+  await page.goto("/projects");
+  await expect(page.locator("html")).toHaveAttribute("data-db-status", "ready", { timeout: 30_000 });
+  await page.getByRole("button", { name: "New project" }).click();
+  await page.getByRole("link", { name: "Untitled project" }).first().click();
+  await page.getByRole("button", { name: "New document" }).click();
+  await expect(page.getByRole("treeitem")).toHaveCount(1);
+
+  await page.getByRole("button", { name: "Corkboard" }).click();
+  await expect(page.getByRole("listitem")).toHaveCount(1);
+
+  const viewport = await page.evaluate(() => document.documentElement.clientWidth);
+  const card = await page.getByRole("listitem").first().boundingBox();
+  expect(card, "the board must render a card at all").not.toBeNull();
+  expect(Math.round((card?.x ?? 0) + (card?.width ?? 0))).toBeLessThanOrEqual(viewport + 1);
+
+  // Including the reorder buttons, which are the smallest targets on the card.
+  expect(await unhittableControls(page)).toEqual([]);
+});
+
 test("nothing is wider than the screen", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 640 });
 
@@ -162,8 +185,10 @@ test("keeps the binder toolbar to two rows at most", async ({ page }) => {
     };
   });
 
-  expect(layout.buttons).toBe(7);
-  // Seven actions across four rows pushes the manuscript off the screen before an author
+  // A tripwire, not a rule: it fails when a button is added so that somebody has to
+  // come and look at the row count below rather than discovering it on a phone.
+  expect(layout.buttons).toBe(8);
+  // Eight actions across four rows pushes the manuscript off the screen before an author
   // has written anything. On a phone an icon is what buys the rows back — narrower than
   // any word, including the short ones the tablet layout still shows.
   expect(layout.rows).toBeLessThanOrEqual(2);

@@ -119,3 +119,16 @@ export function ImportIcon() {
     </svg>
   );
 }
+
+export function CorkboardIcon() {
+  return (
+    <svg {...base}>
+      {/* Four cards pinned to a board. Not a grid of empty squares: the short line
+          inside each one is the summary, which is the whole point of the view. */}
+      <rect x="1.75" y="2.25" width="5.5" height="5" rx="0.75" />
+      <rect x="8.75" y="2.25" width="5.5" height="5" rx="0.75" />
+      <rect x="1.75" y="8.75" width="5.5" height="5" rx="0.75" />
+      <rect x="8.75" y="8.75" width="5.5" height="5" rx="0.75" />
+    </svg>
+  );
+}
