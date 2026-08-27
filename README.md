@@ -578,6 +578,28 @@ appearing broken.
   manuscript. The bytes become a blob URL which is revoked immediately; leaving it alive
   pins the whole manuscript in memory for as long as the tab is open.
 
+### Presets
+
+A preset is a saved submission format — a name, an export format, and which parts of the
+binder are in it — so that sending the first three chapters to an agent is a choice made
+once rather than rebuilt on every export. Presets are ordinary local rows and they sync, so
+one set up on a train is waiting on the other machine.
+
+- **The format and the selection, and nothing else.** `compile_preset` also carries
+  `separator_rules`, `title_page`, `front_matter` and `include_query`, and the compile
+  worker reads none of them — it loads `included_binder_items` and stops. Offering an
+  interface for the rest would promise an author a title page that never appears.
+- **Nothing ticked means the whole manuscript.** That is the same reading the compile
+  worker uses, which is the only reason the two agree about what a preset contains.
+- **The pre-flight counts the preset, not the book.** Choosing one narrows the document
+  count, the word count and the warnings to what will actually be exported. The narrowing
+  happens after the plan, not before it: the planner needs the whole binder to notice a
+  trashed chapter, because trashing is a reparent rather than a delete.
+- **The destination is not part of a preset.** There is no column for one, and where a
+  finished file goes is a decision about this export rather than about what the manuscript
+  is.
+- **Making one needs no server.** Only the compile itself does, and it says so.
+
 ## Accounts and servers
 
 There is no central service and never will be, so **the server address is the first thing

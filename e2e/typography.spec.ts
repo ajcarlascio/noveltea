@@ -71,9 +71,14 @@ test("changes the size of the manuscript and the column together", async ({ page
 });
 
 test("PAGE COUNT DOES NOT MOVE WHEN THE READING SIZE DOES", async ({ page }) => {
+  // The editor's own indicator, not any text reading "2 pages". The compile pre-flight
+  // reports a page count too, and it is right about the same manuscript — matching on
+  // the words alone found both and could not tell which one it was asserting.
+  const pages = page.getByTitle("Standard manuscript pages, at 250 words a page");
+
   await openDocument(page);
   await writeManuscript(page, "word ".repeat(300));
-  await expect(page.getByText(/2 pages/)).toBeVisible({ timeout: 10_000 });
+  await expect(pages).toHaveText("2 pages", { timeout: 10_000 });
 
   await visitSettings(page, async () => {
     await page.getByRole("radio", { name: "Small", exact: true }).check();
@@ -81,5 +86,5 @@ test("PAGE COUNT DOES NOT MOVE WHEN THE READING SIZE DOES", async ({ page }) => 
 
   // Standard manuscript pages, at 250 words each. An author reading in small type has
   // not written a shorter book, and two writers' page counts have to be comparable.
-  await expect(page.getByText(/2 pages/)).toBeVisible({ timeout: 10_000 });
+  await expect(pages).toHaveText("2 pages", { timeout: 10_000 });
 });

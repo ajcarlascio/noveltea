@@ -95,21 +95,41 @@ export async function listFormats(auth: Authenticator, projectId: string): Promi
   };
 }
 
+/**
+ * Queues an export.
+ *
+ * `presetId` names a saved preset — the server reads its `included_binder_items` and
+ * compiles only those. Without one an empty `inlineConfig` goes instead, because the
+ * submission is refused outright unless it carries a preset or a config: "a compile
+ * needs a preset_id or an inline config". An empty object is the honest value for "no
+ * configuration, the whole manuscript", and it is what the server compares when it
+ * deduplicates two identical pending jobs.
+ */
 export async function submit(
   auth: Authenticator,
   projectId: string,
   format: string,
   destination: string,
+  presetId: string | null = null,
 ): Promise<string> {
   const raw = await read(
     await auth.fetch(`/api/v1/projects/${projectId}/compile`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ format, destination }),
+      body: JSON.stringify(
+        presetId === null
+          ? { format, destination, inlineConfig: {} }
+          : { format, destination, presetId },
+      ),
     }),
     "start the export",
   );
-  const id = isRecord(raw) ? raw.id : null;
+  // The submit route answers `jobId`; every other route on a job answers `id`. Both are
+  // read because the difference is a naming slip in one endpoint, not a contract worth
+  // being strict about — and reading only `id` here is why this call used to fail with
+  // "the server did not say which job it started" against a real server.
+  const body = isRecord(raw) ? raw : {};
+  const id = body.jobId ?? body.id;
   if (typeof id !== "string") {
     throw new CompileFailed("The server did not say which job it started.");
   }

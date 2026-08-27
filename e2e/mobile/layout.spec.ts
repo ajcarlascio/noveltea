@@ -138,6 +138,38 @@ test("gives every control in the collections panel a target a finger can hit", a
   expect(await unhittableControls(page)).toEqual([]);
 });
 
+test("gives every control in the compile panel a target a finger can hit", async ({ page }) => {
+  // Folded away by default, so the check above skips it. Everything inside is new: a
+  // preset picker, a name field, and a checkbox per binder item.
+  await page.goto("/projects");
+  await expect(page.locator("html")).toHaveAttribute("data-db-status", "ready", { timeout: 30_000 });
+  await page.getByRole("button", { name: "New project" }).click();
+  await page.getByRole("link", { name: "Untitled project" }).first().click();
+  await page.getByRole("button", { name: "New document" }).click();
+  await expect(page.getByRole("treeitem")).toHaveCount(1);
+
+  await page.getByText("Compile and trash").click();
+  // The selection list is behind a disclosure of its own, so opening the panel is not
+  // enough to reach the checkboxes.
+  await page.getByText("Including the whole manuscript").click();
+  await expect(page.getByRole("checkbox").first()).toBeVisible();
+
+  // Scrolled to, or the sweep proves nothing: it skips anything outside the viewport,
+  // and this panel is the last thing on a long page. Without this the check ran over a
+  // screen that did not contain a single control it was meant to be checking.
+  const picker = page.getByLabel("Preset", { exact: true });
+  await picker.scrollIntoViewIfNeeded();
+  expect(await unhittableControls(page)).toEqual([]);
+
+  // And the two standalone labels by name, because the sweep can only report on what
+  // happens to be on screen when it runs. These are the ones written as `htmlFor`
+  // rather than wrapped around their field, so they have no field height to inherit.
+  for (const text of ["Preset", "Name this preset"]) {
+    const box = await page.getByText(text, { exact: true }).boundingBox();
+    expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+  }
+});
+
 test("keeps the corkboard usable on a phone", async ({ page }) => {
   // A whole second view of the manuscript, and one built out of a grid — which is the
   // thing most likely to insist on a minimum width the screen has not got.

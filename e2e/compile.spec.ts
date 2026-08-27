@@ -155,7 +155,7 @@ test("says what each format does about page layout, and does not overclaim", asy
   await expect(page.getByText(/Standard manuscript format/)).toBeHidden();
 });
 
-test("submits the destination the author chose", async ({ page }) => {
+test("submits the destination the author chose, and a config the server will accept", async ({ page }) => {
   const posted: string[] = [];
   await stub(page);
   await page.route(`${SERVER}/api/v1/projects/*/compile`, (route) => {
@@ -163,7 +163,11 @@ test("submits the destination the author chose", async ({ page }) => {
     return route.fulfill({
       status: 202,
       contentType: "application/json",
-      body: JSON.stringify({ id: "job-1", status: "queued" }),
+      // The key the real submit route answers with. It used to be `id` here, which is
+      // what every other job route answers with and what the client used to read — a
+      // fixture written from the client rather than from the server, so both agreed
+      // and neither was right.
+      body: JSON.stringify({ jobId: "job-1" }),
     });
   });
   await signIn(page);
@@ -175,7 +179,12 @@ test("submits the destination the author chose", async ({ page }) => {
   await page.getByRole("button", { name: "Compile" }).click();
 
   await expect.poll(() => posted.length, { timeout: 10_000 }).toBeGreaterThan(0);
-  expect(JSON.parse(posted[0] ?? "{}")).toMatchObject({ destination: "server" });
+  // The inline config is not decoration: a submission carrying neither a preset nor a
+  // config is refused outright with "a compile needs a preset_id or an inline config".
+  expect(JSON.parse(posted[0] ?? "{}")).toMatchObject({
+    destination: "server",
+    inlineConfig: {},
+  });
 });
 
 test("will not compile a project with nothing in it", async ({ page }) => {

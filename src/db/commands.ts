@@ -7,6 +7,7 @@ import {
 } from "./binder-item";
 import { COLLECTION_COMMANDS } from "./collection-commands";
 import { COMMENT_COMMANDS } from "./comment-commands";
+import { COMPILE_PRESET_COMMANDS } from "./compile-preset-commands";
 import { SNAPSHOT_COMMANDS } from "./snapshot-commands";
 import { SYNC_COMMANDS } from "./sync-commands";
 import { TAXONOMY_COMMANDS } from "./taxonomy-commands";
@@ -533,6 +534,7 @@ export const COMMANDS = {
   ...SYNC_COMMANDS,
   ...TAXONOMY_COMMANDS,
   ...COLLECTION_COMMANDS,
+  ...COMPILE_PRESET_COMMANDS,
 } satisfies Record<string, (db: SqliteAdapter, input: never) => unknown>;
 
 /**
@@ -547,7 +549,12 @@ export const COMMANDS = {
  * this direction only costs a redundant read, while being wrong in the other costs a
  * loop.
  */
-export const READ_ONLY_COMMANDS: ReadonlySet<string> = new Set(["syncState", "listTaxonomy", "listCollections"]);
+export const READ_ONLY_COMMANDS: ReadonlySet<string> = new Set([
+  "syncState",
+  "listTaxonomy",
+  "listCollections",
+  "listCompilePresets",
+]);
 
 export type CommandName = keyof typeof COMMANDS;
 export type CommandInput<K extends CommandName> = Parameters<(typeof COMMANDS)[K]>[1];

@@ -533,6 +533,39 @@ Compile is asynchronous and server-side: `POST /projects/{id}/compile` returns a
   author explicitly asked for a long-running job. It is still not a reason to block the rest
   of the UI.
 - Compile requires the server. Offline, the button explains that rather than failing.
+- **The submission needs a `presetId` or an `inlineConfig`.** A body carrying neither is
+  refused with "a compile needs a preset_id or an inline config", so a plain
+  `{format, destination}` never compiles anything. Send `inlineConfig: {}` when no preset
+  is chosen.
+- **The submit route answers `{"jobId": ...}`.** Every other route on a job answers
+  `{"id": ...}`. Read both; reading only `id` here reports "the server did not say which
+  job it started" against a real server, and a fixture written from the client will agree
+  with the client and never catch it.
+
+## Compile presets
+
+A preset is a saved submission format: a name, an export format, and which binder items go
+into it. The table syncs, so a format set up on one machine is on the other.
+
+- **Only the format and the selection are offered**, and that is not laziness. The compile
+  worker reads `included_binder_items` off the preset row and nothing else — not
+  `separator_rules`, not `title_page`, not `front_matter`, not `include_query`. An
+  interface for the others would promise an author a title page that is silently dropped.
+- **An empty `included_binder_items` means the whole manuscript**, on both sides: the
+  worker filters only when the list is non-empty. It is `[]` and never null, because the
+  `compile_preset_has_selection` CHECK — mirrored as a server invariant — needs a selection
+  present.
+- **The wire types are stricter than the local table.** `included_binder_items` binds to a
+  Postgres `uuid[]`, so it goes as a JSON array of id strings and every element is parsed
+  with `UUID.fromString`; `separator_rules` binds to jsonb and must be a JSON *object*. A
+  string holding `"[]"` or `"{}"` is refused as `invalid_request`, not coerced.
+- **The pre-flight follows the selection.** Narrow the finished plan, never the rows going
+  into it: the planner needs the whole binder to recognise a trashed item, because trashing
+  is a reparent. Recount the words with the compiler's own extraction, or the panel and the
+  export disagree.
+- **`compile_preset` has no `order_key`** — the only synced table without one. Order by
+  name; `created_at` ties at millisecond resolution and then falls back to a random uuid,
+  which reshuffles the picker between renders.
 
 ## Binder semantics
 

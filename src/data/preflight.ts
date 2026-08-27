@@ -1,5 +1,5 @@
 import type { CompilePlan, ProseMirrorNode } from "@noveltea/compile";
-import { planCompile } from "@noveltea/compile";
+import { countWords, inspect, planCompile } from "@noveltea/compile";
 import type { SqlValue } from "@noveltea/client-db";
 
 /**
@@ -49,14 +49,54 @@ function parseContent(raw: string | null): ProseMirrorNode | null {
 }
 
 /**
- * Plans a compile of the whole project.
+ * Narrows a plan to a preset's selection.
+ *
+ * Applied to the finished plan rather than to the rows going into it, because the
+ * planner needs the whole binder to work at all: trashing is a reparent, so recognising
+ * a discarded chapter means walking down from the trash node, and a pre-filtered list
+ * would not contain it. Filtering first would make a trashed scene inside a selection
+ * look perfectly live.
+ *
+ * The word count is recomputed with the compiler's own extraction rather than scaled or
+ * carried over. It has to agree with what the export actually produces — a count that
+ * disagrees with the compiled manuscript is a bug report the author is right to file.
+ *
+ * An empty selection is the whole manuscript. That is not a convenience: it is how the
+ * compile worker reads `included_binder_items`, which only filters when the list is
+ * non-empty, and the two have to mean the same thing.
+ */
+export function narrowPlan(plan: CompilePlan, includedIds: readonly string[]): CompilePlan {
+  if (includedIds.length === 0) return plan;
+  const keep = new Set(includedIds);
+  const included = plan.included.filter((item) => keep.has(item.id));
+
+  return {
+    included,
+    // Warnings about items nobody selected are noise; the ones with no item at all —
+    // "synopses are never exported" — are about the compile itself and stay.
+    warnings: plan.warnings.filter(
+      (warning) => warning.itemId === undefined || keep.has(warning.itemId),
+    ),
+    wordCount: included.reduce(
+      (total, item) => total + countWords(inspect(item.content).text),
+      0,
+    ),
+  };
+}
+
+/**
+ * Plans a compile of the project, optionally limited to a preset's selection.
  *
  * Trashed items are fetched rather than filtered out. Trashing is a reparent, not a
  * `deleted_at` write, so the planner needs the trash node and everything under it in
  * order to recognise a discarded chapter — filtering here would hand it a binder in
  * which the trash does not exist and the chapter looks live.
  */
-export async function planProject(db: Reader, projectId: string): Promise<CompilePlan> {
+export async function planProject(
+  db: Reader,
+  projectId: string,
+  includedIds: readonly string[] = [],
+): Promise<CompilePlan> {
   const rows = await db.query<ItemRow>(
     `SELECT b.id, b.title, b.type, b.parent_id, b.order_key, b.deleted_at,
             d.content, d.synopsis, d.notes
@@ -67,7 +107,7 @@ export async function planProject(db: Reader, projectId: string): Promise<Compil
     [projectId],
   );
 
-  return planCompile(
+  const plan = planCompile(
     rows.map((row) => ({
       id: row.id,
       title: row.title,
@@ -80,4 +120,6 @@ export async function planProject(db: Reader, projectId: string): Promise<Compil
       notes: row.notes,
     })),
   );
+
+  return narrowPlan(plan, includedIds);
 }
