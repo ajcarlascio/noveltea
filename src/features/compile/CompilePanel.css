@@ -68,3 +68,13 @@
   border-radius: var(--radius-md);
   background: var(--danger-subtle);
 }
+
+/* Ambient, like the rest of the panel: it explains the choice above it and never
+   asks for a decision of its own. */
+.compile__note {
+  margin: var(--space-2) 0 0;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  max-width: 42ch;
+}
