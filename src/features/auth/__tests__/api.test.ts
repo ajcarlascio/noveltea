@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { calledBody, calledInit, calledUrl, fetchMock } from "@/test/fetch";
-import { AuthError, login, register, ServerUnreachable, type Credentials } from "../api";
+import {
+  AuthError,
+  changePassword,
+  login,
+  register,
+  ServerUnreachable,
+  type Credentials,
+} from "../api";
 
 const SERVER = "https://write.example.com";
 const CREDENTIALS: Credentials = {
@@ -151,5 +158,106 @@ describe("an unreachable server", () => {
       ServerUnreachable,
     );
     expect(error.cause).toBe(cause);
+  });
+});
+
+describe("the field the server actually names its error codes in", () => {
+  it("reads `error`, which is what the API sends", async () => {
+    // This was read as `code` and the server has always sent `error`, so every branch
+    // keyed on a code fell through to http_<status>. The status checks covered rejected
+    // credentials by luck; nothing else was reachable.
+    const fetcher = fetchMock(() =>
+      Promise.resolve(problem(409, { error: "email_registered", message: "that email is already registered" })),
+    );
+
+    const error = await rejection(register(SERVER, CREDENTIALS, fetcher), AuthError);
+
+    expect(error.code).toBe("email_registered");
+    expect(error.message).toMatch(/already has an account/i);
+  });
+
+  it("still reads `code`, for a server that names it that way", async () => {
+    const fetcher = fetchMock(() => Promise.resolve(problem(409, { code: "email_registered" })));
+    expect((await rejection(register(SERVER, CREDENTIALS, fetcher), AuthError)).code).toBe(
+      "email_registered",
+    );
+  });
+
+  it("says who to ask when a server does not accept new accounts", async () => {
+    // Neither a credential problem nor a typo in the address, so neither of those
+    // messages would send anyone anywhere useful.
+    const fetcher = fetchMock(() => Promise.resolve(problem(403, { error: "registration_closed" })));
+
+    const error = await rejection(register(SERVER, CREDENTIALS, fetcher), AuthError);
+
+    expect(error.code).toBe("registration_closed");
+    expect(error.message).toMatch(/ask whoever runs it/i);
+  });
+});
+
+describe("changing a password", () => {
+  const changed = (extra: Record<string, unknown> = {}) =>
+    new Response(
+      JSON.stringify({
+        userId: "u1",
+        deviceId: "d1",
+        accessToken: "fresh",
+        refreshToken: "r2",
+        expiresIn: 900,
+        mustChangePassword: false,
+        devicesSignedOut: 2,
+        ...extra,
+      }),
+      { status: 200 },
+    );
+
+  it("sends both passwords with the bearer token, and nothing in the URL", async () => {
+    const fetcher = fetchMock(() => Promise.resolve(changed()));
+
+    const result = await changePassword(SERVER, "token", "old one", "a new long one", fetcher);
+
+    expect(calledUrl(fetcher)).toBe("https://write.example.com/api/v1/account/password");
+    expect(calledUrl(fetcher)).not.toMatch(/old one|a new long one/);
+    expect((calledInit(fetcher).headers as Record<string, string>).authorization).toBe(
+      "Bearer token",
+    );
+    expect(calledBody(fetcher)).toEqual({
+      currentPassword: "old one",
+      newPassword: "a new long one",
+    });
+    expect(calledInit(fetcher).credentials).toBe("omit");
+    expect(result.devicesSignedOut).toBe(2);
+    expect(result.mustChangePassword).toBe(false);
+  });
+
+  it("returns the replacement session, because the old token predates the change", async () => {
+    const fetcher = fetchMock(() => Promise.resolve(changed()));
+    const result = await changePassword(SERVER, "token", "a", "b", fetcher);
+    expect(result.accessToken).toBe("fresh");
+    expect(result.refreshToken).toBe("r2");
+  });
+
+  it("counts no devices when the server does not say", async () => {
+    const fetcher = fetchMock(() => Promise.resolve(changed({ devicesSignedOut: undefined })));
+    expect((await changePassword(SERVER, "t", "a", "b", fetcher)).devicesSignedOut).toBe(0);
+  });
+
+  it("reports a wrong current password as a rejection, not a server fault", async () => {
+    const fetcher = fetchMock(() => Promise.resolve(problem(401, { error: "invalid_credentials" })));
+    const error = await rejection(changePassword(SERVER, "t", "wrong", "b", fetcher), AuthError);
+    expect(error.code).toBe("invalid_credentials");
+  });
+
+  it("passes through the server's own wording for a password it refused", async () => {
+    const fetcher = fetchMock(() =>
+      Promise.resolve(problem(400, { error: "bad_request", message: "the new password must be different" })),
+    );
+    const error = await rejection(changePassword(SERVER, "t", "a", "a", fetcher), AuthError);
+    expect(error.message).toBe("the new password must be different");
+  });
+
+  it("tells an unreachable server apart from a refusal", async () => {
+    const fetcher = fetchMock(() => Promise.reject(new TypeError("Failed to fetch")));
+    await rejection(changePassword(SERVER, "t", "a", "b", fetcher), ServerUnreachable);
   });
 });

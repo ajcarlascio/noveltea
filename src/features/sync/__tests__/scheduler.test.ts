@@ -4,9 +4,10 @@ import { createScheduler } from "../scheduler";
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
-function setup(startOnline = true, startMayRun = true) {
+function setup(startOnline = true, startMayRun = true, startFirstSync = false) {
   let online = startOnline;
   let mayRun = startMayRun;
+  let firstSync = startFirstSync;
   const listeners: (() => void)[] = [];
   const run = vi.fn<() => Promise<unknown>>().mockResolvedValue(undefined);
   const onError = vi.fn();
@@ -21,6 +22,7 @@ function setup(startOnline = true, startMayRun = true) {
       return () => listeners.splice(listeners.indexOf(listener), 1);
     },
     mayRun: () => mayRun,
+    firstSync: () => firstSync,
   });
 
   return {
@@ -35,6 +37,9 @@ function setup(startOnline = true, startMayRun = true) {
     },
     setMayRun: (next: boolean) => {
       mayRun = next;
+    },
+    setFirstSync: (next: boolean) => {
+      firstSync = next;
     },
   };
 }
@@ -211,5 +216,110 @@ describe("holding a sync back", () => {
     const { scheduler, run } = setup(true, false);
     await scheduler.syncNow();
     expect(run).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the first sync of all", () => {
+  it("does not wait, because an empty replica has nothing to protect", async () => {
+    // The window exists so a flapping connection does not waste itself on a doomed
+    // sync — which costs an author nothing, since their work is already local. On a
+    // device signed in a minute ago none of that is true: there is no work on it yet.
+    const { run } = setup(true, true, true);
+
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("waits the full window once the project has synced once", async () => {
+    const { run } = setup(true, true, false);
+
+    await vi.advanceTimersByTimeAsync(15 * 60 * 1000 - 1);
+    expect(run).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("still will not spend a connection the author asked to avoid", async () => {
+    // Being empty is a reason not to wait. It is not a reason to sync a whole
+    // manuscript over cellular against an explicit instruction.
+    const { run, setFirstSync, setMayRun } = setup(true, false, true);
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(run).not.toHaveBeenCalled();
+
+    // And it falls back to the window rather than giving up on syncing at all.
+    setMayRun(true);
+    setFirstSync(true);
+    await vi.advanceTimersByTimeAsync(15 * 60 * 1000);
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("fires once the answer becomes knowable, which is after it was first asked", async () => {
+    // The scheduler is built before the project's state has been read, so the honest
+    // answer at construction is "no". reconsider() is how the owner corrects it.
+    const { run, scheduler, setFirstSync } = setup(true, true, false);
+
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(run).not.toHaveBeenCalled();
+
+    setFirstSync(true);
+    scheduler.reconsider();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("reconsidering is not a back door around the window", async () => {
+    // reconsider() re-asks the question; it does not answer it. An established replica
+    // that reconsiders still waits, or this becomes syncNow without the consent syncNow
+    // implies.
+    const { run, scheduler } = setup(true, true, false);
+
+    scheduler.reconsider();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(run).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(15 * 60 * 1000);
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("restarts the window it interrupts, which is why the owner only calls it on a yes", async () => {
+    const { run, scheduler } = setup(true, true, false);
+
+    await vi.advanceTimersByTimeAsync(14 * 60 * 1000);
+    scheduler.reconsider();
+
+    // The fourteen minutes already served are gone. Harmless here, and the reason
+    // useSync reconsiders only when the answer has become "never synced".
+    await vi.advanceTimersByTimeAsync(60 * 1000);
+    expect(run).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(14 * 60 * 1000);
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("goes back to waiting after the first sync has landed", async () => {
+    const { run, setFirstSync, setOnline } = setup(true, true, true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(run).toHaveBeenCalledTimes(1);
+
+    // Which is what the owner does once lastSyncedAt stops being null.
+    setFirstSync(false);
+    setOnline(false);
+    setOnline(true);
+
+    await vi.advanceTimersByTimeAsync(60 * 1000);
+    expect(run).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(14 * 60 * 1000);
+    expect(run).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not fire while offline, empty or not", async () => {
+    const { run } = setup(false, true, true);
+    await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
+    expect(run).not.toHaveBeenCalled();
   });
 });

@@ -48,14 +48,24 @@ test("says a project is device-only until there is an account", async ({ page })
   await expect(page.getByRole("button", { name: "Sync now" })).toHaveCount(0);
 });
 
-test("offers sync once signed in, and reports when it last ran", async ({ page }) => {
+test("syncs a newly signed-in device without being asked", async ({ page }) => {
   await stub(page, { changes: [], latestId: 0, hasMore: false, resyncRequired: false, syncEpoch: 1 });
   await signIn(page);
   await openProject(page);
 
-  await expect(page.getByText(/last synced never/i)).toBeVisible();
-  await page.getByRole("button", { name: "Sync now" }).click();
+  // This replica has never synced this project, so it does not wait out the settle
+  // window. That window protects an established replica from spending a flapping
+  // connection on a doomed sync — which costs an author nothing, because the work is
+  // already local. On a device signed in a minute ago none of that holds: there is no
+  // work on it yet, and fifteen minutes of an empty binder is the app doing nothing,
+  // visibly, at the one moment somebody is watching for their book to appear.
+  //
+  // This used to assert "last synced never" and then click the button. The assertion
+  // was true and is now false on purpose.
   await expect(page.getByText(/last synced just now/i)).toBeVisible({ timeout: 10_000 });
+
+  // Still offered afterwards: automatic syncing never replaces asking for one.
+  await expect(page.getByRole("button", { name: "Sync now" })).toBeVisible();
 });
 
 test("shows what is waiting to go out", async ({ page }) => {

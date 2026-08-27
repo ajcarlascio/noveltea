@@ -1,0 +1,16 @@
+# NOT vendor/: the SQLite schema and the compile package are npm workspaces pointing
+# into that submodule, and the build does not resolve without them.
+.git
+node_modules
+**/node_modules
+dist
+build
+test-results
+playwright-report
+screenshots
+src-tauri/target
+.env
+*.env
+.idea
+.vscode
+.DS_Store

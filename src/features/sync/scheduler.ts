@@ -9,6 +9,12 @@
  * hunting for a signal — would otherwise start a sync every time the interface
  * flickered online, and each one would fail halfway. Waiting until the connection has
  * proved itself costs an author nothing: their work is already safe locally.
+ *
+ * That last sentence is the whole justification, and it is **only true of a replica that
+ * already has the work in it.** A device signed in a moment ago holds nothing, so waiting
+ * does not cost an author nothing — it costs them their book, for fifteen minutes, at
+ * exactly the moment they are watching for it to appear. So the window is skipped when
+ * there is no cursor for the project yet, and applies to every sync after that.
  */
 
 export interface SchedulerOptions {
@@ -28,6 +34,16 @@ export interface SchedulerOptions {
    * that matters is the one at the moment bytes would be sent.
    */
   mayRun?: () => boolean;
+  /**
+   * Whether this client has never synced this project — no cursor, nothing local to lose.
+   *
+   * A function rather than a flag because the answer is read from the database and
+   * arrives after construction, and because it stops being true the moment the first sync
+   * lands. Must answer **false while the answer is unknown**: guessing "yes" would fire an
+   * immediate sync for every established replica on every app open, which is the behaviour
+   * the settle window exists to prevent.
+   */
+  firstSync?: () => boolean;
 }
 
 export interface Scheduler {
@@ -35,6 +51,14 @@ export interface Scheduler {
   syncNow: () => Promise<void>;
   /** True while a run is in flight. */
   running: () => boolean;
+  /**
+   * Re-decides whether the settle window still applies.
+   *
+   * For the owner to call when something the scheduler cannot observe has changed —
+   * in practice, when `firstSync` has just become knowable. Idempotent: a run already
+   * in flight is not duplicated.
+   */
+  reconsider: () => void;
   stop: () => void;
 }
 
@@ -55,6 +79,7 @@ export function createScheduler({
   online = () => (typeof navigator === "undefined" ? true : navigator.onLine),
   subscribe = defaultSubscribe,
   mayRun = () => true,
+  firstSync = () => false,
 }: SchedulerOptions): Scheduler {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let inFlight: Promise<void> | null = null;
@@ -86,9 +111,19 @@ export function createScheduler({
     return inFlight;
   };
 
-  const onConnectivityChange = () => {
+  const decide = () => {
     clear();
     if (stopped || !online()) return;
+
+    // An empty replica has nothing a half-finished sync could disturb and everything to
+    // gain from trying, so it does not wait. Still subject to mayRun: this is the app
+    // deciding to sync, not the author asking, and the wifi-only setting is about which
+    // connection may be spent — a question the first sync does not get to skip.
+    if (firstSync() && mayRun()) {
+      void fire();
+      return;
+    }
+
     timer = setTimeout(() => {
       timer = null;
       // Checked here and not before the timer is set, because the window is fifteen
@@ -97,9 +132,9 @@ export function createScheduler({
     }, settleMs);
   };
 
-  const unsubscribe = subscribe(onConnectivityChange);
+  const unsubscribe = subscribe(decide);
   // Start the window if the app opens already online.
-  onConnectivityChange();
+  decide();
 
   return {
     syncNow: async () => {
@@ -110,6 +145,7 @@ export function createScheduler({
       await fire();
     },
     running: () => inFlight !== null,
+    reconsider: decide,
     stop: () => {
       stopped = true;
       clear();

@@ -39,17 +39,36 @@ export function useSync(projectId: string): SyncStatus {
     read();
     return subscribeToConnection(navigator, read);
   }, []);
-  const [status, setStatus] = useState({ lastSyncedAt: null as string | null, pending: 0, lastError: null as string | null });
+  const [status, setStatus] = useState({
+    lastSyncedAt: null as string | null,
+    pending: 0,
+    lastError: null as string | null,
+    /**
+     * Which project the three fields above describe, or null before the first read.
+     *
+     * Carried so "this project has never synced" can be told from "this project's state
+     * has not been read yet" — and, when the route moves to another project, from the
+     * previous project's answer. Getting that wrong would fire an immediate sync for an
+     * established replica, which is the thing the settle window exists to prevent.
+     */
+    loadedFor: null as string | null,
+  });
   const [running, setRunning] = useState(false);
   const [conflicts, setConflicts] = useState<SyncOutcome["conflicts"]>([]);
   const [dropped, setDropped] = useState(0);
 
   const refresh = useCallback(async () => {
-    const state = await db.command("syncState", { projectId });
+    // A read that fails means the replica itself is in trouble — a dead worker, a closed
+    // database — and DatabaseProvider already surfaces that state to the whole app. What
+    // must not happen is this becoming an unhandled rejection: it is called from an effect
+    // and from a change subscription, neither of which has anywhere to put one.
+    const state = await db.command("syncState", { projectId }).catch(() => null);
+    if (state === null) return;
     setStatus({
       lastSyncedAt: state.lastSyncedAt,
       pending: state.pending,
       lastError: state.lastError,
+      loadedFor: projectId,
     });
   }, [db, projectId]);
 
@@ -81,14 +100,28 @@ export function useSync(projectId: string): SyncStatus {
   const mayRunRef = useRef(true);
   mayRunRef.current = mayAutoSync(settings.syncOnWifiOnly, metering);
 
+  /**
+   * Nothing has ever been synced for this project, so there is no window to wait out.
+   *
+   * False until this project's own state has been read: the scheduler is built before
+   * that read finishes, and a default of "yes" would make every app open an immediate
+   * sync for every replica.
+   */
+  const neverSynced = status.loadedFor === projectId && status.lastSyncedAt === null;
+  const firstSyncRef = useRef(false);
+
   const schedulerRef = useRef<ReturnType<typeof createScheduler> | null>(null);
   useEffect(() => {
+    // Reset before the scheduler reads it: on a move to another project this still holds
+    // the previous one's answer, and the scheduler decides once at construction.
+    firstSyncRef.current = false;
     const scheduler = createScheduler({
       run: () => runRef.current(),
       // Already recorded against the project and shown by `lastError`; rethrowing
       // here would only produce an unhandled rejection.
       onError: () => undefined,
       mayRun: () => mayRunRef.current,
+      firstSync: () => firstSyncRef.current,
     });
     schedulerRef.current = scheduler;
     return () => {
@@ -97,12 +130,24 @@ export function useSync(projectId: string): SyncStatus {
     };
   }, [projectId]);
 
+  useEffect(() => {
+    firstSyncRef.current = neverSynced;
+    // The scheduler decided before this was knowable, so tell it to decide again. Only
+    // when the answer is yes: a no leaves whatever window is already running alone
+    // rather than restarting one that is most of the way through.
+    if (neverSynced) schedulerRef.current?.reconsider();
+  }, [neverSynced, projectId]);
+
   const syncNow = useCallback(() => {
     void schedulerRef.current?.syncNow();
   }, []);
 
   return {
-    ...status,
+    // Listed rather than spread: loadedFor is bookkeeping for the decision above and has
+    // no business in a caller's status object.
+    lastSyncedAt: status.lastSyncedAt,
+    pending: status.pending,
+    lastError: status.lastError,
     running,
     conflicts,
     dropped,

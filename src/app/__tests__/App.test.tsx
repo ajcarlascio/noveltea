@@ -110,3 +110,56 @@ describe("when signed in", () => {
     expect(screen.queryByRole("link", { name: /sign in to sync/i })).not.toBeInTheDocument();
   });
 });
+
+describe("an account the server is holding until it picks a password", () => {
+  const HELD: Session = { ...SESSION, mustChangePassword: true };
+
+  it("lands there instead of the projects list", () => {
+    renderAt("/", HELD);
+    expect(screen.getByRole("heading", { name: "Choose your password" })).toBeInTheDocument();
+  });
+
+  it("lands there after signing in, which is what forced amounts to on this side", () => {
+    // The redirect lives in the router rather than in SignIn, so the form stays a form.
+    renderAt("/signin", HELD);
+    expect(screen.getByRole("heading", { name: "Choose your password" })).toBeInTheDocument();
+  });
+
+  it("says why, above everything, without being a modal", () => {
+    renderAt("/projects", HELD);
+    expect(screen.getByRole("alert")).toHaveTextContent(/cannot sync until you replace it/i);
+  });
+
+  it("still opens the binder, because the manuscripts are local and are the author's", () => {
+    // The server refuses every route but the change itself. Locking the editor too would
+    // break the rule this client is built on, to enforce something it does not enforce.
+    renderAt("/projects", HELD);
+    expect(screen.getByRole("heading", { name: "Projects" })).toBeInTheDocument();
+  });
+
+  it("says nothing of the kind for an ordinary account", () => {
+    renderAt("/projects");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});
+
+describe("the administration screen", () => {
+  it("is offered only to an account the server said administers it", () => {
+    renderAt("/projects", { ...SESSION, isAdmin: true });
+    expect(screen.getByRole("link", { name: "Accounts" })).toBeInTheDocument();
+  });
+
+  it("is not offered to an ordinary account, or to nobody", () => {
+    renderAt("/projects");
+    expect(screen.queryByRole("link", { name: "Accounts" })).not.toBeInTheDocument();
+    renderAt("/projects", null);
+    expect(screen.queryByRole("link", { name: "Accounts" })).not.toBeInTheDocument();
+  });
+
+  it("is reachable by address even so, because the flag is a hint and not a permission", () => {
+    // Faking it in storage produces a screen the API answers 404 to, which is the point:
+    // nothing here is the check.
+    renderAt("/admin");
+    expect(screen.getByRole("heading", { name: "Accounts" })).toBeInTheDocument();
+  });
+});

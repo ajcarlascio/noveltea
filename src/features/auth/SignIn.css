@@ -58,3 +58,18 @@
   flex-wrap: wrap;
   gap: var(--space-4) var(--space-2);
 }
+
+/* A hint, not an action: styled as the link it behaves like so it does not compete with
+   the button that actually signs in. */
+.signin__suggest {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.85rem;
+  text-align: left;
+  text-decoration: underline;
+  cursor: pointer;
+}
