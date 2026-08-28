@@ -118,8 +118,10 @@ already tested against real SQLite.
 - **Only one instance runs.** Two windows would be two in-memory databases writing one
   file, and the later flush would silently discard the other's work.
 - **The updater ships from the first build**, because anyone who installs a build without
-  it can never auto-update. The public key is in `tauri.conf.json`; the private key is
-  not in this repository.
+  it can never auto-update. It checks once at startup and offers the new version as a line
+  in the header; a failed check says nothing, because being offline is not an error here.
+  The public key is in `tauri.conf.json`; the private key is not in this repository.
+  `docs/releasing.md` is how a release is cut.
 
 ---
 

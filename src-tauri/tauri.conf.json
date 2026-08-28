@@ -29,6 +29,8 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "// createUpdaterArtifacts": "On by default, because a release built without it is one nobody can update from. It needs a signing key, so the CI job that builds installers with no secret turns it off explicitly — those builds are for testing on a real machine, not for handing out.",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

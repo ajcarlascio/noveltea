@@ -1,5 +1,5 @@
 /**
- * The desktop host, when there is one.
+ * The database, as the desktop host stores it.
  *
  * WebKitGTK — the engine Tauri uses on Linux — has no `navigator.storage` at all, so
  * no OPFS, so the replica would open in memory and lose every word on restart. That is
@@ -14,26 +14,11 @@
  * worker does not have, so the worker asks for a flush and the main thread performs it.
  */
 
-interface TauriInternals {
-  invoke?: (command: string, args?: Record<string, unknown>) => Promise<unknown>;
-}
+import { invokeHost, isHosted } from "@/platform/host";
 
-function internals(): TauriInternals | null {
-  if (typeof window === "undefined") return null;
-  const found = (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
-  return found !== null && typeof found === "object" ? found : null;
-}
-
-/** True when running inside the desktop shell rather than a browser tab. */
-export function isHosted(): boolean {
-  return typeof internals()?.invoke === "function";
-}
-
-async function invoke(command: string, args?: Record<string, unknown>): Promise<unknown> {
-  const bridge = internals();
-  if (typeof bridge?.invoke !== "function") throw new Error("No desktop host to call.");
-  return bridge.invoke(command, args);
-}
+// Re-exported because most of this codebase asks "is there a host?" in order to decide
+// where the database lives, and this is the module it already imports to find out.
+export { isHosted };
 
 /**
  * The database as the host last stored it, or null the first time.
@@ -45,7 +30,7 @@ async function invoke(command: string, args?: Record<string, unknown>): Promise<
  */
 export async function loadDatabase(): Promise<Uint8Array | null> {
   try {
-    const bytes = await invoke("db_load");
+    const bytes = await invokeHost("db_load");
     if (bytes === null || bytes === undefined) return null;
     if (bytes instanceof Uint8Array) return bytes;
     if (Array.isArray(bytes)) return Uint8Array.from(bytes as number[]);
@@ -60,5 +45,5 @@ export async function loadDatabase(): Promise<Uint8Array | null> {
 export async function saveDatabase(bytes: Uint8Array): Promise<void> {
   // Sent as a plain array: Tauri's IPC serialises through JSON, and a Uint8Array
   // arrives on the Rust side as an object with numeric keys rather than a byte slice.
-  await invoke("db_save", { bytes: Array.from(bytes) });
+  await invokeHost("db_save", { bytes: Array.from(bytes) });
 }
