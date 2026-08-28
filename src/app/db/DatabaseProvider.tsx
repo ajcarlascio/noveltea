@@ -28,7 +28,10 @@ export function DatabaseProvider({
     // of the session holding a client it closed itself, and every read fails with
     // "Database closed." A real unmount and remount lands here for the same reason.
     if (client.closed) {
-      setClient(create);
+      // Called, not passed. React treats a function handed to a setter as an updater
+      // and invokes it — twice under StrictMode — so `setClient(create)` would build a
+      // client it then threw away, and a thrown-away client owns a live worker.
+      setClient(create());
       return;
     }
 
@@ -36,9 +39,9 @@ export function DatabaseProvider({
     // between would be missed. Re-reading the current status closes that window.
     setStatus(client.status);
     return client.subscribe(setStatus);
-    // `create` is deliberately not a dependency: callers pass an inline factory, and
-    // depending on it would re-run this on every render. It is only ever read when the
-    // client is already closed, which is a transition, not a render.
+    // `create` is deliberately not a dependency: callers pass an inline factory, so it
+    // changes every render, and depending on it would re-subscribe every render. It is
+    // only read when the client is already closed, which is a transition, not a render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client]);
 
