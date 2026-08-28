@@ -1,6 +1,6 @@
 use std::fs;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use tauri::Manager;
 
@@ -16,6 +16,15 @@ use tauri::Manager;
 /// this boundary, where it is already tested against real SQLite.
 const DATABASE_FILE: &str = "noveltea.sqlite3";
 
+/// What every SQLite file begins with, including the trailing NUL.
+///
+/// Checked before the manuscript is overwritten. An empty buffer is not the only way
+/// for this to go wrong — a truncated or garbled export is just as destructive and far
+/// likelier — and the client deliberately does not surface save failures to an author
+/// mid-sentence, so nothing downstream would report it. Refusing anything that is not
+/// a database is the cheapest guard against the one failure this design cannot undo.
+const SQLITE_MAGIC: &[u8] = b"SQLite format 3\0";
+
 fn database_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let dir = app
         .path()
@@ -25,16 +34,23 @@ fn database_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join(DATABASE_FILE))
 }
 
-/// The stored database, or `None` the first time this machine runs the app.
-#[tauri::command]
-fn db_load(app: tauri::AppHandle) -> Result<Option<Vec<u8>>, String> {
-    eprintln!("[noveltea] db_load called");
-    let path = database_path(&app)?;
-    match fs::read(&path) {
+/// The stored database, or `None` when there is no file yet.
+///
+/// Split from the command so it can be tested: a `tauri::AppHandle` cannot be built in
+/// a unit test, and the part worth testing is what happens to the bytes rather than how
+/// the directory was located.
+fn read_database(path: &Path) -> Result<Option<Vec<u8>>, String> {
+    match fs::read(path) {
         Ok(bytes) => Ok(Some(bytes)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(format!("cannot read {path:?}: {error}")),
     }
+}
+
+/// The stored database, or `None` the first time this machine runs the app.
+#[tauri::command]
+fn db_load(app: tauri::AppHandle) -> Result<Option<Vec<u8>>, String> {
+    read_database(&database_path(&app)?)
 }
 
 /// Writes the database, atomically.
@@ -48,28 +64,140 @@ fn db_load(app: tauri::AppHandle) -> Result<Option<Vec<u8>>, String> {
 /// leave out: without it the rename can reach the disk before the bytes do.
 #[tauri::command]
 fn db_save(app: tauri::AppHandle, bytes: Vec<u8>) -> Result<(), String> {
-    eprintln!("[noveltea] db_save called with {} bytes", bytes.len());
-    if bytes.is_empty() {
-        // An empty export means something went wrong upstream. Writing it would replace
-        // a working database with nothing, which is the one outcome worth refusing.
-        return Err("refusing to write an empty database".into());
+    write_database(&database_path(&app)?, &bytes)
+}
+
+/// See [`db_save`]. Split from the command for the same reason as [`read_database`].
+fn write_database(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    if bytes.len() < SQLITE_MAGIC.len() || !bytes.starts_with(SQLITE_MAGIC) {
+        // Something went wrong upstream. Writing it would replace a working database
+        // with rubble, which is the one outcome worth refusing.
+        return Err("refusing to write something that is not a SQLite database".into());
     }
 
-    let path = database_path(&app)?;
     let temp = path.with_extension("sqlite3.tmp");
 
     let mut file = fs::File::create(&temp).map_err(|e| format!("cannot create {temp:?}: {e}"))?;
-    file.write_all(&bytes).map_err(|e| format!("cannot write {temp:?}: {e}"))?;
+    file.write_all(bytes).map_err(|e| format!("cannot write {temp:?}: {e}"))?;
     file.sync_all().map_err(|e| format!("cannot flush {temp:?}: {e}"))?;
     drop(file);
 
-    fs::rename(&temp, &path).map_err(|e| format!("cannot replace {path:?}: {e}"))?;
+    fs::rename(&temp, path).map_err(|e| format!("cannot replace {path:?}: {e}"))?;
+
+    // The rename is a directory operation, so syncing the file above does not make the
+    // swap itself durable: a power cut can leave the directory entry pointing at the
+    // old inode. Unix only — Windows has no equivalent and needs none.
+    #[cfg(unix)]
+    if let Some(parent) = path.parent() {
+        if let Ok(dir) = fs::File::open(parent) {
+            let _ = dir.sync_all();
+        }
+    }
+
     Ok(())
+}
+
+/// Where the database is, for the author.
+///
+/// A local-first app should be able to answer "where are my words" without anyone
+/// having to guess at platform conventions. Returned as a string rather than opened in
+/// a file manager, so the interface decides whether to show it, copy it or reveal it.
+#[tauri::command]
+fn db_location(app: tauri::AppHandle) -> Result<String, String> {
+    Ok(database_path(&app)?.to_string_lossy().into_owned())
 }
 
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![db_load, db_save])
+        // Registered first, as the plugin requires. A second launch focuses the window
+        // already open rather than starting a second webview with its own copy of the
+        // database — see the note on the dependency in Cargo.toml.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .invoke_handler(tauri::generate_handler![db_load, db_save, db_location])
         .run(tauri::generate_context!())
         .expect("error while running NovelTea");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A real, minimal SQLite file header. Enough to pass the guard; the point of these
+    /// tests is what happens to bytes, not what SQLite makes of them.
+    fn database(tail: &[u8]) -> Vec<u8> {
+        let mut bytes = SQLITE_MAGIC.to_vec();
+        bytes.extend_from_slice(tail);
+        bytes
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("noveltea-test-{name}"));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("scratch dir");
+        dir.join("noveltea.sqlite3")
+    }
+
+    #[test]
+    fn a_missing_file_is_a_first_run_not_a_failure() {
+        // Reported as None so the app opens empty and syncs its way back, rather than
+        // refusing to start and leaving an author with nothing at all.
+        let path = scratch("missing");
+        assert_eq!(read_database(&path), Ok(None));
+    }
+
+    #[test]
+    fn what_was_written_is_what_comes_back() {
+        let path = scratch("roundtrip");
+        let bytes = database(b"chapter one");
+        write_database(&path, &bytes).expect("write");
+        assert_eq!(read_database(&path), Ok(Some(bytes)));
+    }
+
+    #[test]
+    fn refuses_anything_that_is_not_a_database() {
+        // The manuscript is the file being overwritten. An empty or garbled export
+        // would replace it with rubble, and nothing downstream would report that: the
+        // client deliberately does not interrupt an author to announce a failed save.
+        let path = scratch("garbage");
+        write_database(&path, &database(b"real")).expect("write");
+
+        for bad in [b"".as_slice(), b"nonsense".as_slice(), b"SQLite format 2\0".as_slice()] {
+            assert!(write_database(&path, bad).is_err(), "accepted {bad:?}");
+        }
+        // And the real one is still there, untouched.
+        assert_eq!(read_database(&path), Ok(Some(database(b"real"))));
+    }
+
+    #[test]
+    fn a_finished_write_leaves_no_temporary_file_behind() {
+        // The temporary file must be *renamed* onto the target, not copied: a stray
+        // .tmp beside the database is a second copy of the manuscript, and a copy is
+        // not atomic — a crash partway through it leaves a truncated database, which
+        // is the whole thing the temp file exists to prevent.
+        //
+        // (This deliberately checks a *successful* write. A refused one never creates
+        // the temporary file at all, so asserting on it there passes whether or not
+        // the guard exists, and proves nothing.)
+        let path = scratch("no-litter");
+        write_database(&path, &database(b"chapter one")).expect("write");
+        assert!(!path.with_extension("sqlite3.tmp").exists());
+    }
+
+    #[test]
+    fn replacing_a_larger_database_leaves_none_of_the_old_one() {
+        // Rename replaces rather than overwriting in place, so a shorter database
+        // cannot leave a tail of the longer one behind it — which would still open,
+        // and would be a different book.
+        let path = scratch("shrink");
+        write_database(&path, &database(&vec![b'x'; 4096])).expect("write long");
+        let short = database(b"short");
+        write_database(&path, &short).expect("write short");
+        assert_eq!(read_database(&path), Ok(Some(short)));
+    }
 }

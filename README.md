@@ -919,9 +919,30 @@ follow, all of them enforced by tests rather than by memory:
 - **A skip link** as the first focusable element. Someone who cannot swipe past the nav has
   to be able to tab past it.
 
-## Tauri readiness
+## The desktop shell
 
-`src-tauri/` does not exist yet. What is already lined up for it, and what is not:
+`src-tauri/` is a Tauri v2 crate. It is deliberately thin: no SQL, no schema knowledge,
+no app logic. Everything that understands the database stays on the other side of the
+IPC boundary where it is already tested against real SQLite.
+
+- **The replica is a file on the host, not in the webview.** WebKitGTK — the engine Tauri
+  uses on Linux — exposes no `navigator.storage` at all, so there is no OPFS and nothing
+  durable to keep it in. The webview holds the database in memory and hands the whole
+  thing over after every write; `db_save` writes it to a temporary file, flushes, renames
+  it over the target and flushes the directory. A crash mid-write leaves the previous
+  database intact rather than a half-written one, which would not open at all.
+- **`db_save` refuses anything that is not a SQLite file.** The bytes it is handed *are*
+  the manuscript, and the client deliberately does not interrupt an author to report a
+  failed save — so nothing downstream would notice a truncated export overwriting the
+  only copy.
+- **Only one instance runs.** Two windows would be two in-memory databases writing the
+  same file, and whichever flushed last would silently discard the other's work. A second
+  launch focuses the window already open.
+- **The updater ships from the first build.** Anyone who installs a build without it can
+  never auto-update. The public key is in `tauri.conf.json`; the private key is not in
+  this repository and must not be.
+
+What was already lined up for the shell, and still holds:
 
 - **No Node built-ins in app code**, enforced by an ESLint rule rather than by discipline —
   they do not exist in a webview. `src/test/**` is exempted explicitly, because those
@@ -931,10 +952,12 @@ follow, all of them enforced by tests rather than by memory:
   layer noticing.
 - **The CSP already assumes a webview**, and is a build artefact rather than a server
   concern, so it travels with the bundle.
-- **Still to decide:** network calls. Tauri's guidance is to make external requests from
-  Rust, which would let `connect-src` drop to `'self'` and keep any future tokens out of
-  the webview. That is the one place where the web build and the Tauri build will
-  legitimately differ, and it belongs behind `src/platform/`.
+- **Decided, not yet built:** network calls move to Rust. That lets `connect-src` drop
+  from `*` to `'self'` on desktop and keeps tokens out of the webview and in the OS
+  keychain, which is what this file already says credentials deserve. It is the one place
+  where the web build and the Tauri build legitimately differ, and it belongs behind
+  `src/platform/`. Until it lands, the desktop build fetches from the webview exactly as
+  the browser build does, and its CSP still carries `connect-src *`.
 
 ## Testing on other devices
 
