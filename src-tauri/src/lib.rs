@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 
 use tauri::Manager;
 
+pub mod licence;
+
 /// The local replica, as a file on the host.
 ///
 /// The webview cannot keep it. WebKitGTK — the engine Tauri uses on Linux — exposes no
@@ -97,6 +99,114 @@ fn write_database(path: &Path, bytes: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
+/// The licence file, beside the database in the app data directory.
+const LICENCE_FILE: &str = "licence.key";
+
+/// What the interface needs to know about the licence, as plain data.
+///
+/// Deliberately not the `Status` enum: this crosses to JavaScript, and a shape with a
+/// `state` string is easier to render and to widen later than a tagged union.
+#[derive(serde::Serialize)]
+pub struct LicenceView {
+    /// `none`, `covers`, `too_old` or `invalid`.
+    state: &'static str,
+    /// Who it is licensed to, when there is a valid key.
+    name: Option<String>,
+    /// The licence id, for support.
+    id: Option<String>,
+    /// The highest major version the key covers.
+    max_major: Option<u32>,
+    /// Why it was refused, in words an author can act on.
+    message: Option<String>,
+}
+
+impl LicenceView {
+    fn none() -> Self {
+        Self { state: "none", name: None, id: None, max_major: None, message: None }
+    }
+
+    fn of(status: licence::Status) -> Self {
+        let (state, held) = match status {
+            licence::Status::Covers(held) => ("covers", held),
+            licence::Status::TooOld { licence: held, .. } => ("too_old", held),
+        };
+        Self {
+            state,
+            name: Some(held.name),
+            id: Some(held.id),
+            max_major: Some(held.max_major),
+            message: None,
+        }
+    }
+
+    fn invalid(reason: licence::Invalid) -> Self {
+        Self {
+            state: "invalid",
+            name: None,
+            id: None,
+            max_major: None,
+            message: Some(reason.message().to_owned()),
+        }
+    }
+}
+
+fn licence_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(database_path(app)?.with_file_name(LICENCE_FILE))
+}
+
+/// The licence this device holds, checked against the running version.
+///
+/// Re-verified on every call rather than cached at startup. Verification is a signature
+/// check over a hundred bytes, and caching it would mean a key entered during a session
+/// did not take effect until the app was restarted.
+#[tauri::command]
+fn licence_status(app: tauri::AppHandle) -> Result<LicenceView, String> {
+    let path = licence_path(&app)?;
+    let Some(stored) = read_database(&path)? else {
+        return Ok(LicenceView::none());
+    };
+    let key = String::from_utf8_lossy(&stored);
+
+    Ok(
+        match licence::status(&key, licence::PUBLIC_KEY, env!("CARGO_PKG_VERSION")) {
+            Ok(status) => LicenceView::of(status),
+            Err(reason) => LicenceView::invalid(reason),
+        },
+    )
+}
+
+/// Stores a key, if it verifies.
+///
+/// A key that does not verify is never written. Storing it would mean the app came back
+/// tomorrow still holding something it had already rejected, and an author retyping a
+/// key they had already been told was wrong.
+///
+/// A key for an older major version *is* stored: it is a real purchase, and the app says
+/// what it covers rather than throwing it away.
+#[tauri::command]
+fn licence_activate(app: tauri::AppHandle, key: String) -> Result<LicenceView, String> {
+    match licence::status(&key, licence::PUBLIC_KEY, env!("CARGO_PKG_VERSION")) {
+        Ok(status) => {
+            let path = licence_path(&app)?;
+            fs::write(&path, key.trim())
+                .map_err(|error| format!("cannot write {path:?}: {error}"))?;
+            Ok(LicenceView::of(status))
+        }
+        Err(reason) => Ok(LicenceView::invalid(reason)),
+    }
+}
+
+/// Forgets the licence on this device. The file is the only copy the app keeps.
+#[tauri::command]
+fn licence_remove(app: tauri::AppHandle) -> Result<LicenceView, String> {
+    let path = licence_path(&app)?;
+    match fs::remove_file(&path) {
+        Ok(()) => Ok(LicenceView::none()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(LicenceView::none()),
+        Err(error) => Err(format!("cannot remove {path:?}: {error}")),
+    }
+}
+
 /// Where the database is, for the author.
 ///
 /// A local-first app should be able to answer "where are my words" without anyone
@@ -119,7 +229,14 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![db_load, db_save, db_location])
+        .invoke_handler(tauri::generate_handler![
+            db_load,
+            db_save,
+            db_location,
+            licence_status,
+            licence_activate,
+            licence_remove
+        ])
         .run(tauri::generate_context!())
         .expect("error while running NovelTea");
 }
