@@ -103,9 +103,23 @@ npm run tauri dev           # run it
 npm run tauri build         # deb, rpm and AppImage
 ```
 
-The desktop build keeps the database as a real file in your app-data directory rather
-than in the webview — WebKitGTK, the engine Tauri uses on Linux, has no browser storage
-worth the name. See `src-tauri/` for what the shell does and does not do.
+The shell is deliberately thin — no SQL, no schema knowledge. Everything that
+understands the database stays on the other side of the IPC boundary, where it is
+already tested against real SQLite.
+
+- **The database is a real file**, not webview storage. WebKitGTK, the engine Tauri uses
+  on Linux, exposes no `navigator.storage` at all. The webview holds the database in
+  memory and hands the whole thing over after every write; the shell writes it to a
+  temporary file, flushes, renames it over the target and flushes the directory, so a
+  crash mid-write leaves the previous database rather than a half-written one.
+- **A save that is not a SQLite file is refused.** Those bytes are the manuscript, and
+  the app deliberately does not interrupt an author to report a failed save — so nothing
+  downstream would notice a truncated export replacing the only copy.
+- **Only one instance runs.** Two windows would be two in-memory databases writing one
+  file, and the later flush would silently discard the other's work.
+- **The updater ships from the first build**, because anyone who installs a build without
+  it can never auto-update. The public key is in `tauri.conf.json`; the private key is
+  not in this repository.
 
 ---
 
