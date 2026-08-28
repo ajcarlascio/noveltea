@@ -236,7 +236,7 @@ One bundle runs in a browser tab, a desktop window and a phone webview. These ar
 - **`100dvh` not `100vh`**, safe-area insets with `viewport-fit=cover`, `accent-color` from
   the palette, `rem` body text, `overscroll-behavior`, and a skip link first in tab order.
 - **The CSP is generated at build time** with computed inline-script hashes
-  (`build/csp-plugin.ts`). `'wasm-unsafe-eval'` is required by sqlite-wasm; `worker-src`
+  (`tooling/csp-plugin.ts`). `'wasm-unsafe-eval'` is required by sqlite-wasm; `worker-src`
   covers both workers; `connect-src` is open because the server address is chosen by the
   author. `frame-ancestors` is deliberately omitted — a `<meta>` policy cannot express it,
   and a `<meta>` policy does not reach worker contexts at all. Full coverage needs response
@@ -853,6 +853,22 @@ it does.
   `NOVELTEA_TEST_LICENCE` and is a no-op without it. Run it before a release — it is the
   only check that the compiled-in public key matches the key you sign with, and getting
   that wrong refuses every licence ever issued.
+
+## Branching and releases
+
+Since v0.1.0 there is a **release integration branch** — currently `0.2` — cut from `main`.
+
+- **Every branch targets the release branch, not `main`.** Features, fixes, docs: all of it
+  merges into `0.2`.
+- **A patch on the shipped version** — a `0.1.1` — goes into `0.2` first and then `main`, so
+  an urgent fix reaches `main` without waiting for the rest of `0.2` and without `0.2` and
+  `main` diverging behind it.
+- **`0.2` merges to `main` once**, after full regression testing and a deployment. That
+  merge is the release; `main` is what is running.
+- Tag `main` after the merge (`v0.2.0`). Note the published image tags drop the leading
+  `v`: git `v0.1.0`, image `0.1.0`.
+
+Opening a PR against `main` by habit is the easy mistake — `gh pr create --base 0.2`.
 
 ## Pull requests
 
