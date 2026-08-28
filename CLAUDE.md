@@ -567,6 +567,28 @@ into it. The table syncs, so a format set up on one machine is on the other.
   name; `created_at` ties at millisecond resolution and then falls back to a random uuid,
   which reshuffles the picker between renders.
 
+## The outliner
+
+The binder as a table — title, summary, label, status, words — for reading the shape of
+the whole book rather than rearranging one level of it.
+
+- **One recursive query, ordered by a materialised path.** The path is built with `'/'`,
+  which sorts below every character an order key can hold (`0-9A-Za-z`). That is what puts
+  a folder immediately before its own children instead of after a sibling whose key
+  extends its prefix — `"V"` and `"VV"`, which is exactly what `between()` returns for an
+  insert between two adjacent siblings.
+- **The trash needs no exclusion clause.** The walk starts at the top-level items and
+  descends; a trashed item's parent is the trash node, which is not among them. Prefer
+  this shape over filtering wherever the query can be written as a walk.
+- **A folder shows the words beneath it**, not its own zero. Computed in one linear pass
+  over the depth-ordered rows, guarded on `type === "document"` so the pass is safe to
+  apply twice.
+- **A sorted outline is flat, and says so.** Sorting a tree by word count has no meaning,
+  so a sort drops the indentation and the caption states that this is no longer the shape
+  of the book. Sorting by label or status orders by the *name*, never the id.
+- **Clicking a heading cycles ascending, descending, manuscript order.** Without the third
+  state there is no way back to the order the author arranged the book in.
+
 ## Word targets
 
 `project.settings` is the column the schema set aside for "compile defaults, word count

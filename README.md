@@ -372,6 +372,22 @@ term pushes and pulls on the ordinary path. (The server's `CLAUDE.md` still says
 authority.) The spec requires `name` and `order_key` on create, which is what the commands
 here send.
 
+## The outliner
+
+The same data as the corkboard, as a table: title, summary, label, status and word count
+for every folder and document at once. The corkboard is for rearranging six scenes; this
+is for checking pace across forty.
+
+- **A folder shows the words beneath it.** Its own count is always zero, which answers
+  nothing when the question is how long a chapter runs.
+- **Sorting produces a flat list, and the caption says so.** A table sorted by word count
+  is not the shape of the book, so the indentation goes with the order. A third click on
+  the same heading returns to manuscript order.
+- **Sorting by label or status uses the name**, not the id underneath it — otherwise the
+  order would be meaningless and there would be no way to tell.
+- **Read-only apart from choosing a row.** Editing a summary is what the corkboard is
+  for; two editable views of one field is two places for a save to go wrong.
+
 ## Word targets
 
 A line under the project title on every view: how much was written today, and how much of

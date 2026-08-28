@@ -16,6 +16,7 @@ import type { ReactNode } from "react";
 export function ToolbarButton({
   label,
   short,
+  compact,
   icon,
   onClick,
   disabled,
@@ -25,6 +26,14 @@ export function ToolbarButton({
   label: string;
   /** Shown instead of `label` on narrow screens. Defaults to `label`. */
   short?: string;
+  /**
+   * Use the short wording at every width, not only on a narrow screen.
+   *
+   * For a button whose full name is a sentence where its neighbours are phrases. The
+   * accessible name is unaffected — `aria-label` still carries the whole thing — so
+   * this only ever shortens what is drawn, never what is announced.
+   */
+  compact?: boolean;
   /** Shown instead of both labels on narrow screens, when present. */
   icon?: ReactNode;
   onClick: () => void;
@@ -43,11 +52,14 @@ export function ToolbarButton({
   return (
     <button
       type="button"
-      className={
-        variant === "danger"
-          ? `button button--danger${icon ? " button--icon" : ""}`
-          : `button${icon ? " button--icon" : ""}`
-      }
+      className={[
+        "button",
+        variant === "danger" ? "button--danger" : "",
+        icon ? "button--icon" : "",
+        compact ? "button--compact" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
       aria-label={label}
       {...(pressed === undefined ? {} : { "aria-pressed": pressed })}
       disabled={disabled ?? false}
