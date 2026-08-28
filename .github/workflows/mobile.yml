@@ -1,0 +1,118 @@
+# iOS and Android, on request only.
+#
+# Deliberately not on pull requests, and the reason is not cost. Tauri's mobile support
+# has never been initialised in this repository: `src-tauri/gen/` holds nothing but
+# schemas, and `gen/android` and `gen/apple` are gitignored. So these jobs run
+# `tauri <platform> init` first and build what it generates.
+#
+# That makes them a **spike**, not a gate. Until one of them has passed at least once,
+# nothing here should be read as evidence that the app builds for a phone — and the
+# audit's open question 3 (whether Tauri v2 mobile can carry this app's SQLite and OPFS
+# use at all, or whether it needs a native client) is still open. Run it, read what
+# breaks, and decide from that rather than from a blog post.
+name: Mobile
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Which platform to try
+        required: true
+        default: android
+        type: choice
+        options: [android, ios]
+
+concurrency:
+  group: mobile-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    name: Android
+    if: inputs.platform == 'android'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: NDK
+        # Tauri builds Rust for Android through the NDK; without it the toolchain
+        # targets below have nothing to link against.
+        run: sdkmanager --install "ndk;27.0.12077973" "platforms;android-34" "build-tools;34.0.0"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: android
+
+      - run: npm ci
+
+      # Generates gen/android, which is not in the repository. Idempotent enough to run
+      # every time; there is nothing checked in for it to conflict with.
+      - name: Initialise
+        env:
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
+        run: npm run tauri android init -- --ci
+
+      - name: Build
+        env:
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
+        run: npm run tauri android build -- --apk --debug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: noveltea-android
+          path: src-tauri/gen/android/app/build/outputs/**/*.apk
+          if-no-files-found: warn
+
+  ios:
+    name: iOS
+    if: inputs.platform == 'ios'
+    # Xcode only exists on a macOS runner, and an iOS build cannot happen anywhere else.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: ios
+
+      - run: npm ci
+
+      - name: Initialise
+        run: npm run tauri ios init -- --ci
+
+      # Simulator only. A device build needs a signing identity and a provisioning
+      # profile from a paid Apple Developer account, and neither belongs in a workflow
+      # that exists to find out whether the thing compiles.
+      - name: Build
+        run: npm run tauri ios build -- --debug --target aarch64-sim
