@@ -141,6 +141,11 @@ export class DatabaseClient {
     });
   }
 
+  /** Whether `close` has been called. A closed client never reopens. */
+  get closed(): boolean {
+    return this.#closed;
+  }
+
   close(): void {
     if (this.#closed) return;
     this.#closed = true;
@@ -238,8 +243,31 @@ export class DatabaseClient {
   }
 }
 
-/** Spawns the real worker. Kept separate so tests never need one. */
+/**
+ * The one database client this page will have.
+ *
+ * A singleton, and not for convenience: "one writer" is the rule the whole local store
+ * rests on, and this is where it is enforced rather than hoped for. It also removes a
+ * real failure — React's StrictMode double-invokes a `useState` initializer, so a
+ * provider that builds its client there gets two, keeps one, and abandons the other
+ * still running. An abandoned client is not inert: it owns a worker with its own
+ * in-memory copy of the database, and it flushes that whole copy over the real file.
+ * Two of them writing one file is exactly what the desktop shell's single-instance
+ * guard exists to prevent, happening inside a single process.
+ *
+ * A closed client is replaced rather than returned, so the provider can recover from
+ * the teardown StrictMode performs between its two mounts.
+ */
+let live: DatabaseClient | null = null;
+
 export function createDatabaseClient(): DatabaseClient {
+  if (live !== null && !live.closed) return live;
+  live = spawnDatabaseClient();
+  return live;
+}
+
+/** Spawns the real worker. Kept separate so tests never need one. */
+function spawnDatabaseClient(): DatabaseClient {
   const worker = new Worker(new URL("./worker.ts", import.meta.url), {
     type: "module",
     name: "noveltea-db",

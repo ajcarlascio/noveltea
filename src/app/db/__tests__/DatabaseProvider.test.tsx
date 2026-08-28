@@ -1,3 +1,4 @@
+import { StrictMode } from "react";
 import { act, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { DatabaseClient } from "@/db/client";
@@ -7,7 +8,11 @@ import { fakeWorker } from "@/test/worker";
 
 function Probe() {
   const { status } = useDatabase();
-  return <output data-testid="state">{status.state}</output>;
+  return (
+    <>
+      <output data-testid="state">{status.state}</output>
+    </>
+  );
 }
 
 function renderProvider() {
@@ -22,6 +27,34 @@ function renderProvider() {
 }
 
 describe("DatabaseProvider", () => {
+  it("SURVIVES STRICTMODE'S REMOUNT RATHER THAN HOLDING A CLIENT IT CLOSED", () => {
+    // StrictMode mounts, unmounts and mounts again in development. `useState` does not
+    // re-run on the second mount, so a provider that closes its client on cleanup keeps
+    // the closed one for the rest of the session and every read fails with "Database
+    // closed." That is what `npm run tauri dev` put on screen: the app rendered, and
+    // the projects list said the database was closed.
+    //
+    // Asserted on the client the context is holding, not on rendered output — the DOM
+    // still shows what was true at the last render, which is before the cleanup ran, so
+    // a rendered assertion passes whether or not the bug is there.
+    let held: DatabaseClient | null = null;
+    function Capture() {
+      held = useDatabase().db;
+      return null;
+    }
+
+    render(
+      <StrictMode>
+        <DatabaseProvider create={() => new DatabaseClient(fakeWorker().worker)}>
+          <Capture />
+        </DatabaseProvider>
+      </StrictMode>,
+    );
+
+    expect(held).not.toBeNull();
+    expect(held!.closed).toBe(false);
+  });
+
   it("renders children immediately rather than gating on the database", () => {
     // The replica is local. A full-screen spinner would be announcing a wait that
     // is not happening, and it would put the network's manners on local storage.

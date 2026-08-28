@@ -822,6 +822,38 @@ Detail lives in `.claude/skills/noveltea-frontend-conventions/SKILL.md`. The sha
 - **Offline is a test mode, not a scenario.** The default fixture has no server at all. If a
   feature's tests need one to render, the feature has broken invariant 1.
 
+## Licence keys
+
+Verified offline, on the device, in Rust — `src-tauri/src/licence.rs`. The public half is
+compiled into the binary; there is no activation server and no call home, because an app
+that stops working when a licence server is unreachable is not local-first whatever else
+it does.
+
+- **There is no clock in a key.** A key names the highest *major version* it covers and
+  does so forever — "Purchase NovelTea 1.0", not a subscription. That removes expiry,
+  clock skew, timezones and offline grace periods as a class. The issue date is recorded
+  for support and compared to nothing.
+- **A key for an older major version is not an error.** It is a real purchase that does
+  not reach this build. `Invalid` is for keys that are malformed or unsigned;
+  `Status::TooOld` is for keys that are fine. They carry different advice because the
+  reader can act on different things.
+- **Verify the payload bytes as they arrived**, never re-serialised JSON. Round-tripping
+  through a struct first lets two encodings of the same data verify differently — a key
+  that works on one build and not the next.
+- **An unreadable version reads as major 0**, which every key covers. The failure being
+  avoided is locking someone out of software they paid for because a version string was odd.
+- **A key that does not verify is never stored**, so the app cannot come back tomorrow
+  still holding something it already rejected.
+- **The gate is the update, never the manuscript.** A licence that does not cover a build
+  must not stand between an author and their own words.
+- **The issuing tool is `required-features = ["issuing"]`** so neither `cargo build` nor
+  `tauri build` produces it. The private key is not in this repository.
+- **Never commit a valid key as a test fixture.** This repository is public; a valid key in
+  it is a free licence. `the_embedded_public_key_matches_the_signing_key` takes one from
+  `NOVELTEA_TEST_LICENCE` and is a no-op without it. Run it before a release — it is the
+  only check that the compiled-in public key matches the key you sign with, and getting
+  that wrong refuses every licence ever issued.
+
 ## Branching and releases
 
 Since v0.1.0 there is a **release integration branch** — currently `0.2` — cut from `main`.
