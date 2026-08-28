@@ -16,7 +16,10 @@ on:
       - "package-lock.json"
       - ".github/workflows/desktop.yml"
   push:
-    branches: [main]
+    # `0.2` and its successors as well as main. Pull request checks test a *merge
+    # preview*; once several land, the integrated result on the release branch is
+    # what ships and nothing had ever run against it.
+    branches: [main, "0.*"]
     tags: ["v*"]
   workflow_dispatch:
 
