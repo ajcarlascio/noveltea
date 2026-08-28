@@ -1,55 +1,96 @@
-# Open decisions — for the owner
+# Decisions
 
-Moved out of the README: these are choices waiting on the project's owner, not
-information a reader needs to run or use NovelTea.
+Moved out of the README, where it did not belong, and then rewritten — because what was
+moved was a list of *open questions* that had largely been answered, and moving it
+unchanged asserted several things that were not true.
 
-These are genuinely undecided. Each names the trade-off rather than pretending an answer.
+Numbering follows the original list so the review comments that corrected it still line
+up.
 
-1. **Public/private split.** The stated wish is that "only the web portion is public". With
-   a single Tauri codebase, the web app and the desktop/mobile apps are largely the *same
-   source*, so there is no clean seam. Realistic options: (a) everything public, with
-   commercial features staying in the server's private repo where the open-core line
-   already sits; (b) everything private, publishing only built artifacts; (c) public core
-   plus a private repo holding release, signing and store-submission configuration. (c)
-   preserves the spirit at the cost of a second repo. (a) is the least work and the most
-   consistent with a self-hosted product whose users must be able to build their own
-   client. See `docs/architecture.md` for the full comparison.
+---
 
-2. **Licence for this repository.** The server is Elastic License 2.0 open core. This repo
-   needs its own answer, and it interacts with (1) — ELv2 permits self-hosting but forbids
-   offering the product as a service, which reads oddly on a client application. No
-   `LICENSE` file has been committed here deliberately; adding the wrong one is worse than
-   adding none.
+## Decided
 
-3. **Canonical ProseMirror node and mark names.** This is a live defect, not a hypothetical.
-   The server's `packages/compile` recognises the marks `strong` and `em` (the
-   `prosemirror-schema-basic` names), while TipTap's StarterKit emits `bold` and `italic`.
-   Wired together as they stand, every bit of bold and italic in a manuscript would compile
-   to *unmarked text* with a warning. `compile` also currently accepts both `bulletList`
-   and `bullet_list`, which means nothing is pinned. The fix is a shared, versioned schema
-   package in the server repo that both the editor and the compiler derive from, plus a
-   test asserting the editor's generated schema equals it. Someone has to decide which
-   naming wins, and it is cheaper to decide now than after authors have manuscripts.
+### 1. Public and private split
 
-4. **How this repo consumes `@noveltea/client-db`.** It is `private: true`, unpublished, and
-   deliberately has no build step — it is TypeScript run directly by Node's type stripping,
-   with `.ts` import specifiers. A bundler will handle that, but the packaging question is
-   real: git dependency, git submodule, a private registry (GitHub Packages), or folding
-   both repos into one workspace. A registry is the cleanest and the only one that gives
-   version pinning; a submodule is the cheapest and the most error-prone.
+**Everything ships in Core, which is public. A private fork holds what is sold.**
 
-5. **Token storage in the browser.** Tokens must never be in SQLite. On iOS, Android,
-   Windows, macOS and Linux the Tauri shells reach a real OS keystore. The browser has no
-   equivalent. The options are: access token in memory only and re-authenticate on reload
-   (safest, worst UX); refresh token in an `httpOnly` cookie set by the server (safe against
-   XSS, requires server-side work and a same-site story that a self-hoster can configure);
-   or IndexedDB (convenient, readable by any XSS). This needs an explicit choice, and it
-   may need a server change.
+Not a subset of features held back from the public repo's source, and not a private repo
+holding only signing configuration: the whole application is public, and the paid build is
+a separate private repository forked from it. Images are published **per version and per
+release**, separately for each.
 
-6. **Android.** The server's notes list clients as web, Tauri desktop, and iOS. Tauri v2
-   reaches Android from the same codebase for very little extra code, but shipping it is a
-   commitment (Play Store account, signing, review). Is Android in scope for v1?
+That is consistent with A7 in the server repo — no commercial code in the public tree, not
+even disabled — and with the export split below.
 
-7. **UI state library.** A recommendation is in `CLAUDE.md` (a small store; SQLite remains
-   the source of truth). This is the most reversible decision on the list and should not be
-   allowed to consume much discussion.
+### 2. Licence
+
+**Elastic License 2.0**, the same as the server.
+
+The earlier text claimed no licence file had been committed "deliberately". That was
+already wrong: `license.md` carrying ELv2 has been in this repository since before the
+claim was written. It is now `LICENSE.md` so GitHub's detection finds it, and
+`package.json` declares `"license": "Elastic-2.0"`.
+
+### 3. ProseMirror node and mark names
+
+**Normalise on the server rather than picking a winner.**
+
+The defect is real: TipTap's StarterKit emits `bold` and `italic`; the server's
+`packages/compile` recognises `strong` and `em`. Wired together as they stand, every bold
+and italic in a manuscript compiles to unmarked text with a warning.
+
+Rather than forcing one vocabulary on the other, the server gains a normalisation step
+ahead of compilation that maps the known pairs — `bold` to `strong`, `italic` to `em`, and
+the `bulletList` / `bullet_list` spelling that `compile` currently accepts both of. It
+belongs on the server because that is where the compiler is, and because a manuscript
+written by an older client must still compile correctly years later; a fix that only
+exists in the editor cannot reach one.
+
+Still needs writing. It is a server change, tracked there.
+
+### 4. How this repo consumes `@noveltea/client-db`
+
+**Git submodule**, which is what is in place at `vendor/noveltea-server`.
+
+The wider answer is the same as (1): separate repositories, non-core ones private, images
+built per version and per release.
+
+### 5. Token storage
+
+**The access token stays on the client, in memory. Nothing else changes.**
+
+This was never open — `CLAUDE.md` already records it, along with the reasoning that the
+exception rests on rotation, single use and the CSP together.
+
+This supersedes part of a decision taken on 27 August, which had the desktop shell moving
+tokens into the OS keychain. Moving the *network layer* into Rust still stands; moving the
+tokens does not.
+
+### 6. Android
+
+**In scope for v1 as code. Lowest priority to ship.**
+
+Tauri v2 reaches Android from the same codebase, so building it is cheap. Publishing is
+not: a personal Play Console account must run a closed test with twelve testers opted in
+continuously for fourteen days before it can reach production, and **those testers have
+not been found**. The clock cannot start until they are, so the store submission sits at
+the bottom of the list while the code is kept building.
+
+`.github/workflows/mobile.yml` builds it on request for exactly this reason — to keep the
+code honest without pretending the store path is close.
+
+---
+
+## Still open
+
+### 7. UI state library
+
+The previous version of this document said a recommendation lived in `CLAUDE.md`. **It
+does not** — there is no mention of a state library there at all, which a reviewer
+correctly noticed when they went looking for it.
+
+So this is genuinely undecided, and is the most reversible item here. The working position
+is that SQLite remains the source of truth and any in-memory store is a projection of it,
+never a second replica; whether that projection needs a library at all is unanswered, and
+nothing built so far has needed one.
