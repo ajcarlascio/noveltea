@@ -68,9 +68,12 @@ jobs:
 
   bundle:
     name: Bundle for ${{ matrix.name }}
-    # Only when asked for, or on a release tag. A bundle on every pull request would
-    # spend twenty minutes producing installers nobody installs.
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    # Everything except a pull request: pushes to main and the release branches, tags,
+    # and manual runs. A bundle on every pull request would spend twenty minutes making
+    # installers nobody installs — but a bundle on every push to `0.2` is exactly what
+    # lets the release branch be tested on a real Mac and a real Windows machine, which
+    # is the only place several of these bugs can be found.
+    if: github.event_name != 'pull_request'
     strategy:
       fail-fast: false
       matrix:
@@ -79,6 +82,10 @@ jobs:
           - { os: macos-latest, name: macOS }
           - { os: windows-latest, name: Windows }
     runs-on: ${{ matrix.os }}
+    # Declared at job level so the build steps can branch on whether it is set. A step
+    # condition cannot read `secrets` directly.
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -106,13 +113,22 @@ jobs:
 
       - run: npm ci
 
-      - name: Build
-        # The updater signs its manifests, and an unsigned release is one no installed
-        # app will accept. Absent on a pull request, which is why bundling is gated to
-        # dispatch and tags rather than left to run without them.
+      # Two builds, because updater artifacts and an unset signing key are mutually
+      # exclusive: `createUpdaterArtifacts` makes tauri sign the bundle, and with no key
+      # the build fails outright. Leaving it always-on would mean nobody without the
+      # secret — a fork, a contributor, this repository until the secret is added — can
+      # build at all.
+      - name: Build (signed, with updater artifacts)
+        if: env.TAURI_SIGNING_PRIVATE_KEY != ''
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npm run tauri build -- --config '{"bundle":{"createUpdaterArtifacts":true}}'
+
+      # Installers, but no update manifest. Enough to install and test on a real machine,
+      # which is what these artifacts are for until the signing secret exists.
+      - name: Build (unsigned)
+        if: env.TAURI_SIGNING_PRIVATE_KEY == ''
         run: npm run tauri build
 
       - uses: actions/upload-artifact@v4
