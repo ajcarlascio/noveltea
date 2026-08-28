@@ -53,6 +53,26 @@ src-tauri/gen/
 *.rtf
 *.pdf
 
+# Coding-agent instructions — local only, deliberately.
+#
+# CLAUDE.md, AGENTS.md and .claude/ are how *this machine* drives an agent over the
+# repository. They are not product documentation and not a contributor guide, and a
+# published repository carrying one vendor's prompt files invites the next contributor
+# to write a second set for their own tool. Everything a human or an external auditor
+# needs is in README.md and docs/.
+#
+# Untracked with `git rm --cached`, so the files survive on disk and only leave the
+# remote. Note that they remain in the repository's *history*; this stops them going
+# forward, it does not rewrite what is already published.
+CLAUDE.md
+AGENTS.md
+GEMINI.md
+.claude/
+.cursor/
+.cursorrules
+.aider*
+.github/copilot-instructions.md
+
 # Editors / OS
 .idea/
 *.iml

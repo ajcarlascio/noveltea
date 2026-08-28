@@ -218,8 +218,8 @@ The engine is coupled to two things the server owns — the wire protocol and th
 
 ### What it must implement
 
-Summarised in `CLAUDE.md` under "The sync engine"; the authoritative description is the
-server's own `CLAUDE.md`. The parts most easily got wrong: advancing the cursor only to the
+The authoritative description is the server's `docs/design/v1-data-model-api.md`. The parts
+most easily got wrong: advancing the cursor only to the
 `latestId` actually served; resuming a forced resync at the returned `latestId` rather than 0
 (resuming at 0 loops forever); preserving the queue across a resync because it holds unsent
 work; preserving `baseVersion` when coalescing repeated edits; and not retrying a

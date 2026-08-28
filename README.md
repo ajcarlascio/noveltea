@@ -229,8 +229,9 @@ React Native, why TipTap, where the sync engine lives.
 
 ## Development
 
-`CLAUDE.md` is the contributor guide: the invariants, the traps, and the rules that are
-not obvious from the code. Read it before changing anything in `src/data/` or `src/sync/`.
+`docs/contributing.md` is the contributor guide: the eight invariants, the traps, and how
+the tests are expected to be written. Read it before changing anything in `src/data/`,
+`src/sync/` or `src-tauri/`.
 
 ```bash
 npm test                    # unit tests (vitest)
