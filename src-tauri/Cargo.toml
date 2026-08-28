@@ -5,6 +5,10 @@ description = "NovelTea — a writing app that keeps your work on your own machi
 authors = ["NovelTea"]
 edition = "2021"
 rust-version = "1.77"
+# Two [[bin]] targets exist, so `cargo run` cannot guess — and `tauri dev` runs
+# `cargo run`. Without this the desktop app will not start at all: "could not determine
+# which binary to run". The issuing tool is never the answer.
+default-run = "noveltea"
 
 [lib]
 name = "noveltea_lib"

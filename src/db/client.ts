@@ -141,6 +141,11 @@ export class DatabaseClient {
     });
   }
 
+  /** Whether `close` has been called. A closed client never reopens. */
+  get closed(): boolean {
+    return this.#closed;
+  }
+
   close(): void {
     if (this.#closed) return;
     this.#closed = true;
