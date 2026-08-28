@@ -120,6 +120,26 @@ export function ImportIcon() {
   );
 }
 
+/**
+ * Rows of a table, the outline's own shape.
+ *
+ * A stack of lines with a short one beside each: rows, and a number at the end of every
+ * row. Deliberately unlike the corkboard's cards, because the two views sit next to each
+ * other in the toolbar and the whole job of these icons is to be told apart at 16px.
+ */
+export function OutlineIcon() {
+  return (
+    <svg {...base}>
+      <line x1="2" y1="4" x2="10" y2="4" />
+      <line x1="12" y1="4" x2="14" y2="4" />
+      <line x1="2" y1="8" x2="10" y2="8" />
+      <line x1="12" y1="8" x2="14" y2="8" />
+      <line x1="2" y1="12" x2="10" y2="12" />
+      <line x1="12" y1="12" x2="14" y2="12" />
+    </svg>
+  );
+}
+
 export function CorkboardIcon() {
   return (
     <svg {...base}>

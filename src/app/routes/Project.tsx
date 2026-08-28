@@ -15,6 +15,7 @@ import { BinderTree } from "@/features/binder/BinderTree";
 import {
   ArrowToTopIcon,
   CorkboardIcon,
+  OutlineIcon,
   DocumentPlusIcon,
   FolderPlusIcon,
   ImportIcon,
@@ -44,6 +45,7 @@ import { CompilePanel } from "@/features/compile/CompilePanel";
 import { ConflictsPanel } from "@/features/conflicts/ConflictsPanel";
 import { SearchPanel } from "@/features/search/SearchPanel";
 import { SyncStatus } from "@/features/sync/SyncStatus";
+import { Outliner } from "@/features/outliner/Outliner";
 import { ProgressStrip } from "@/features/goals/ProgressStrip";
 import { TargetsPanel } from "@/features/goals/TargetsPanel";
 import { FieldsPanel } from "@/features/metadata/FieldsPanel";
@@ -76,7 +78,7 @@ export function Project() {
    * to think about structure, and returning to it days later instead of to the page
    * they were writing would be the app deciding what they came back for.
    */
-  const [view, setView] = useState<"write" | "corkboard">("write");
+  const [view, setView] = useState<"write" | "corkboard" | "outline">("write");
   /**
    * The collection showing in place of the tree, or null for the binder itself.
    *
@@ -260,9 +262,13 @@ export function Project() {
             })
           }
         />
+        {/* The one button whose full name is a sentence; every other action here is a
+            phrase. Shortened on screen once the outline took the row's last 17 pixels,
+            and still announced in full. */}
         <ToolbarButton
           label="Import text or Markdown"
           short="Import"
+          compact
           icon={<ImportIcon />}
           onClick={() => importInput.current?.click()}
         />
@@ -271,7 +277,16 @@ export function Project() {
           short={view === "corkboard" ? "Write" : "Cards"}
           icon={<CorkboardIcon />}
           pressed={view === "corkboard"}
-          onClick={() => setView((current) => (current === "write" ? "corkboard" : "write"))}
+          onClick={() => setView((current) => (current === "corkboard" ? "write" : "corkboard"))}
+        />
+        {/* Its own button rather than a third stop on the corkboard's toggle: an author
+            going to the outline is not passing through the corkboard to get there. */}
+        <ToolbarButton
+          label={view === "outline" ? "Back to writing" : "Outline"}
+          short={view === "outline" ? "Write" : "Outline"}
+          icon={<OutlineIcon />}
+          pressed={view === "outline"}
+          onClick={() => setView((current) => (current === "outline" ? "write" : "outline"))}
         />
         <ToolbarButton
           label="Rename"
@@ -385,7 +400,14 @@ export function Project() {
           </div>
         )}
 
-        {view === "corkboard" ? (
+        {view === "outline" ? (
+          <Outliner
+            projectId={projectId}
+            taxonomy={taxonomy}
+            selectedId={selectedId}
+            onSelect={select}
+          />
+        ) : view === "corkboard" ? (
           // Keyed on the level so drilling into a folder starts a fresh board rather
           // than briefly showing the previous folder's cards under the new heading.
           <Corkboard

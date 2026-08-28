@@ -61,6 +61,16 @@
   display: none;
 }
 
+/* A button that prefers its short wording at every width. Its `aria-label` is
+   unchanged, so this shortens what is drawn and nothing that is announced. */
+.button--compact .button__long {
+  display: none;
+}
+
+.button--compact .button__short {
+  display: inline;
+}
+
 @media (max-width: 52rem) {
   .button {
     min-height: 36px;

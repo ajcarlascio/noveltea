@@ -138,6 +138,52 @@ test("gives every control in the collections panel a target a finger can hit", a
   expect(await unhittableControls(page)).toEqual([]);
 });
 
+test("keeps the outline usable on a phone", async ({ page }) => {
+  // A table is the layout most likely to insist on a width the screen has not got, and
+  // the outline is five columns wide.
+  await page.setViewportSize({ width: 320, height: 640 });
+  await page.goto("/projects");
+  await expect(page.locator("html")).toHaveAttribute("data-db-status", "ready", { timeout: 30_000 });
+  await page.getByRole("button", { name: "New project" }).click();
+  await page.getByRole("link", { name: "Untitled project" }).first().click();
+  await page.getByRole("button", { name: "New document" }).click();
+  await expect(page.getByRole("treeitem")).toHaveCount(1);
+  await page.getByRole("treeitem").first().click();
+  // A title long enough that the table really is wider than 320px. Without it the
+  // check passes on a table that happens to fit, and proves nothing about the
+  // scroller that keeps a wide one off the page.
+  await page.getByRole("button", { name: "Rename" }).click();
+  await page.getByLabel("New title").fill("In which Marlowe drives north and finds the house empty");
+  await page.getByRole("button", { name: "Save" }).click();
+
+  await page.getByRole("button", { name: "Outline" }).click();
+  await expect(page.getByRole("columnheader", { name: "Title" })).toBeVisible();
+  // The table is wider than a phone by design — five columns of a floor width, so the
+  // title is readable instead of being squeezed to one word a line. What matters is
+  // that the overflow is *reachable*: an ancestor already clips, so without the
+  // scroller on .outline the extra columns are simply cut off with no way to see them.
+  const scroll = await page.evaluate(() => {
+    const box = document.querySelector(".outline");
+    if (box === null) return null;
+    const before = box.scrollLeft;
+    box.scrollLeft = 9999;
+    const after = box.scrollLeft;
+    box.scrollLeft = before;
+    return { overflow: box.scrollWidth - box.clientWidth, moved: after };
+  });
+  expect(scroll?.overflow ?? 0).toBeGreaterThan(0);
+  expect(scroll?.moved ?? 0).toBeGreaterThan(0);
+
+  // The page must not scroll sideways. The table may — it has its own scroller — which
+  // is the difference between a wide table and a broken layout.
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  );
+  expect(overflow).toBeLessThanOrEqual(0);
+
+  expect(await unhittableControls(page)).toEqual([]);
+});
+
 test("gives every control in the word targets panel a target a finger can hit", async ({
   page,
 }) => {
@@ -327,9 +373,10 @@ test("keeps the binder toolbar to two rows at most", async ({ page }) => {
   });
 
   // A tripwire, not a rule: it fails when a button is added so that somebody has to
-  // come and look at the row count below rather than discovering it on a phone.
-  expect(layout.buttons).toBe(8);
-  // Eight actions across four rows pushes the manuscript off the screen before an author
+  // come and look at the row count below rather than discovering it on a phone. Nine
+  // since the outline got its own button; checked, and still two rows.
+  expect(layout.buttons).toBe(9);
+  // Nine actions across four rows pushes the manuscript off the screen before an author
   // has written anything. On a phone an icon is what buys the rows back — narrower than
   // any word, including the short ones the tablet layout still shows.
   expect(layout.rows).toBeLessThanOrEqual(2);
