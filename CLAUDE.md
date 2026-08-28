@@ -476,7 +476,7 @@ Two things that cost an afternoon and will cost it again:
 - **The app's own `<meta>` CSP has to name Tauri's IPC.** `connect-src *` does not cover
   custom schemes, so `invoke` is blocked before it leaves the webview and both sides
   fail quietly — the host never hears a request, and the page catches an error it cannot
-  tell apart from a missing file. `NOVELTEA_TAURI=1` adds `ipc: http://ipc.localhost`;
+  tell apart from a missing file. Vite's `--mode tauri` adds `ipc: http://ipc.localhost`;
   use `npm run dev:tauri` / `npm run build:tauri`, which `tauri.conf.json` already does.
 
 Licences: Tauri brings five MPL-2.0 crates transitively. Accepted, deliberately and

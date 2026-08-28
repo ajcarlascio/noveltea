@@ -1,8 +1,13 @@
 import { stat } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
-const out = new URL("../public/thesaurus/wordnet.json", import.meta.url).pathname;
-const builder = new URL("./build-thesaurus.mjs", import.meta.url).pathname;
+// `fileURLToPath`, never `.pathname`: on Windows a file URL's pathname is
+// `/D:/a/...` — a leading slash in front of a drive letter — which resolves to
+// `D:\D:\a\...` and fails with ENOENT on a path that looks almost right.
+
+const out = fileURLToPath(new URL("../public/thesaurus/wordnet.json", import.meta.url));
+const builder = fileURLToPath(new URL("./build-thesaurus.mjs", import.meta.url));
 
 const [outStat, builderStat] = await Promise.all([
   stat(out).catch(() => null),

@@ -2,6 +2,11 @@ import { createWriteStream } from "node:fs";
 import { mkdir, readFile, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+// `fileURLToPath`, never `.pathname`: on Windows a file URL's pathname is
+// `/D:/a/...` — a leading slash in front of a drive letter — which resolves to
+// `D:\D:\a\...` and fails with ENOENT on a path that looks almost right.
 
 /**
  * Builds a compact offline thesaurus from WordNet 3.0.
@@ -21,7 +26,7 @@ import { join } from "node:path";
  */
 const require = createRequire(import.meta.url);
 const dict = require("wordnet-db").path;
-const OUT_DIR = new URL("../public/thesaurus/", import.meta.url).pathname;
+const OUT_DIR = fileURLToPath(new URL("../public/thesaurus/", import.meta.url));
 
 const POS_FILES = { n: "data.noun", v: "data.verb", a: "data.adj", r: "data.adv" };
 
@@ -95,7 +100,7 @@ await new Promise((resolve, reject) => {
 });
 
 const licence = await readFile(join(dict, "..", "LICENSE"), "utf8").catch(() =>
-  readFile(new URL("../node_modules/wordnet-db/LICENSE", import.meta.url).pathname, "utf8"),
+  readFile(fileURLToPath(new URL("../node_modules/wordnet-db/LICENSE", import.meta.url)), "utf8"),
 );
 await import("node:fs/promises").then((fs) =>
   fs.writeFile(join(OUT_DIR, "WORDNET-LICENSE.txt"), licence),
