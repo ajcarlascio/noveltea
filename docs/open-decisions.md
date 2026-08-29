@@ -60,8 +60,10 @@ built per version and per release.
 
 **The access token stays on the client, in memory. Nothing else changes.**
 
-This was never open — `CLAUDE.md` already records it, along with the reasoning that the
-exception rests on rotation, single use and the CSP together.
+This was never open. The exception to "credentials belong in platform secure storage"
+rests on three things holding together: the token rotates, it is single-use, and the CSP
+keeps it from being read by anything the page did not ship with. Remove any one and it
+stops being safe to hold in memory.
 
 This supersedes part of a decision taken on 27 August, which had the desktop shell moving
 tokens into the OS keychain. Moving the *network layer* into Rust still stands; moving the
@@ -86,9 +88,9 @@ code honest without pretending the store path is close.
 
 ### 7. UI state library
 
-The previous version of this document said a recommendation lived in `CLAUDE.md`. **It
-does not** — there is no mention of a state library there at all, which a reviewer
-correctly noticed when they went looking for it.
+The previous version of this document said a recommendation lived in the contributor
+guide. **It does not** — there is no mention of a state library there at all, which a
+reviewer correctly noticed when they went looking for it.
 
 So this is genuinely undecided, and is the most reversible item here. The working position
 is that SQLite remains the source of truth and any in-memory store is a projection of it,
