@@ -1,4 +1,5 @@
 import { enqueueChange, type SqliteAdapter } from "@noveltea/client-db";
+import { queueDocument, requireDocumentRow } from "@/db/commands";
 import { summarise, type ProseMirrorNode } from "@/features/editor/text";
 
 /**
@@ -182,7 +183,9 @@ export const SNAPSHOT_COMMANDS = {
    */
   restoreSnapshot: (db: SqliteAdapter, input: RestoreSnapshotInput): SnapshotIdRow => {
     const snapshot = requireSnapshot(db, input.projectId, input.id);
-    const document = requireDocument(db, input.projectId, snapshot.document_id);
+    // Called for its check, not its value: it refuses a document that is not in this
+    // project. The row itself is re-read after the update, below.
+    requireDocument(db, input.projectId, snapshot.document_id);
 
     SNAPSHOT_COMMANDS.captureSnapshot(db, {
       projectId: input.projectId,
@@ -204,20 +207,14 @@ export const SNAPSHOT_COMMANDS = {
       [snapshot.content, searchText, words, stamp, snapshot.document_id],
     );
 
-    enqueueChange(db, {
-      projectId: input.projectId,
-      entityType: "document",
-      entityId: snapshot.document_id,
-      op: "update",
-      payload: {
-        id: snapshot.document_id,
-        content: restored,
-        search_text: searchText,
-        word_count: words,
-        updated_at: stamp,
-      },
-      baseVersion: document.version,
-    });
+    // Queued through the shared writer, and as the whole row, for the reason its own
+    // comment gives: pending_change holds one entry per entity and coalescing *replaces*
+    // the payload. This used to build its own payload with content and word count only,
+    // so restoring a snapshot after editing an index card — offline, or inside the
+    // fifteen-minute window — replaced the queued row and dropped the synopsis and notes
+    // from the push. Locally they were fine, so nothing looked wrong; the server and
+    // every other device simply never heard about that edit.
+    queueDocument(db, input.projectId, requireDocumentRow(db, snapshot.document_id));
 
     return { id: snapshot.document_id };
   },

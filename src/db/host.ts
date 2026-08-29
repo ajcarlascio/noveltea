@@ -21,24 +21,34 @@ import { invokeHost, isHosted } from "@/platform/host";
 export { isHosted };
 
 /**
- * The database as the host last stored it, or null the first time.
+ * The database as the host last stored it. `null` means there is genuinely no file yet.
  *
- * A read failure is reported as null rather than thrown. Refusing to start because a
- * file could not be read would leave an author with no app at all; starting empty
- * leaves them with one, and the sync engine will pull their work back from the server.
- * Which of those is worse is not a close call.
+ * **A failed read throws, and that distinction is the whole point of this function.**
+ * The host already separates the two cases — `read_database` answers `Ok(None)` only for
+ * `NotFound` and errors for every other I/O failure — and collapsing them here would
+ * undo it at the one place it matters.
+ *
+ * What collapsing them costs: `null` opens an empty database, and the worker flushes
+ * immediately after migrating, which hands the host an empty file to write atomically
+ * over the author's book. An empty database is a valid SQLite file, so the magic-number
+ * guard passes and nothing downstream notices. One transient read failure — an antivirus
+ * or backup process holding the file open on Windows, a permissions change, a disk going
+ * read-only — and the manuscript is gone before the author has touched a key.
+ *
+ * The comment that used to sit here argued the opposite, on the grounds that the sync
+ * engine would pull the work back from the server. That is wrong twice: this app is
+ * built to be used with no server at all, and an author who has one may not have synced
+ * since yesterday.
  */
 export async function loadDatabase(): Promise<Uint8Array | null> {
-  try {
-    const bytes = await invokeHost("db_load");
-    if (bytes === null || bytes === undefined) return null;
-    if (bytes instanceof Uint8Array) return bytes;
-    if (Array.isArray(bytes)) return Uint8Array.from(bytes as number[]);
-    if (bytes instanceof ArrayBuffer) return new Uint8Array(bytes);
-    return null;
-  } catch {
-    return null;
-  }
+  const bytes = await invokeHost("db_load");
+  if (bytes === null || bytes === undefined) return null;
+  if (bytes instanceof Uint8Array) return bytes;
+  if (Array.isArray(bytes)) return Uint8Array.from(bytes as number[]);
+  if (bytes instanceof ArrayBuffer) return new Uint8Array(bytes);
+  // Not a first run either. Something is wrong with the bridge, and guessing "empty"
+  // here would write that guess over the file.
+  throw new Error("The desktop host returned something that is not a database.");
 }
 
 /** Hands the whole database back to the host, which writes it atomically. */

@@ -226,6 +226,17 @@ export class DatabaseClient {
     })();
   }
 
+  /**
+   * Reports a failure that happened before the worker was ever opened.
+   *
+   * Only the loader below calls this. It exists because the alternative — opening the
+   * worker anyway and letting it start empty — writes an empty database over the
+   * author's file within milliseconds.
+   */
+  openFailed(error: DbErrorPayload): void {
+    this.#fail(error);
+  }
+
   #fail(error: DbErrorPayload): void {
     this.#setStatus({ state: "failed", error });
     this.#rejectAll(new DatabaseError(error));
@@ -280,7 +291,27 @@ function spawnDatabaseClient(): DatabaseClient {
   // takes its usual OPFS path.
   void (async () => {
     const hosted = isHosted();
-    const initial = hosted ? await loadDatabase() : null;
+    let initial: Uint8Array | null = null;
+
+    if (hosted) {
+      try {
+        initial = await loadDatabase();
+      } catch (error) {
+        // Deliberately does not open the worker. A worker with no initial bytes creates
+        // an empty database, migrates it and flushes — and that flush is written over
+        // the file we have just failed to read. The author's book is still on disk and
+        // the only way to keep it there is to stop here and say so.
+        client.openFailed({
+          name: "DatabaseUnreadable",
+          message:
+            error instanceof Error
+              ? `Your work is on this machine but could not be opened: ${error.message}`
+              : "Your work is on this machine but could not be opened.",
+        });
+        return;
+      }
+    }
+
     const buffer =
       initial === null
         ? null
