@@ -28,11 +28,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": [
-      "deb",
-      "rpm",
-      "appimage"
-    ],
+    "targets": "all",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -40,7 +36,7 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "category": "Office",
+    "category": "Productivity",
     "shortDescription": "A writing tool for long-form fiction",
     "longDescription": "NovelTea keeps a novel in a local database on your own machine. It opens, reads and writes with no network and no account; syncing to a server you run yourself is optional.",
     "linux": {
