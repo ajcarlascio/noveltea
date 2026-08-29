@@ -106,7 +106,7 @@ export interface SnapshotIdRow {
 interface SnapshotState {
   id: string;
   document_id: string;
-  content: string;
+  content: string | null;
   word_count: number;
   is_automatic: number;
 }
@@ -183,6 +183,9 @@ export const SNAPSHOT_COMMANDS = {
    */
   restoreSnapshot: (db: SqliteAdapter, input: RestoreSnapshotInput): SnapshotIdRow => {
     const snapshot = requireSnapshot(db, input.projectId, input.id);
+    if (snapshot.content === null) {
+      throw new Error("This snapshot's content has not been downloaded yet.");
+    }
     // Called for its check, not its value: it refuses a document that is not in this
     // project. The row itself is re-read after the update, below.
     requireDocument(db, input.projectId, snapshot.document_id);
