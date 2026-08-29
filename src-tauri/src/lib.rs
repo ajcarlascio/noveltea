@@ -217,6 +217,93 @@ fn db_location(app: tauri::AppHandle) -> Result<String, String> {
     Ok(database_path(&app)?.to_string_lossy().into_owned())
 }
 
+/// An available update, as the interface needs it.
+///
+/// The whole `Update` object stays on this side: it carries a downloader and a signature
+/// check, neither of which means anything to JavaScript, and handing a token across the
+/// bridge to be given back later is a lifetime problem for no gain.
+#[derive(serde::Serialize)]
+pub struct UpdateView {
+    /// The version being offered, so the interface can name it.
+    version: String,
+    /// The release notes, when the release carried any.
+    notes: Option<String>,
+}
+
+/// Whether a newer version has been published.
+///
+/// `Ok(None)` covers both "you are current" and "the check could not run" — being
+/// offline, a release that does not exist yet, a 404 from the endpoint. That collapse is
+/// deliberate. An update check is the least important thing this app does, and an author
+/// mid-sentence must never be interrupted by the news that a server could not be reached;
+/// they can write for months without one. A genuine failure is worth a line in the log
+/// and nothing more.
+#[tauri::command]
+async fn update_check(app: tauri::AppHandle) -> Result<Option<UpdateView>, String> {
+    use tauri_plugin_updater::UpdaterExt;
+
+    let found = match app.updater() {
+        Ok(updater) => updater.check().await,
+        Err(error) => {
+            eprintln!("update check unavailable: {error}");
+            return Ok(None);
+        }
+    };
+
+    match found {
+        Ok(Some(update)) => Ok(Some(UpdateView {
+            version: update.version.clone(),
+            notes: update.body.clone(),
+        })),
+        Ok(None) => Ok(None),
+        Err(error) => {
+            eprintln!("update check failed: {error}");
+            Ok(None)
+        }
+    }
+}
+
+/// Downloads and installs the update, then restarts.
+///
+/// Checks again rather than holding the `Update` from [`update_check`]. One extra request
+/// against a static JSON file is cheaper than keeping a downloader alive in shared state
+/// across an IPC round trip that the author may never complete.
+///
+/// Unlike the check, this one **reports its failures**. The author asked for it, so they
+/// are owed an answer; the silence above is only right for something nobody requested.
+///
+/// The signature is verified by the plugin against the public key compiled into this
+/// binary before anything is installed. That is the only thing standing between this
+/// command and a downloaded executable, so the key in `tauri.conf.json` is as load-bearing
+/// as the licensing one.
+#[tauri::command]
+async fn update_install(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri_plugin_updater::UpdaterExt;
+
+    let updater = app.updater().map_err(|error| format!("no updater: {error}"))?;
+    let update = updater
+        .check()
+        .await
+        .map_err(|error| format!("could not reach the update server: {error}"))?
+        .ok_or_else(|| "there is no update to install".to_string())?;
+
+    update
+        .download_and_install(|_chunk, _total| {}, || {})
+        .await
+        .map_err(|error| format!("the update could not be installed: {error}"))?;
+
+    // Only reached when the install succeeded. On Windows the installer replaces the
+    // running binary and exits the process itself, so this line is a no-op there rather
+    // than a second restart.
+    app.restart();
+}
+
+/// The version this build reports, which is what an update is measured against.
+#[tauri::command]
+fn app_version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
+
 pub fn run() {
     tauri::Builder::default()
         // Registered first, as the plugin requires. A second launch focuses the window
@@ -235,7 +322,10 @@ pub fn run() {
             db_location,
             licence_status,
             licence_activate,
-            licence_remove
+            licence_remove,
+            update_check,
+            update_install,
+            app_version
         ])
         .run(tauri::generate_context!())
         .expect("error while running NovelTea");

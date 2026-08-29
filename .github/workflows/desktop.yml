@@ -123,13 +123,16 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npm run tauri build -- --config '{"bundle":{"createUpdaterArtifacts":true}}'
+        run: npm run tauri build
 
-      # Installers, but no update manifest. Enough to install and test on a real machine,
-      # which is what these artifacts are for until the signing secret exists.
+      # Installers, but no update manifest — `createUpdaterArtifacts` makes tauri sign
+      # the bundle, and with no key the build fails outright rather than producing
+      # anything. These artifacts exist to be installed on a real Mac or Windows machine,
+      # which needs no manifest. A *release* takes the other branch and must: see
+      # .github/workflows/release.yml, which refuses to run without the key at all.
       - name: Build (unsigned)
         if: env.TAURI_SIGNING_PRIVATE_KEY == ''
-        run: npm run tauri build
+        run: npm run tauri build -- --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
       - uses: actions/upload-artifact@v4
         with:

@@ -201,7 +201,7 @@ export interface SaveSynopsisInput {
 const DOCUMENT_COLUMNS =
   "id, content, search_text, word_count, synopsis, notes, version, updated_at";
 
-function requireDocumentRow(db: SqliteAdapter, id: string): DocumentRow {
+export function requireDocumentRow(db: SqliteAdapter, id: string): DocumentRow {
   const row = db.query<DocumentRow>(
     `SELECT ${DOCUMENT_COLUMNS} FROM document WHERE id = ?;`,
     [id],
@@ -224,7 +224,7 @@ function requireDocumentRow(db: SqliteAdapter, id: string): DocumentRow {
  * reads a missing key as "leave it alone", so this is belt and braces — but the belt is
  * the half that survives someone adding a third pane.
  */
-function queueDocument(db: SqliteAdapter, projectId: string, row: DocumentRow): void {
+export function queueDocument(db: SqliteAdapter, projectId: string, row: DocumentRow): void {
   enqueueChange(db, {
     projectId,
     entityType: "document",

@@ -268,7 +268,7 @@ export const SYNC_COMMANDS = {
   syncState: (
     db: SqliteAdapter,
     input: { projectId: string },
-  ): { lastChangeId: number; syncEpoch: number; lastSyncedAt: string | null; lastError: string | null; pending: number } => {
+  ): { lastChangeId: number; syncEpoch: number; lastSyncedAt: string | null; lastError: string | null; pending: number; title: string; settings: string | null } => {
     const row = db.query<{
       last_change_id: number;
       sync_epoch: number;
@@ -284,12 +284,19 @@ export const SYNC_COMMANDS = {
       [input.projectId],
     )[0];
 
+    const project = db.query<{ title: string; settings: string | null }>(
+      "SELECT title, settings FROM project WHERE id = ?;",
+      [input.projectId],
+    )[0];
+
     return {
       lastChangeId: row?.last_change_id ?? 0,
       syncEpoch: row?.sync_epoch ?? 1,
       lastSyncedAt: row?.last_synced_at ?? null,
       lastError: row?.last_error ?? null,
       pending: pending?.n ?? 0,
+      title: project?.title ?? "",
+      settings: project?.settings ?? null,
     };
   },
 
