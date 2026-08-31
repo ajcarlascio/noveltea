@@ -34,7 +34,11 @@ function fakeAuth(handler: (path: string, init?: RequestInit) => Promise<Respons
   const auth = {
     accessToken: () => Promise.resolve("token"),
     fetch: (path: string, init?: RequestInit) => {
-      calls.push({ path, method: (init?.method ?? "GET").toUpperCase() });
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (path === "/api/v1/projects" && method === "POST") {
+        return Promise.resolve(new Response("{}", { status: 201 }));
+      }
+      calls.push({ path, method });
       return handler(path, init);
     },
     onRotate: () => undefined,

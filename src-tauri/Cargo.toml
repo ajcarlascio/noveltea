@@ -5,6 +5,10 @@ description = "NovelTea — a writing app that keeps your work on your own machi
 authors = ["NovelTea"]
 edition = "2021"
 rust-version = "1.77"
+# Two [[bin]] targets exist, so `cargo run` cannot guess — and `tauri dev` runs
+# `cargo run`. Without this the desktop app will not start at all: "could not determine
+# which binary to run". The issuing tool is never the answer.
+default-run = "noveltea"
 
 [lib]
 name = "noveltea_lib"
@@ -15,8 +19,31 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
+tauri-plugin-updater = "2"
+# Two windows would be two in-memory databases writing the same file, and whichever
+# flushed last would silently discard the other's work. With the whole database written
+# on every save, single-instance is a correctness requirement rather than a nicety.
+tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Signature verification only. No RNG feature: the app never generates a key, and
+# the issuing tool reads /dev/urandom directly.
+ed25519-dalek = "2"
+base64 = "0.23.1"
+
+[[bin]]
+name = "noveltea"
+path = "src/main.rs"
+
+# The issuing tool, gated behind a feature so neither `cargo build` nor `tauri build`
+# produces it. Nothing that can sign a licence belongs anywhere near a shipped app.
+[[bin]]
+name = "licence-issue"
+path = "src/bin/licence-issue.rs"
+required-features = ["issuing"]
+
+[features]
+issuing = []
 
 [profile.release]
 codegen-units = 1

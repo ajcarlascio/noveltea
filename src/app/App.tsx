@@ -3,6 +3,7 @@ import { Users } from "@/features/admin/Users";
 import { ChangePassword } from "@/features/auth/ChangePassword";
 import { SignIn } from "@/features/auth/SignIn";
 import { useAuth } from "@/features/auth/AuthContext";
+import { UpdateNotice } from "@/features/updates/UpdateNotice";
 import { NotFound } from "./routes/NotFound";
 import { Project } from "./routes/Project";
 import { Projects } from "./routes/Projects";
@@ -60,6 +61,7 @@ export function App() {
           )}
         </span>
       </header>
+      <UpdateNotice />
       {mustChangePassword && (
         <p className="shell__banner" role="alert">
           <span>

@@ -2,7 +2,7 @@
 
 Copyright Anthony Carlascio
 
-Canonical text: 
+Canonical text: https://www.elastic.co/licensing/elastic-license
 
 ## Acceptance
 

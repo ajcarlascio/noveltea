@@ -33,6 +33,9 @@ async function stub(page: Page) {
   await page.route(`${SERVER}/api/v1/auth/**`, (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: sessionBody }),
   );
+  await page.route(`${SERVER}/api/v1/projects`, (route) =>
+    route.fulfill({ status: 201, contentType: "application/json", body: "{}" }),
+  );
   await page.route(`${SERVER}/api/v1/projects/**`, (route) =>
     route.fulfill({
       status: 200,

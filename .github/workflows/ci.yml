@@ -3,7 +3,10 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
+    # `0.2` and its successors as well as main. Pull request checks test a *merge
+    # preview*; once several land, the integrated result on the release branch is
+    # what ships and nothing had ever run against it.
+    branches: [main, "0.*"]
 
 jobs:
   check:
@@ -49,3 +52,45 @@ jobs:
             playwright-report/
             test-results/
           retention-days: 7
+
+  rust:
+    name: Desktop shell (Rust)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      # webkit2gtk is the engine Tauri uses on Linux; without the -dev packages the
+      # crate does not compile at all, and the error names a pkg-config file rather
+      # than anything recognisable.
+      - name: System dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev patchelf
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # `--all-targets` so the tests are linted too, not just the library.
+      - name: Clippy
+        working-directory: src-tauri
+        run: cargo clippy --all-targets -- -D warnings
+
+      # `cargo fmt --check` is deliberately absent: the existing code does not satisfy
+      # rustfmt, and reformatting it is a change of its own rather than something to
+      # smuggle into a CI commit. Add the gate in the same commit as the reformat.
+      - name: Test
+        working-directory: src-tauri
+        # NOVELTEA_TEST_LICENCE is not set here, so the test that checks the compiled-in
+        # public key against a real signing key is a no-op. That check needs a valid
+        # licence, and a valid licence in a public repository is a free licence — so it
+        # belongs in the release procedure, not in CI.
+        run: cargo test --all-targets

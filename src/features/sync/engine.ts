@@ -60,6 +60,25 @@ export async function syncProject(
 
   try {
     const state = await db.command("syncState", { projectId });
+
+    // A locally-created project has never been registered server-side. The server's
+    // sync endpoint is scoped by project id in its path and returns 404 for unknown
+    // ids, so we must POST the project before attempting any sync.
+    if (state.lastSyncedAt === null) {
+      const body: Record<string, unknown> = { id: projectId, title: state.title };
+      if (state.settings !== null) {
+        try { body.settings = JSON.parse(state.settings); } catch { /* use server default */ }
+      }
+      const reg = await auth.fetch("/api/v1/projects", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!reg.ok && reg.status !== 409) {
+        throw new SyncFailed(`Could not register the project with the server (${String(reg.status)}).`);
+      }
+    }
+
     let cursor = state.lastChangeId;
     let epoch = state.syncEpoch;
 
