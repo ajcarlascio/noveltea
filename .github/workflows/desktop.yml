@@ -1,0 +1,145 @@
+# The desktop app, on the three platforms it ships to.
+#
+# Split from ci.yml because the two answer different questions at different costs. A
+# pull request gets `cargo check` on each platform, which is what catches the mistakes
+# that are platform-specific — a Windows-only path assumption, a macOS-only API — in a
+# couple of minutes. A full bundle takes an order of magnitude longer and produces
+# artefacts nobody looks at on most changes, so it runs when asked for or on a tag.
+name: Desktop
+
+on:
+  pull_request:
+    paths:
+      - "src-tauri/**"
+      - "src/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/desktop.yml"
+  push:
+    # `0.2` and its successors as well as main. Pull request checks test a *merge
+    # preview*; once several land, the integrated result on the release branch is
+    # what ships and nothing had ever run against it.
+    branches: [main, "0.*"]
+    tags: ["v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compiles:
+    name: Compiles on ${{ matrix.name }}
+    strategy:
+      # One platform failing should not hide whether the others are fine — the whole
+      # point of the matrix is knowing which one broke.
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, name: Linux }
+          - { os: macos-latest, name: macOS }
+          - { os: windows-latest, name: Windows }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: System dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev patchelf
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: ${{ matrix.os }}
+
+      # `tauri build` embeds the frontend, so the crate needs dist/ to exist before it
+      # will compile. A check does not read it, but the build below does.
+      - name: Check
+        working-directory: src-tauri
+        run: cargo check --all-targets
+
+  bundle:
+    name: Bundle for ${{ matrix.name }}
+    # Everything except a pull request: pushes to main and the release branches, tags,
+    # and manual runs. A bundle on every pull request would spend twenty minutes making
+    # installers nobody installs — but a bundle on every push to `0.2` is exactly what
+    # lets the release branch be tested on a real Mac and a real Windows machine, which
+    # is the only place several of these bugs can be found.
+    if: github.event_name != 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, name: Linux }
+          - { os: macos-latest, name: macOS }
+          - { os: windows-latest, name: Windows }
+    runs-on: ${{ matrix.os }}
+    # Declared at job level so the build steps can branch on whether it is set. A step
+    # condition cannot read `secrets` directly.
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: System dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev patchelf
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: bundle-${{ matrix.os }}
+
+      - run: npm ci
+
+      # Two builds, because updater artifacts and an unset signing key are mutually
+      # exclusive: `createUpdaterArtifacts` makes tauri sign the bundle, and with no key
+      # the build fails outright. Leaving it always-on would mean nobody without the
+      # secret — a fork, a contributor, this repository until the secret is added — can
+      # build at all.
+      - name: Build (signed, with updater artifacts)
+        if: env.TAURI_SIGNING_PRIVATE_KEY != ''
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npm run tauri build
+
+      # Installers, but no update manifest — `createUpdaterArtifacts` makes tauri sign
+      # the bundle, and with no key the build fails outright rather than producing
+      # anything. These artifacts exist to be installed on a real Mac or Windows machine,
+      # which needs no manifest. A *release* takes the other branch and must: see
+      # .github/workflows/release.yml, which refuses to run without the key at all.
+      - name: Build (unsigned)
+        if: env.TAURI_SIGNING_PRIVATE_KEY == ''
+        run: npm run tauri build -- --config '{"bundle":{"createUpdaterArtifacts":false}}'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: noveltea-${{ matrix.name }}
+          # Bundles land under target/release/bundle; the exact subdirectory differs
+          # per platform, so the glob covers deb, rpm, AppImage, dmg, msi and nsis.
+          path: |
+            src-tauri/target/release/bundle/**/*
+          if-no-files-found: error
+          retention-days: 14

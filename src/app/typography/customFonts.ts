@@ -4,7 +4,7 @@
  * The bundled faces are shipped with the app; these are the author's own files,
  * so they never sync and never touch the server. The bytes live in OPFS when the
  * platform has it and in IndexedDB when it does not — WebKitGTK, which the Linux
- * desktop shell runs, has no `navigator.storage` at all (see CLAUDE.md), and a
+ * desktop shell runs, has no `navigator.storage` at all (see docs/contributing.md), and a
  * font store that only works where OPFS exists would take the feature away from
  * exactly the shell that needs it most.
  *

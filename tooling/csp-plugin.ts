@@ -13,15 +13,22 @@ import type { Plugin } from "vite";
  * script out and bringing back the flash of the wrong theme.
  */
 export function contentSecurityPolicy(): Plugin {
+  // Vite's mode, not an environment variable. `NOVELTEA_TAURI=1 vite` is Unix shell
+  // syntax that Windows does not have, so the desktop build simply could not be made
+  // there — cmd reported the variable name as an unknown command and the build stopped
+  // before Vite ran. `--mode` is an argument, which every platform passes the same way.
+  let hosted = false;
+
   return {
     name: "noveltea:csp",
     apply: "build",
     enforce: "post",
-    transformIndexHtml(html) {
-      // Set by the desktop build. A browser build must not carry these, since naming
-      // schemes it will never use only widens the policy.
-      const hosted = process.env.NOVELTEA_TAURI === "1";
 
+    configResolved(config) {
+      hosted = config.mode === "tauri";
+    },
+
+    transformIndexHtml(html) {
       const hashes = [...html.matchAll(/<script(?![^>]*\ssrc=)[^>]*>([\s\S]*?)<\/script>/g)]
         .map((match) => match[1] ?? "")
         .filter((source) => source.trim().length > 0)

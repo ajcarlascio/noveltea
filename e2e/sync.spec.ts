@@ -15,10 +15,17 @@ const sessionBody = JSON.stringify({
   expiresIn: 900,
 });
 
+async function stubRegistration(page: Page) {
+  await page.route(`${SERVER}/api/v1/projects`, (route) =>
+    route.fulfill({ status: 201, contentType: "application/json", body: "{}" }),
+  );
+}
+
 async function stub(page: Page, sync: object) {
   await page.route(`${SERVER}/api/v1/auth/**`, (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: sessionBody }),
   );
+  await stubRegistration(page);
   await page.route(`${SERVER}/api/v1/projects/**`, (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(sync) }),
   );
@@ -85,6 +92,7 @@ test("keeps writing possible when the server cannot be reached", async ({ page }
     route.fulfill({ status: 200, contentType: "application/json", body: sessionBody }),
   );
   await signIn(page);
+  await stubRegistration(page);
   await page.route(`${SERVER}/api/v1/projects/**`, (route) => route.abort("connectionrefused"));
   await openProject(page);
 
@@ -105,6 +113,7 @@ test("applies what the server sends", async ({ page }) => {
   await openProject(page);
   const projectId = new URL(page.url()).pathname.split("/").pop()!;
 
+  await stubRegistration(page);
   await page.route(`${SERVER}/api/v1/projects/**`, (route) =>
     route.fulfill({
       status: 200,

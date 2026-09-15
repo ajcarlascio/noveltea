@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { COMMANDS } from "@/db/commands";
+import { SNAPSHOT_COMMANDS } from "@/db/snapshot-commands";
 import {
   afterIdForDropBefore,
   afterIdForMoveEarlier,
@@ -271,6 +272,34 @@ describe("the one queue entry a document gets", () => {
     expect(payload.word_count).toBe(4);
     // Content is sent as JSON, not as the string it is stored as: the server parses it.
     expect(payload.content).toEqual({ type: "doc", content: [] });
+  });
+
+  it("SURVIVES A SNAPSHOT RESTORE, WHICH IS THE THIRD PANE THAT WRITES DOCUMENTS", () => {
+    // The two tests above enumerate the editor and the corkboard. Restoring a snapshot
+    // is a third writer, and it used to build its own payload with content and word
+    // count only — so restoring after editing an index card replaced the queued row and
+    // dropped the synopsis from the push. Locally everything looked right, which is why
+    // it would never have been reported: only the server and the other devices were
+    // missing the edit.
+    const id = document("Scene One");
+    COMMANDS.saveDocument(db.adapter, {
+      projectId,
+      id,
+      content: { type: "doc", content: [{ type: "paragraph" }] },
+      searchText: "the lamp was cold",
+      wordCount: 4,
+    });
+    const snapshot = SNAPSHOT_COMMANDS.captureSnapshot(db.adapter, {
+      projectId,
+      documentId: id,
+      label: "Keep this",
+      automatic: false,
+    });
+
+    COMMANDS.saveSynopsis(db.adapter, { projectId, id, synopsis: "She climbs the tower." });
+    SNAPSHOT_COMMANDS.restoreSnapshot(db.adapter, { projectId, id: snapshot.id });
+
+    expect(payloadFor(id).synopsis).toBe("She climbs the tower.");
   });
 
   it("leaves exactly one entry behind, whichever order the two panes wrote in", () => {

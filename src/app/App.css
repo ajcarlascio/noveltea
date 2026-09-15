@@ -200,3 +200,15 @@
   border-bottom: 1px solid var(--warning);
   background: var(--warning-subtle);
 }
+
+/* An available update is news, not a problem, so it borrows the banner's shape and
+   none of its alarm. Warning colour on something optional teaches an author to ignore
+   the colour, and then the one banner that matters is ignored too. */
+.shell__banner--notice {
+  border-bottom-color: var(--border);
+  background: var(--accent-subtle);
+}
+
+.shell__banner-notes {
+  color: var(--text-muted);
+}

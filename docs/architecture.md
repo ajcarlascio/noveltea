@@ -129,19 +129,27 @@ plugins underneath, and we write them here when we need them.
 every other export format deriving from that HTML. The set of node and mark names is
 therefore a contract between two codebases, not a preference inside one.
 
-This is not theoretical. As things stand today:
+This was not theoretical, and it is worth knowing what nearly happened. `packages/compile`
+recognised the `prosemirror-schema-basic` names — `strong`, `em` — while TipTap's StarterKit
+emits `bold` and `italic`. Connected as they stood, every bold and italic run in a manuscript
+would have reached the compiler as an unknown mark. The compiler's rule is to keep the words
+and drop the formatting with a warning, so the export would have succeeded, looked plausible,
+and been wrong. Nothing would have crashed.
 
-- `packages/compile` recognises the marks `strong`, `em`, `code`, `link`, `underline`,
-  `strike` — the `prosemirror-schema-basic` names.
-- TipTap's StarterKit emits `bold` and `italic`.
-- `packages/compile` accepts *both* `bulletList` and `bullet_list`, `codeBlock` and
-  `code_block`, and so on — which is proof that no canonical set has been agreed.
+**It is fixed, on the server, where the compiler is.** `MARK_ALIASES` in
+`packages/compile/src/text.ts` maps every spelling to one canonical name — `bold` to
+`strong`, `italic` to `em`, and the same for underline and strike — and `canonicalMark()` is
+what both serializers switch on, in `html.ts` and `markdown.ts`. Node names accept both
+conventions the same way, so `bulletList` and `bullet_list` are one type. The server is the
+right place for it because a manuscript written by an older client must still compile
+correctly years later, and a fix living only in the editor could never reach one.
 
-Connected as they stand, every bold and italic run in a manuscript would reach the compiler
-as an unknown mark. The compiler's rule is to keep the words and drop the formatting with a
-warning — so the export would succeed, look plausible, and be wrong. Nothing would crash.
+**And it is guarded rather than remembered.** `src/features/editor/__tests__/schema.node.test.ts`
+reads that alias map out of the submodule at test time and fails if the editor's schema names
+a mark the compiler cannot resolve. Add a TipTap extension without a matching alias and the
+suite goes red, instead of the formatting disappearing from somebody's export months later.
 
-The fix is structural, not a rename:
+The remaining work is structural, and is a tidying rather than a defect:
 
 1. Extract the schema into a package in the **server repo** — the same reasoning that put
    `@noveltea/client-db` there — exporting the node and mark definitions and a version.
@@ -152,7 +160,7 @@ The fix is structural, not a rename:
 4. Drop the dual naming once one convention wins. Either is fine; ambiguity is not.
 
 Until that exists, adding a node type to the editor means adding its handling in `compile`
-in the same change.
+in the same change — and the conformance test above is what makes forgetting it noisy.
 
 ### One more boundary
 
@@ -218,8 +226,8 @@ The engine is coupled to two things the server owns — the wire protocol and th
 
 ### What it must implement
 
-Summarised in `CLAUDE.md` under "The sync engine"; the authoritative description is the
-server's own `CLAUDE.md`. The parts most easily got wrong: advancing the cursor only to the
+The authoritative description is the server's `docs/design/v1-data-model-api.md`. The parts
+most easily got wrong: advancing the cursor only to the
 `latestId` actually served; resuming a forced resync at the returned `latestId` rather than 0
 (resuming at 0 loops forever); preserving the queue across a resync because it holds unsent
 work; preserving `baseVersion` when coalescing repeated edits; and not retrying a

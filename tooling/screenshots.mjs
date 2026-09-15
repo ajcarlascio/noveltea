@@ -2,6 +2,11 @@ import { chromium, devices } from "@playwright/test";
 import { spawn } from "node:child_process";
 import { mkdir, rm } from "node:fs/promises";
 import { setTimeout as sleep } from "node:timers/promises";
+import { fileURLToPath } from "node:url";
+
+// `fileURLToPath`, never `.pathname`: on Windows a file URL's pathname is
+// `/D:/a/...` — a leading slash in front of a drive letter — which resolves to
+// `D:\D:\a\...` and fails with ENOENT on a path that looks almost right.
 
 /**
  * Writes a set of screenshots to ./screenshots for review.
@@ -50,7 +55,7 @@ async function reachable() {
     return false;
   }
 }
-const OUT = new URL("../screenshots/", import.meta.url).pathname;
+const OUT = fileURLToPath(new URL("../screenshots/", import.meta.url));
 
 const targets = [
   { name: "phone", device: devices["iPhone 13"] },

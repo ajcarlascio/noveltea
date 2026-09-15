@@ -53,6 +53,9 @@ async function stubServer(page: Page, options: { conflicts?: unknown[]; resolve?
   await page.route(`${SERVER}/api/v1/auth/**`, (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: sessionBody }),
   );
+  await page.route(`${SERVER}/api/v1/projects`, (route) =>
+    route.fulfill(json({}, 201)),
+  );
   await page.route(`${SERVER}/api/v1/projects/**`, (route) =>
     route.fulfill(json({ changes: [], latestId: 0, hasMore: false, resyncRequired: false, syncEpoch: 1 })),
   );
@@ -172,6 +175,7 @@ test("marks a conflict copy in the binder so it is not mistaken for a chapter", 
   await page.route(`${SERVER}/api/v1/auth/**`, (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: sessionBody }),
   );
+  await page.route(`${SERVER}/api/v1/projects`, (route) => route.fulfill(json({}, 201)));
   await page.route(`${SERVER}/api/v1/projects/*/conflicts`, (route) => route.fulfill(json([])));
   await signIn(page);
   await openProject(page);

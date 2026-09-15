@@ -42,12 +42,29 @@ describe("loadDatabase", () => {
     await expect(loadDatabase()).resolves.toEqual(Uint8Array.from([1, 2, 3]));
   });
 
-  it("STARTS EMPTY RATHER THAN NOT AT ALL WHEN THE FILE CANNOT BE READ", async () => {
-    // Refusing to start would leave an author with no app. Starting empty leaves them
-    // with one, and the sync engine pulls their work back from the server. Which of
-    // those is worse is not a close call.
+  it("THROWS WHEN THE FILE CANNOT BE READ, RATHER THAN CLAIMING THERE ISN'T ONE", async () => {
+    // This test used to assert the opposite, on the grounds that an author is better
+    // off with an empty app than no app, and that sync would pull their work back.
+    //
+    // That was wrong, and expensively so. `null` means "no file yet", so the worker
+    // opens an empty database, migrates it, and flushes — and the host writes that
+    // empty file atomically over the author's book. It is a valid SQLite file, so the
+    // magic-number guard passes and nothing notices. Meanwhile the app is built to work
+    // with no server at all, so "sync will pull it back" is not available to most
+    // people who would hit this.
+    //
+    // The host already tells the two apart: read_database answers Ok(None) only for
+    // NotFound. Everything else is a real failure and has to stay one.
     withHost(() => Promise.reject(new Error("permission denied")));
-    await expect(loadDatabase()).resolves.toBeNull();
+    await expect(loadDatabase()).rejects.toThrow(/permission denied/);
+  });
+
+  it("throws rather than guessing when the bridge answers with nonsense", async () => {
+    // Also not a first run. Guessing "empty" here writes the guess over the file.
+    for (const nonsense of [42, "a database", { bytes: [1, 2] }]) {
+      withHost(() => Promise.resolve(nonsense));
+      await expect(loadDatabase()).rejects.toThrow(/not a database/);
+    }
   });
 });
 

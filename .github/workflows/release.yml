@@ -1,0 +1,133 @@
+# Turns a tag into installers people can download and an app that can update itself.
+#
+# This is the only workflow that produces `latest.json`, which is the file the shipped
+# updater asks for. Without it every installed copy points at a URL that 404s, so the
+# updater is not "not configured yet" — it is dead in every build ever handed out. That
+# is a one-way door: someone running 0.2.0 with no working updater has to be told to
+# download 0.3.0 by hand, forever.
+#
+# `tauri-action` does the assembling. It builds each platform, signs the bundles with the
+# key below, uploads them to a release and writes latest.json listing every platform with
+# its signature. Hand-rolling that means hand-rolling the signature format, and getting it
+# subtly wrong means an update that downloads and then refuses to install.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build, e.g. v0.2.0. Must already exist."
+        required: true
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  # The tag and the version inside the app must agree, and nothing else checks that.
+  # tauri-action names every artifact after tauri.conf.json's version and writes that
+  # same version into latest.json. Tag v0.2.0 against a config still saying 0.1.0 gives
+  # a release full of files called 0.1.0 and a manifest offering 0.1.0 to a machine
+  # already running it — an update that silently never happens, discovered months later.
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The tag matches the version in the app
+        run: |
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          config=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          cargo=$(grep -m1 '^version' src-tauri/Cargo.toml | cut -d'"' -f2)
+          package=$(node -p "require('./package.json').version")
+          echo "tag=$tag config=$config cargo=$cargo package=$package"
+          for found in "$config" "$cargo" "$package"; do
+            if [ "v$found" != "$tag" ]; then
+              echo "::error::$tag does not match $found. Bump tauri.conf.json, src-tauri/Cargo.toml and package.json together, then retag."
+              exit 1
+            fi
+          done
+
+  release:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Both Mac architectures in one bundle. Apple Silicon and Intel would otherwise
+          # need two entries in latest.json and two downloads to keep straight.
+          - { os: macos-latest, name: macOS, args: "--target universal-apple-darwin" }
+          - { os: ubuntu-22.04, name: Linux, args: "" }
+          - { os: windows-latest, name: Windows, args: "" }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          # The SQLite schema and the compile package are npm workspaces pointing into
+          # the server repo, so the build does not resolve without them.
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: System dependencies
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev patchelf
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: release-${{ matrix.os }}
+
+      - run: npm ci
+
+      # Fails the build when the signing key is absent, deliberately. An unsigned release
+      # is worse than no release: the installers work, so nobody notices, and every one of
+      # them carries an updater that will reject the very manifest this workflow wrote.
+      - name: The signing key exists
+        shell: bash
+        env:
+          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY is not set. A release must be signed or its updater cannot verify it. See docs/releasing.md."
+            exit 1
+          fi
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.event.inputs.tag || github.ref_name }}
+          releaseName: NovelTea ${{ github.event.inputs.tag || github.ref_name }}
+          releaseBody: |
+            Install the file for your platform. Existing desktop installations will
+            offer this version themselves once this release is published.
+          # Left as a draft so the release can be read before it exists. The updater asks
+          # for `releases/latest/download/latest.json`, and a draft is not "latest" — so
+          # nothing is offered to anybody until a human presses Publish. That is the
+          # intended gate, not an oversight.
+          releaseDraft: true
+          prerelease: false
+          # The whole point of this workflow. Writes latest.json with a signature for
+          # every platform in the matrix and attaches it to the release.
+          includeUpdaterJson: true
+          args: ${{ matrix.args }}
