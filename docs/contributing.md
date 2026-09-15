@@ -1,7 +1,7 @@
 # Contributing
 
 The rules that are not obvious from the code. Read this before changing anything in
-`src/data/`, `src/sync/` or `src-tauri/`.
+`src/data/`, `src/db/`, `src/features/sync/` or `src-tauri/`.
 
 ## The invariants
 

@@ -8,8 +8,9 @@ This repository is the client — browser and desktop. The API, the schema and t
 worker are in [`noveltea-server`](https://github.com/ajcarlascio/noveltea-server), pinned
 here as a submodule because the client's SQLite schema lives there.
 
-**Status:** v0.1.0. The core loop is complete and tested — write, organise, find, sync,
-compile.
+**Status:** v0.2.0. The core loop is complete and tested — write, organise, find, sync,
+compile — and 0.2 adds the desktop shell around it: single-instance enforcement, a signed
+updater, and installers for Windows, macOS and Linux.
 
 ---
 
@@ -30,12 +31,12 @@ docker compose up -d
 Published images, built for amd64 and arm64:
 
 ```
-ghcr.io/ajcarlascio/noveltea-web:0.1.0
-ghcr.io/ajcarlascio/noveltea-api:0.1.0
-ghcr.io/ajcarlascio/noveltea-worker:0.1.0
+ghcr.io/ajcarlascio/noveltea-web:0.2.0
+ghcr.io/ajcarlascio/noveltea-api:0.2.0
+ghcr.io/ajcarlascio/noveltea-worker:0.2.0
 ```
 
-Note the tag has no `v` — the release tag is `v0.1.0` but the image tag is `0.1.0`.
+Note the tag has no `v` — the release tag is `v0.2.0` but the image tag is `0.2.0`.
 
 **Signing in the first time.** A fresh server creates `admin@localhost` / `admin` and
 refuses to let that password stand: anything under twelve characters marks the account
@@ -233,7 +234,7 @@ React Native, why TipTap, where the sync engine lives.
 
 `docs/contributing.md` is the contributor guide: the eight invariants, the traps, and how
 the tests are expected to be written. Read it before changing anything in `src/data/`,
-`src/sync/` or `src-tauri/`.
+`src/db/`, `src/features/sync/` or `src-tauri/`.
 
 ```bash
 npm test                    # unit tests (vitest)
