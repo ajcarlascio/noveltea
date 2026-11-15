@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useDatabase } from "@/app/db/DatabaseContext";
 import { createProject } from "@/data/binder";
 import { listProjects, type Project } from "@/data/projects";
+import { AuthContext } from "@/features/auth/AuthContext";
+import { adoptServerProjects } from "@/features/sync/engine";
 import { StorageWarning } from "@/ui/StorageWarning";
 
 export function Projects() {
@@ -25,6 +27,27 @@ export function Projects() {
       current = false;
     };
   }, [db, reloadToken]);
+
+  // Read without useAuth(): this page must render with no account and no provider,
+  // which is the offline case and the common one.
+  const authenticator = useContext(AuthContext)?.authenticator ?? null;
+
+  // The list above is the local replica and never waits for this. Signed in, ask the
+  // server what else this account has — a second device has no other way to find out —
+  // and re-read if anything arrived. Offline or failing, it says nothing: the local
+  // list is still true.
+  useEffect(() => {
+    if (authenticator === null) return;
+    let current = true;
+    adoptServerProjects({ db, auth: authenticator })
+      .then((adopted) => {
+        if (current && adopted > 0) setReloadToken((n) => n + 1);
+      })
+      .catch(() => undefined);
+    return () => {
+      current = false;
+    };
+  }, [db, authenticator]);
 
   const onCreate = () => {
     void (async () => {

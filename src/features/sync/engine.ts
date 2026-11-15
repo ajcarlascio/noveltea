@@ -52,6 +52,39 @@ async function json(response: Response, what: string): Promise<unknown> {
   }
 }
 
+/**
+ * Brings down the projects this account has on the server and this device does not.
+ *
+ * Without this a second device signs in and stays empty forever: sync is addressed by
+ * project id, so a replica that has never heard of a project has nothing to ask for.
+ * Each newly adopted project is synced straight away, so it has its binder by the
+ * time anyone opens it; a failure there is left for the project's own scheduler,
+ * which treats "never synced" as a reason to try immediately.
+ *
+ * @returns how many projects were new to this device.
+ */
+export async function adoptServerProjects(deps: SyncDeps): Promise<number> {
+  const response = await deps.auth.fetch("/api/v1/projects");
+  const body = await json(response, "list projects");
+  if (!Array.isArray(body)) throw new SyncFailed("The server's project list was not readable.");
+
+  let adopted = 0;
+  for (const row of body as unknown[]) {
+    if (row === null || typeof row !== "object") continue;
+    const { id, title, settings } = row as Record<string, unknown>;
+    if (typeof id !== "string" || typeof title !== "string" || title.trim() === "") continue;
+    const result = await deps.db.command("adoptProject", {
+      id,
+      title,
+      settings: settings !== null && typeof settings === "object" ? JSON.stringify(settings) : null,
+    });
+    if (!result.adopted) continue;
+    adopted += 1;
+    await syncProject(deps, id).catch(() => undefined);
+  }
+  return adopted;
+}
+
 export async function syncProject(
   { db, auth, maxPages = 100, pageSize = 200 }: SyncDeps,
   projectId: string,
