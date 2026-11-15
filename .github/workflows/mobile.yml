@@ -47,6 +47,10 @@ jobs:
           java-version: "17"
 
       - uses: android-actions/setup-android@v3
+        with:
+          # The action's default is `tools platform-tools`; `tools` no longer exists in the
+          # SDK repository, so sdkmanager exits 1. Everything needed is installed below.
+          packages: ""
 
       - name: NDK
         # Tauri builds Rust for Android through the NDK; without it the toolchain
