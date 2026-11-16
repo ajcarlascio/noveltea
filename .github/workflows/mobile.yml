@@ -120,3 +120,9 @@ jobs:
       # that exists to find out whether the thing compiles.
       - name: Build
         run: npm run tauri ios build -- --debug --target aarch64-sim
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: noveltea-ios-simulator
+          path: src-tauri/gen/apple/build/arm64-sim/NovelTea.app
+          if-no-files-found: warn
