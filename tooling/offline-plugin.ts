@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import type { Plugin } from "vite";
 
 /** Files from public/ that the bundle does not mention but a cold offline start wants. */
@@ -19,7 +20,10 @@ export function offlineShell(): Plugin {
     name: "noveltea:offline-shell",
     apply: "build",
 
-    generateBundle(_, bundle) {
+    // writeBundle, not generateBundle: Vite's html plugin emits index.html after this
+    // plugin's generateBundle, so only here is the final file set (the offline shell
+    // itself, and a cache version that moves when the HTML does) known.
+    writeBundle(options, bundle) {
       const files = Object.keys(bundle)
         .filter((name) => !/\.(?:map|woff)$/.test(name))
         .map((name) => `/${name}`);
@@ -38,13 +42,10 @@ export function offlineShell(): Plugin {
         .slice(0, 12);
 
       const template = readFileSync(new URL("./sw.js", import.meta.url), "utf8");
-      this.emitFile({
-        type: "asset",
-        fileName: "sw.js",
-        source: template
-          .replace("__VERSION__", version)
-          .replace("__PRECACHE__", JSON.stringify(precache)),
-      });
+      writeFileSync(
+        join(options.dir ?? "dist", "sw.js"),
+        template.replace("__VERSION__", version).replace("__PRECACHE__", JSON.stringify(precache)),
+      );
     },
   };
 }

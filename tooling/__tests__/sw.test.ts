@@ -11,7 +11,15 @@ vm.runInNewContext(
     .replace("__PRECACHE__", "[]"),
   sandbox,
 );
-const route = sandbox["route"] as (m: string, mode: string, url: string, origin: string) => string;
+const route = sandbox["route"] as (
+  m: string,
+  mode: string,
+  url: string,
+  origin: string,
+  hasRange?: boolean,
+) => string;
+const isShell = sandbox["isShell"] as (contentType: string | null) => boolean;
+const staleCaches = sandbox["staleCaches"] as (keys: string[], current: string) => string[];
 const origin = "https://app.example";
 
 test("only same-origin GETs outside the API are handled", () => {
@@ -22,4 +30,23 @@ test("only same-origin GETs outside the API are handled", () => {
   expect(route("GET", "cors", `${origin}/health/ready`, origin)).toBe("ignore");
   expect(route("POST", "cors", `${origin}/assets/x.js`, origin)).toBe("ignore");
   expect(route("GET", "cors", "https://other.example/x.js", origin)).toBe("ignore");
+});
+
+test("range requests go to the network", () => {
+  expect(route("GET", "cors", `${origin}/thesaurus/wordnet.json`, origin, true)).toBe("ignore");
+});
+
+test("only html responses may become the cached shell", () => {
+  expect(isShell("text/html; charset=utf-8")).toBe(true);
+  expect(isShell("TEXT/HTML")).toBe(true);
+  expect(isShell("application/manifest+json")).toBe(false);
+  expect(isShell("image/png")).toBe(false);
+  expect(isShell(null)).toBe(false);
+});
+
+test("activate keeps this build and the one before it", () => {
+  const keys = ["noveltea-shell-a", "noveltea-shell-b", "noveltea-shell-c", "other"];
+  expect(staleCaches(keys, "noveltea-shell-c")).toEqual(["noveltea-shell-a"]);
+  expect(staleCaches(["noveltea-shell-c"], "noveltea-shell-c")).toEqual([]);
+  expect(staleCaches(["noveltea-shell-b", "noveltea-shell-c"], "noveltea-shell-c")).toEqual([]);
 });
