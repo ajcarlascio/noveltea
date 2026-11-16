@@ -1,5 +1,5 @@
 import { render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import { DatabaseProvider } from "../db/DatabaseProvider";
@@ -38,7 +38,7 @@ function renderAt(path: string, session: Session | null = SESSION) {
       <SettingsProvider>
         <AuthProvider initialSession={session}>
           <DatabaseProvider create={() => client}>
-        <MemoryRouter initialEntries={[path]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <MemoryRouter initialEntries={[path]}>
           <App />
         </MemoryRouter>
           </DatabaseProvider>

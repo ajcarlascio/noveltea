@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { useAuth } from "@/features/auth/AuthContext";
 import { createUser, listUsers, setPassword, type AdminUser, type NewAccount } from "./api";
 import "./Admin.css";

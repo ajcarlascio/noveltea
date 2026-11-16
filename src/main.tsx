@@ -1,6 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter } from "react-router-dom";
+import { BrowserRouter } from "react-router";
 import { App } from "./app/App";
 import { DatabaseProvider } from "./app/db/DatabaseProvider";
 import { SettingsProvider } from "./app/settings/SettingsProvider";
@@ -31,7 +31,7 @@ createRoot(container).render(
             local copy with it. */}
         <DatabaseProvider>
           <AuthProvider>
-            <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+            <BrowserRouter>
               <App />
             </BrowserRouter>
           </AuthProvider>

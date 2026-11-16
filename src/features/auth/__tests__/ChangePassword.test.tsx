@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 import { AuthProvider } from "../AuthProvider";
 import { ChangePassword } from "../ChangePassword";
@@ -59,7 +59,7 @@ function renderScreen(
   fetcher: FetchMock = fetchMock(() => changed()),
 ) {
   render(
-    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <MemoryRouter>
       <AuthProvider initialSession={session} fetcher={fetcher}>
         <ChangePassword />
       </AuthProvider>
@@ -195,7 +195,7 @@ describe("the session it changes", () => {
     // to refresh against — and a refresh here would rotate the token for no reason.
     const fetcher = fetchMock(() => changed());
     render(
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <MemoryRouter>
         <AuthProvider initialSession={LOCKED} fetcher={fetcher}>
           <ChangePassword />
         </AuthProvider>

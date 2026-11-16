@@ -1,4 +1,4 @@
-import { Navigate, NavLink, Route, Routes } from "react-router-dom";
+import { Navigate, NavLink, Route, Routes } from "react-router";
 import { Users } from "@/features/admin/Users";
 import { ChangePassword } from "@/features/auth/ChangePassword";
 import { SignIn } from "@/features/auth/SignIn";

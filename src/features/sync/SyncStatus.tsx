@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { useTransientNotice } from "./useTransientNotice";
 import { describeWhen, useSync } from "./useSync";
 import "./SyncStatus.css";
