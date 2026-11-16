@@ -238,6 +238,7 @@ pub struct UpdateView {
 /// mid-sentence must never be interrupted by the news that a server could not be reached;
 /// they can write for months without one. A genuine failure is worth a line in the log
 /// and nothing more.
+#[cfg(desktop)]
 #[tauri::command]
 async fn update_check(app: tauri::AppHandle) -> Result<Option<UpdateView>, String> {
     use tauri_plugin_updater::UpdaterExt;
@@ -276,6 +277,7 @@ async fn update_check(app: tauri::AppHandle) -> Result<Option<UpdateView>, Strin
 /// binary before anything is installed. That is the only thing standing between this
 /// command and a downloaded executable, so the key in `tauri.conf.json` is as load-bearing
 /// as the licensing one.
+#[cfg(desktop)]
 #[tauri::command]
 async fn update_install(app: tauri::AppHandle) -> Result<(), String> {
     use tauri_plugin_updater::UpdaterExt;
@@ -298,14 +300,32 @@ async fn update_install(app: tauri::AppHandle) -> Result<(), String> {
     app.restart();
 }
 
+/// Mobile has no self-updater (the stores deliver updates): report "current".
+#[cfg(mobile)]
+#[tauri::command]
+async fn update_check() -> Result<Option<UpdateView>, String> {
+    Ok(None)
+}
+
+#[cfg(mobile)]
+#[tauri::command]
+async fn update_install() -> Result<(), String> {
+    Err("updates on this platform come from the app store".into())
+}
+
 /// The version this build reports, which is what an update is measured against.
 #[tauri::command]
 fn app_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+
+    // Desktop only: neither plugin exists on mobile.
+    #[cfg(desktop)]
+    let builder = builder
         // Registered first, as the plugin requires. A second launch focuses the window
         // already open rather than starting a second webview with its own copy of the
         // database — see the note on the dependency in Cargo.toml.
@@ -315,7 +335,9 @@ pub fn run() {
                 let _ = window.set_focus();
             }
         }))
-        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_updater::Builder::new().build());
+
+    builder
         .invoke_handler(tauri::generate_handler![
             db_load,
             db_save,
