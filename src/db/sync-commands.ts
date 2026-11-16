@@ -1,6 +1,7 @@
 import type { SqliteAdapter, SqlValue } from "@noveltea/client-db";
 import { clearAccepted, enqueueChange, markAttempted, pendingChanges } from "@noveltea/client-db";
 import { between } from "@/data/order";
+import { markTrashQueued, mintTrash, queueItem, requireItem } from "./binder-item";
 import { queueValue, type MetadataValueRow } from "./metadata-commands";
 
 /**
@@ -313,10 +314,10 @@ function takeValue(db: SqliteAdapter, localId: string): (projectId: string, serv
  * Makes the server's trash node this project's, for a pulled one under another id.
  *
  * A project has one, and the server's is the one every device is told about. This device's
- * own, made before it was ever pushed, holds nothing but the items trashed under it, so it
- * takes the server's id in place — rewriting rather than replacing, because removing it
- * would take everything trashed beneath it along by cascade. Foreign keys are checked at
- * the end of the transaction, by which time everything points at the new id.
+ * own holds nothing but the items trashed under it, which move to the server's once it is
+ * in. It steps aside first (as a folder, under an order key no one else can hold) because
+ * the one-per-project index would refuse the incoming node beside it, and is removed after
+ * the items are repointed, so the cascade has nothing left to take.
  */
 function adoptTrash(db: SqliteAdapter, projectId: string, incomingId: string): (() => void) | null {
   const mine = db.query<{ id: string }>(
@@ -325,15 +326,27 @@ function adoptTrash(db: SqliteAdapter, projectId: string, incomingId: string): (
   )[0];
   if (!mine) return null;
 
-  db.run("PRAGMA defer_foreign_keys = ON;");
-  db.run("UPDATE binder_item SET id = ? WHERE id = ?;", [incomingId, mine.id]);
-  for (const column of ["parent_id", "trashed_from_parent_id"]) {
-    db.run(`UPDATE binder_item SET ${column} = ? WHERE ${column} = ?;`, [incomingId, mine.id]);
-  }
-  // Its own queue entry, if it had one, is a create of what the server already has.
-  db.run("DELETE FROM pending_change WHERE entity_type = 'binder_item' AND entity_id = ?;", [mine.id]);
-  repoint(db, projectId, mine.id, incomingId);
-  return () => undefined;
+  db.run("UPDATE binder_item SET type = 'folder', order_key = id WHERE id = ?;", [mine.id]);
+  return () => {
+    for (const column of ["parent_id", "trashed_from_parent_id"]) {
+      db.run(`UPDATE binder_item SET ${column} = ? WHERE ${column} = ?;`, [incomingId, mine.id]);
+    }
+    // Its own queue entry, if it had one, is a create of what the server already has.
+    db.run("DELETE FROM pending_change WHERE entity_type = 'binder_item' AND entity_id = ?;", [mine.id]);
+    db.run("DELETE FROM binder_item WHERE id = ?;", [mine.id]);
+    repoint(db, projectId, mine.id, incomingId);
+    // Two devices that each minted a trash node push both; the server refuses the second,
+    // and with it everything that device trashed meanwhile (an unknown parent). Its pull
+    // never brings those items back, so the move is sent again, under the server's node.
+    const stranded = db.query<{ id: string }>(
+      `SELECT id FROM binder_item
+        WHERE project_id = ? AND parent_id = ? AND deleted_at IS NULL
+          AND NOT EXISTS (SELECT 1 FROM pending_change p
+                           WHERE p.entity_type = 'binder_item' AND p.entity_id = binder_item.id);`,
+      [projectId, incomingId],
+    );
+    for (const { id } of stranded) queueItem(db, requireItem(db, projectId, id), "update");
+  };
 }
 
 /**
@@ -670,6 +683,30 @@ export const SYNC_COMMANDS = {
     return { applied, skipped: [...skipped] };
   },
 
+  /**
+   * Makes the project's trash node known to the server, once.
+   *
+   * Run after a pull, so a node the server has is already here and none is minted beside
+   * it. A project with none gets one (an adopted project whose server never had one, or a
+   * project the server has never been told the node of). A project with one that was
+   * never queued, because it predates `mintTrash` queueing it, gets that create now; a
+   * create for a node the server has is an update there, and harmless.
+   */
+  ensureTrash: (db: SqliteAdapter, input: { projectId: string }): void => {
+    const row = db.query<{ id: string }>(
+      "SELECT id FROM binder_item WHERE project_id = ? AND type = 'trash';",
+      [input.projectId],
+    )[0];
+    if (!row) return mintTrash(db, input.projectId);
+    const queued = db.query(
+      "SELECT 1 FROM local_config WHERE key = ?;",
+      [`trash_queued:${input.projectId}`],
+    );
+    if (queued.length > 0) return;
+    queueItem(db, requireItem(db, input.projectId, row.id), "create");
+    markTrashQueued(db, input.projectId);
+  },
+
   /** The cursor and epoch a pull should resume from. */
   syncState: (
     db: SqliteAdapter,
@@ -726,7 +763,16 @@ export const SYNC_COMMANDS = {
     /** The queued text as taken, so `settlePush` can tell whether it changed in flight. */
     payload: string | null;
   }[] => {
-    const rows = pendingChanges(db, input.projectId).slice(0, input.limit ?? 200);
+    // The trash node first: what is trashed names it as its parent, and the server refuses
+    // a parent it has not heard of. Queue order alone would put a node minted by `ensureTrash`
+    // behind the moves already waiting.
+    const trash = db.query<{ id: string }>(
+      "SELECT id FROM binder_item WHERE project_id = ? AND type = 'trash';",
+      [input.projectId],
+    )[0]?.id;
+    const rows = pendingChanges(db, input.projectId)
+      .sort((a, b) => Number(b.entity_id === trash) - Number(a.entity_id === trash))
+      .slice(0, input.limit ?? 200);
     markAttempted(db, rows.map((row) => row.id));
 
     return rows.map((row) => ({

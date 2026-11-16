@@ -170,6 +170,7 @@ export async function syncProject(
     };
 
     await pullAll();
+    await db.command("ensureTrash", { projectId });
 
     // -- push ---------------------------------------------------------------------
     const pending = await db.command("takePending", { projectId, limit: pageSize });

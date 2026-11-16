@@ -977,6 +977,100 @@ describe("the trash node", () => {
   });
 });
 
+describe("a project whose server has no trash node", () => {
+  // Only the server's REST endpoint makes one, so a project made by an older client, or
+  // by one that never pushed its own, has none. Every synced project must end up with one
+  // both sides know, or an adopted device stays read-only forever.
+  const trashOf = (id: string) =>
+    db.adapter.query<{ id: string }>("SELECT id FROM binder_item WHERE project_id = ? AND type = 'trash';", [id]).map((r) => r.id);
+
+  /** A server with the one-trash-per-project index, an unknown-parent refusal, and a feed. */
+  function strictServer(feed: { id: number; entityId: string; data: Record<string, unknown> }[] = []) {
+    const items = new Map<string, Record<string, unknown>>();
+    const order: string[] = [];
+    const { auth } = fakeAuth((path, init) => {
+      if ((init?.method ?? "GET") === "POST") {
+        const body = JSON.parse(init?.body as string) as { changes: { entityId: string; data: Record<string, unknown> }[] };
+        const applied: unknown[] = [];
+        const conflicts: unknown[] = [];
+        for (const { entityId, data } of body.changes) {
+          order.push(entityId);
+          const parent = data.parent_id;
+          const otherTrash = data.type === "trash" && [...items.values()].some((i) => i.type === "trash" && i.id !== entityId);
+          if (otherTrash || (typeof parent === "string" && !items.has(parent))) {
+            conflicts.push({ entityId, entityType: "binder_item", reason: "invalid_request", conflictCopyId: null, serverVersion: null, detail: otherTrash ? "second trash" : `no binder item ${String(parent)}` });
+            continue;
+          }
+          items.set(entityId, { ...items.get(entityId), ...data });
+          applied.push({ entityId, entityType: "binder_item", version: 1 });
+        }
+        return ok(pushBody({ applied, conflicts }));
+      }
+      const since = Number(new URL(path, "http://x").searchParams.get("since"));
+      const changes = feed.filter((c) => c.id > since).map((c) => ({ id: c.id, entityType: "binder_item", entityId: c.entityId, op: "create", data: c.data }));
+      return ok(pullBody({ changes, latestId: feed.at(-1)?.id ?? 0 }));
+    });
+    return { auth, items, order };
+  }
+
+  const serverProject = { id: "0b0e7c1e-3f0a-4d7e-9a53-0d1f6f0a9c11", title: "Salt" };
+
+  it("gives an adopted project one after its first sync, and the server learns of it", async () => {
+    const server = strictServer();
+    const { auth } = fakeAuth(async (path, init) =>
+      path === "/api/v1/projects" ? ok([serverProject]) : server.auth.fetch(path, init));
+
+    await adoptServerProjects({ db: db.client, auth });
+
+    const [trash] = trashOf(serverProject.id);
+    expect(trash).toBeDefined();
+    expect(server.items.get(trash!)).toMatchObject({ type: "trash", parent_id: null });
+    expect(db.adapter.query("SELECT 1 FROM pending_change WHERE project_id = ?;", [serverProject.id])).toHaveLength(0);
+    const doc = COMMANDS.createBinderItem(db.adapter, { projectId: serverProject.id, parentId: null, type: "folder", title: "Act I" });
+    expect(() => COMMANDS.trashBinderItem(db.adapter, { projectId: serverProject.id, id: doc.id })).not.toThrow();
+  });
+
+  it("converges on the server's node when two devices each made one, with trashed items intact", async () => {
+    // The other device's node is already on the server; this one has not pulled it yet.
+    const project = COMMANDS.createProject(db.adapter, { title: "Salt" }).id;
+    const chapter = COMMANDS.createBinderItem(db.adapter, { projectId: project, parentId: null, type: "folder", title: "Act I" });
+    COMMANDS.trashBinderItem(db.adapter, { projectId: project, id: chapter.id });
+    const feed: { id: number; entityId: string; data: Record<string, unknown> }[] = [];
+    const raced = strictServer(feed);
+    raced.items.set("theirs", { id: "theirs", type: "trash", parent_id: null, title: "Trash", order_key: "z" });
+
+    // Their push is refused (a second trash, then an unknown parent) and cleared...
+    await syncProject({ db: db.client, auth: raced.auth }, project);
+    expect(raced.items.get(chapter.id)).toBeUndefined();
+    feed.push({ id: 5, entityId: "theirs", data: binderRow("theirs", { project_id: project, type: "trash", title: "Trash", order_key: "z" }) });
+
+    // ...the next pull hands over the server's node, and the trash move is sent again under it.
+    const outcome = await syncProject({ db: db.client, auth: raced.auth }, project);
+    expect(outcome.conflicts).toEqual([]);
+    expect(trashOf(project)).toEqual(["theirs"]);
+    expect(db.adapter.query("SELECT parent_id FROM binder_item WHERE id = ?;", [chapter.id])).toEqual([{ parent_id: "theirs" }]);
+    expect(raced.items.get(chapter.id)).toMatchObject({ parent_id: "theirs" });
+    expect(db.adapter.query("SELECT 1 FROM pending_change WHERE project_id = ?;", [project])).toHaveLength(0);
+  });
+
+  it("sends an older project's node before the item trashed under it", async () => {
+    // Made before the node was queued: no entry, no mark that it was ever sent.
+    const project = COMMANDS.createProject(db.adapter, { title: "Salt" }).id;
+    const [trash] = trashOf(project);
+    const chapter = COMMANDS.createBinderItem(db.adapter, { projectId: project, parentId: null, type: "folder", title: "Act I" });
+    db.adapter.run("DELETE FROM pending_change;");
+    db.adapter.run("DELETE FROM local_config WHERE key LIKE 'trash_queued:%';");
+    COMMANDS.trashBinderItem(db.adapter, { projectId: project, id: chapter.id });
+    const server = strictServer();
+
+    const outcome = await syncProject({ db: db.client, auth: server.auth }, project);
+
+    expect(outcome.conflicts).toEqual([]);
+    expect(server.order[0]).toBe(trash);
+    expect(server.items.get(chapter.id)).toMatchObject({ parent_id: trash });
+  });
+});
+
 describe("pushing", () => {
   it("sends what is queued and clears what the server accepted", async () => {
     const item = COMMANDS.createBinderItem(db.adapter, { projectId, parentId: null, type: "folder", title: "Act I" });
@@ -1205,13 +1299,14 @@ describe("adopting the account's projects on a new device", () => {
     expect(calls.some((c) => c.path.startsWith(`/api/v1/projects/${serverProject.id}/sync`))).toBe(true);
   });
 
-  it("creates no binder rows itself, and a second pass adopts nothing", async () => {
+  it("makes no trash node of its own beyond the one a server without any needs, and a second pass adopts nothing", async () => {
     const { auth } = adoptingAuth([serverProject]);
     const items = () =>
       db.adapter.query("SELECT id FROM binder_item WHERE project_id = ?;", [serverProject.id]);
 
     expect(await adoptServerProjects({ db: db.client, auth })).toBe(1);
-    expect(items()).toHaveLength(0);
+    // This server has none to send, so the first sync makes the project's one.
+    expect(items()).toHaveLength(1);
     expect(await adoptServerProjects({ db: db.client, auth })).toBe(0);
   });
 

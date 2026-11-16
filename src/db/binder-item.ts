@@ -1,4 +1,5 @@
 import { enqueueChange, type SqliteAdapter } from "@noveltea/client-db";
+import { between } from "@/data/order";
 
 /**
  * The binder item row, and the one way it is queued for sync.
@@ -98,4 +99,38 @@ export function queueItem(
     // enqueueChange keeps whichever base_version an existing pending row already had.
     baseVersion: row.version,
   });
+}
+
+/**
+ * Gives a project a trash node and queues its creation.
+ *
+ * The server makes a trash node only through its own REST endpoint, never on the sync
+ * path, so a push is the only way it learns of this one. Without it, anything trashed
+ * here moves under a parent the server has never heard of and the push is refused.
+ */
+export function mintTrash(db: SqliteAdapter, projectId: string): void {
+  const last = db.query<{ order_key: string }>(
+    `SELECT order_key FROM binder_item
+      WHERE project_id = ? AND parent_id IS NULL AND deleted_at IS NULL
+      ORDER BY order_key DESC LIMIT 1;`,
+    [projectId],
+  )[0];
+  const stamp = new Date().toISOString();
+  const id = crypto.randomUUID();
+  db.run(
+    `INSERT INTO binder_item (id, project_id, parent_id, type, title, order_key, created_at, updated_at)
+     VALUES (?, ?, NULL, 'trash', 'Trash', ?, ?, ?);`,
+    [id, projectId, between(last?.order_key ?? null, null), stamp, stamp],
+  );
+  queueItem(db, requireItem(db, projectId, id), "create");
+  markTrashQueued(db, projectId);
+}
+
+/** Notes that this project's trash node has been queued for the server, once. */
+export function markTrashQueued(db: SqliteAdapter, projectId: string): void {
+  db.run(
+    `INSERT INTO local_config (key, value, updated_at) VALUES (?, '1', ?)
+     ON CONFLICT (key) DO NOTHING;`,
+    [`trash_queued:${projectId}`, new Date().toISOString()],
+  );
 }

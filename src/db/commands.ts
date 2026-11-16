@@ -1,6 +1,7 @@
 import { enqueueChange, type SqliteAdapter } from "@noveltea/client-db";
 import {
   ITEM_COLUMNS,
+  mintTrash,
   queueItem as queue,
   requireItem,
   type BinderItemRow,
@@ -275,15 +276,7 @@ export const COMMANDS = {
       "INSERT INTO project (id, title, created_at, updated_at) VALUES (?, ?, ?, ?);",
       [id, title, stamp, stamp],
     );
-    db.run(
-      `INSERT INTO binder_item (id, project_id, parent_id, type, title, order_key, created_at, updated_at)
-       VALUES (?, ?, NULL, 'trash', 'Trash', ?, ?, ?);`,
-      [newId(), id, between(null, null), stamp, stamp],
-    );
-    // The server makes a trash node only through its own REST endpoint, never on the sync
-    // path, so this is the only way it learns of this one. Without it, anything trashed
-    // here moves under a parent the server has never heard of and the push is refused.
-    queue(db, requireItem(db, id, trashNodeId(db, id)), "create");
+    mintTrash(db, id);
     return { id, title };
   },
 
