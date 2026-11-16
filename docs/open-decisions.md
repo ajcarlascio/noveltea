@@ -89,11 +89,14 @@ to a non-mobile Cargo target section, splitting their permission into a desktop-
 capability, and turning off `createUpdaterArtifacts` for mobile; on mobile the update
 commands are stubs. Nothing more was needed.
 
-**That is a build result, not evidence the app works on a phone.** Nothing has been run on
-a device or emulator. The question the spike exists for is still open: whether the
-webview's in-memory SQLite plus the Rust file save (`db_load` / `db_save`) behaves on
-Android WebView and WKWebView, and whether OPFS is available there. Release signing (an
-Android keystore, an Apple developer account) is untouched.
+**Android, run on an emulator (API 34, x86_64, `mobile.yml` run 43811943465): the app starts and
+the database opens.** The WebView reports `data-db-status=ready`, `data-db-storage=host`
+(schema 12, 12 migrations applied), `__TAURI_INTERNALS__` present, OPFS also present, and the
+screenshot shows the empty Projects screen. As on desktop, the webview holds SQLite in memory
+and the Rust `db_load` / `db_save` commands keep the file; those commands exist on mobile.
+**Not verified:** that a write survives a process restart (the run is one fresh launch, nothing
+written), real-device behaviour, and anything about iOS: WKWebView has never been run, only
+built. Release signing (an Android keystore, an Apple developer account) is untouched.
 
 Publishing is a separate and slower problem: a personal Play Console account must run a
 closed test with twelve testers opted in continuously for fourteen days before it can reach
