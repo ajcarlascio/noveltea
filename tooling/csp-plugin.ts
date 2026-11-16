@@ -4,6 +4,9 @@ import type { Plugin } from "vite";
 /**
  * Injects a Content-Security-Policy into the built index.html.
  *
+ * The Docker image re-serves this exact policy as a response header (plus frame-ancestors),
+ * lifted out of the built index.html by the Dockerfile — see deploy/nginx.conf.
+ *
  * Build only. Vite's dev server serves its own inline HMR scripts, so a strict
  * policy in development would block the tooling rather than any attacker.
  *

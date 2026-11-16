@@ -63,8 +63,9 @@ them from two hostnames and you have to tell the server about this one.
 
 Three things `deploy/nginx.conf` does that matter:
 
-- Sends `frame-ancestors 'none'` as a **header**. The build-time policy arrives in a
-  `<meta>` element, where browsers ignore that directive.
+- Sends the full Content-Security-Policy as a **header**: the build's `<meta>` policy
+  (extracted into the image at build, so there is one source) plus `frame-ancestors
+  'none'`, which a `<meta>` cannot express. Only a header also governs the database worker.
 - Sends no `Cross-Origin-Embedder-Policy`. The replica uses sqlite-wasm's SAH Pool VFS
   precisely so it needs no `SharedArrayBuffer`, so `require-corp` would cost every
   cross-origin resource later and buy nothing.
@@ -77,7 +78,7 @@ Three things `deploy/nginx.conf` does that matter:
   from the `X-Forwarded-For` that proxy sends. Empty by default — only set it when the
   proxy overwrites or appends that header, and nothing else can reach port 80.
 
-If you serve the built bundle yourself instead, send the Content-Security-Policy as a
+If you serve the built bundle yourself instead, send the same policy as a
 **response header** as well as the one the build puts in a `<meta>` element, and add
 `X-Frame-Options: DENY`. A `<meta>` policy cannot express `frame-ancestors` and does not
 reach worker contexts at all, so the database worker is ungoverned without a header.
