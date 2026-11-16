@@ -260,10 +260,10 @@ export const COMMANDS = {
   /**
    * Creates a project and its trash node locally.
    *
-   * Nothing is queued: `pending_change` has no `project` entity type, because the
-   * sync endpoint is scoped by a project id in its path and so cannot carry the
-   * creation of one. A project made offline therefore does not reach the server
-   * yet — see README, "Creating a project offline".
+   * The project itself is not queued: `pending_change` has no `project` entity type,
+   * because the sync endpoint is scoped by a project id in its path and so cannot carry
+   * the creation of one. The engine registers it before its first sync. The trash node
+   * is queued, as a binder item like any other.
    */
   createProject: (db: SqliteAdapter, input: CreateProjectInput): { id: string; title: string } => {
     const title = input.title.trim();
@@ -280,6 +280,10 @@ export const COMMANDS = {
        VALUES (?, ?, NULL, 'trash', 'Trash', ?, ?, ?);`,
       [newId(), id, between(null, null), stamp, stamp],
     );
+    // The server makes a trash node only through its own REST endpoint, never on the sync
+    // path, so this is the only way it learns of this one. Without it, anything trashed
+    // here moves under a parent the server has never heard of and the push is refused.
+    queue(db, requireItem(db, id, trashNodeId(db, id)), "create");
     return { id, title };
   },
 
@@ -288,8 +292,8 @@ export const COMMANDS = {
    *
    * This is how a second device gets its books: nothing else brings a project row
    * down, because the change feed is scoped to a project the client must already
-   * know about. No trash node is made here — the server's own arrives with the first
-   * pull, and making a local one would leave the project with two.
+   * know about. No trash node is made here — the one the project's first device pushed
+   * arrives with the first pull, and making a local one would leave the project with two.
    *
    * Never touches a project that is already here: the local title may be a rename
    * still waiting to be pushed.

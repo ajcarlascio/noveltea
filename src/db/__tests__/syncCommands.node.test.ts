@@ -426,8 +426,7 @@ describe("pruneMissing", () => {
   });
 
   it("never removes the trash node", () => {
-    // The server does not list it in the binder, and a project without one has
-    // nowhere to trash things.
+    // A project without one has nowhere to trash things, whatever a listing says.
     COMMANDS.pruneMissing(db.adapter, { projectId, keep: { binder_item: [] } });
     expect(
       db.adapter.query("SELECT id FROM binder_item WHERE project_id = ? AND type = 'trash';", [projectId]),

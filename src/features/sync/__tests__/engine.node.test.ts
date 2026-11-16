@@ -863,6 +863,101 @@ describe("unsynced writing", () => {
   });
 });
 
+describe("the trash node", () => {
+  // The server never makes a trash node on the sync path: only its REST trash endpoint
+  // does (`ensureTrash`), and this client never calls it. So a locally made project's
+  // trash node exists on the server only if the client pushes it, and a push that moves
+  // an item under a parent the server has never heard of is refused (`BinderItemNotFound`
+  // inside `requireReparentIsSafe`, reported as invalid_request).
+  const trashOf = (id: string) =>
+    db.adapter.query<{ id: string }>("SELECT id FROM binder_item WHERE project_id = ? AND type = 'trash';", [id]).map((r) => r.id);
+
+  /** The server's binder, as far as pushes and `GET /binder` go. */
+  function binderServer(over: { rebuild?: boolean } = {}) {
+    const items = new Map<string, Record<string, unknown>>();
+    let pulls = 0;
+    const { auth } = fakeAuth((path, init) => {
+      if ((init?.method ?? "GET") === "POST") {
+        const body = JSON.parse(init?.body as string) as { changes: { entityId: string; op: string; data: Record<string, unknown> }[] };
+        const applied: unknown[] = [];
+        const conflicts: unknown[] = [];
+        for (const change of body.changes) {
+          const parent = change.data.parent_id;
+          if (typeof parent === "string" && !items.has(parent)) {
+            conflicts.push({ entityId: change.entityId, entityType: "binder_item", reason: "invalid_request", conflictCopyId: null, serverVersion: null, detail: `no binder item ${parent}` });
+            continue;
+          }
+          items.set(change.entityId, { ...items.get(change.entityId), ...change.data });
+          applied.push({ entityId: change.entityId, entityType: "binder_item", version: 1 });
+        }
+        return ok(pushBody({ applied, conflicts }));
+      }
+      if (path.endsWith("/sync/state")) return ok([]);
+      if (path.includes("/binder")) {
+        return ok([...items.values()].map((i) => ({ id: i.id, parentId: i.parent_id, type: i.type, title: i.title, orderKey: i.order_key, version: 1 })));
+      }
+      if (path.includes("/documents")) return ok({ documents: [], nextCursor: null, hasMore: false });
+      pulls += 1;
+      return ok(pullBody({ resyncRequired: over.rebuild === true && pulls === 1, latestId: 9, syncEpoch: 1, stateAvailable: true }));
+    });
+    return { auth, items };
+  }
+
+  it("reaches the server with the project, so what is trashed there can be synced", async () => {
+    const project = COMMANDS.createProject(db.adapter, { title: "Salt" }).id;
+    const [trash] = trashOf(project);
+    const chapter = COMMANDS.createBinderItem(db.adapter, { projectId: project, parentId: null, type: "folder", title: "Act I" });
+    COMMANDS.trashBinderItem(db.adapter, { projectId: project, id: chapter.id });
+    const server = binderServer();
+
+    const outcome = await syncProject({ db: db.client, auth: server.auth }, project);
+
+    expect(outcome.conflicts).toEqual([]);
+    expect(server.items.get(trash!)).toMatchObject({ type: "trash", parent_id: null });
+    expect(server.items.get(chapter.id)).toMatchObject({ parent_id: trash });
+    expect(db.adapter.query("SELECT 1 FROM pending_change WHERE project_id = ?;", [project])).toHaveLength(0);
+  });
+
+  it("is the same node after a rebuild from the server's tree", async () => {
+    const project = COMMANDS.createProject(db.adapter, { title: "Salt" }).id;
+    const [trash] = trashOf(project);
+    const chapter = COMMANDS.createBinderItem(db.adapter, { projectId: project, parentId: null, type: "folder", title: "Act I" });
+    COMMANDS.trashBinderItem(db.adapter, { projectId: project, id: chapter.id });
+    const server = binderServer();
+    await syncProject({ db: db.client, auth: server.auth }, project);
+
+    const rebuilding = binderServer({ rebuild: true });
+    for (const [id, item] of server.items) rebuilding.items.set(id, item);
+    const outcome = await syncProject({ db: db.client, auth: rebuilding.auth }, project);
+
+    expect(outcome.resynced).toBe(true);
+    expect(trashOf(project)).toEqual([trash]);
+    expect(db.adapter.query("SELECT parent_id FROM binder_item WHERE id = ?;", [chapter.id])).toEqual([{ parent_id: trash }]);
+  });
+
+  it("is replaced by the server's when the server minted its own under another id", async () => {
+    // A project made before the trash node was pushed, to which something else has since
+    // added a trash node. Two would break the one-per-project index and fail every rebuild.
+    const project = COMMANDS.createProject(db.adapter, { title: "Salt" }).id;
+    db.adapter.run("DELETE FROM pending_change;");
+    const [mine] = trashOf(project);
+    const chapter = COMMANDS.createBinderItem(db.adapter, { projectId: project, parentId: null, type: "folder", title: "Act I" });
+    COMMANDS.trashBinderItem(db.adapter, { projectId: project, id: chapter.id });
+
+    const server = binderServer({ rebuild: true });
+    server.items.set("server-trash", { id: "server-trash", parent_id: null, type: "trash", title: "Trash", order_key: "z" });
+    const outcome = await syncProject({ db: db.client, auth: server.auth }, project);
+
+    // What was still queued for the old id went to the server's, and was accepted.
+    expect(outcome.conflicts).toEqual([]);
+    expect(server.items.get(chapter.id)).toMatchObject({ parent_id: "server-trash" });
+
+    expect(mine).not.toBe("server-trash");
+    expect(trashOf(project)).toEqual(["server-trash"]);
+    expect(db.adapter.query("SELECT parent_id FROM binder_item WHERE id = ?;", [chapter.id])).toEqual([{ parent_id: "server-trash" }]);
+  });
+});
+
 describe("pushing", () => {
   it("sends what is queued and clears what the server accepted", async () => {
     const item = COMMANDS.createBinderItem(db.adapter, { projectId, parentId: null, type: "folder", title: "Act I" });

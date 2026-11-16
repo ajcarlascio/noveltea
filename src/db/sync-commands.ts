@@ -30,9 +30,11 @@ const TABLES: Record<string, string> = {
  * The rows of a project a rebuild may prune, per entity type: live ones, scoped through
  * whichever parent carries the project where the table has no project_id.
  *
- * The trash node is structural, not content: the server does not list it in the binder,
- * and removing it would leave the project with nowhere to trash things. Automatic
- * snapshots never leave the device, so the server's silence about them means nothing.
+ * The trash node is structural, not content: removing it would leave the project with
+ * nowhere to trash things, and its absence from a listing means nothing — the server's
+ * `/binder` does list it once it has one, but a project's node is only on the server if
+ * this client pushed it (see `createProject`). Automatic snapshots never leave the
+ * device, so the server's silence about them means nothing.
  */
 const PRUNABLE: Record<string, string> = {
   binder_item:
@@ -297,6 +299,33 @@ function takeValue(db: SqliteAdapter, localId: string): (projectId: string, serv
 }
 
 /**
+ * Makes the server's trash node this project's, for a pulled one under another id.
+ *
+ * A project has one, and the server's is the one every device is told about. This device's
+ * own, made before it was ever pushed, holds nothing but the items trashed under it, so it
+ * takes the server's id in place — rewriting rather than replacing, because removing it
+ * would take everything trashed beneath it along by cascade. Foreign keys are checked at
+ * the end of the transaction, by which time everything points at the new id.
+ */
+function adoptTrash(db: SqliteAdapter, projectId: string, incomingId: string): (() => void) | null {
+  const mine = db.query<{ id: string }>(
+    "SELECT id FROM binder_item WHERE project_id = ? AND type = 'trash' AND id <> ?;",
+    [projectId, incomingId],
+  )[0];
+  if (!mine) return null;
+
+  db.run("PRAGMA defer_foreign_keys = ON;");
+  db.run("UPDATE binder_item SET id = ? WHERE id = ?;", [incomingId, mine.id]);
+  for (const column of ["parent_id", "trashed_from_parent_id"]) {
+    db.run(`UPDATE binder_item SET ${column} = ? WHERE ${column} = ?;`, [incomingId, mine.id]);
+  }
+  // Its own queue entry, if it had one, is a create of what the server already has.
+  db.run("DELETE FROM pending_change WHERE entity_type = 'binder_item' AND entity_id = ?;", [mine.id]);
+  repoint(db, projectId, mine.id, incomingId);
+  return () => undefined;
+}
+
+/**
  * Makes room for a pulled row whose natural key a different local row holds.
  *
  * The holder is one of three things, and each is resolved so that nothing the author
@@ -324,6 +353,7 @@ function makeRoom(
   data: Record<string, unknown>,
   now: string,
 ): (() => void) | null {
+  if (table === "binder_item" && data.type === "trash") return adoptTrash(db, projectId, incomingId);
   const key = UNIQUE_KEYS[table];
   if (key === undefined) return null;
   const holder = db.query<{ id: string }>(
