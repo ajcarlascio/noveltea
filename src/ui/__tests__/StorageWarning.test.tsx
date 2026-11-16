@@ -48,6 +48,16 @@ describe("StorageWarning", () => {
     expect(alert).toHaveTextContent(/lost when you close this tab/i);
   });
 
+  it("blocks the workspace, instead of warning, when another tab holds the replica", () => {
+    const fake = renderWarning();
+    act(() =>
+      fake.reply({ kind: "ready", storage: "contended", appliedVersions: [], schemaVersion: 11 }),
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(/already open in another tab/i);
+    expect(screen.getByRole("button", { name: /reload/i })).toBeInTheDocument();
+    expect(screen.queryByText(/not storing your work/i)).not.toBeInTheDocument();
+  });
+
   it.each([
     [false, /plain http/i],
     [true, /another tab/i],

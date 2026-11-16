@@ -11,3 +11,14 @@
   border-color: var(--danger);
   background: var(--danger-subtle);
 }
+
+.another-tab {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: var(--space-4);
+  min-height: 100vh;
+  padding: var(--space-5);
+  text-align: center;
+  color: var(--text-primary);
+}
