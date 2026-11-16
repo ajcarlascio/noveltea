@@ -1136,6 +1136,80 @@ describe("pushing", () => {
     expect(queued()).toHaveLength(0);
   });
 
+  describe("an item carrying a label another device deleted", () => {
+    const setup = () => {
+      const doc = COMMANDS.createBinderItem(db.adapter, { projectId, parentId: null, type: "document", title: "One" });
+      const label = COMMANDS.createTaxonomy(db.adapter, { projectId, kind: "label", name: "POV", color: "#3d6b8e" });
+      COMMANDS.setItemTaxonomy(db.adapter, { projectId, id: doc.id, labelId: label.id });
+      COMMANDS.renameBinderItem(db.adapter, { projectId, id: doc.id, title: "Renamed" });
+      db.adapter.run("DELETE FROM pending_change WHERE entity_type = 'taxonomy';");
+      return { doc, label };
+    };
+    /** Like the server: a tag naming a term that is gone refuses the whole change. */
+    const strictServer = (doc: { id: string }, onPush: (body: Record<string, unknown>) => void = () => undefined) =>
+      fakeAuth((_path, init) => {
+        if ((init?.method ?? "GET") !== "POST") return ok(pullBody());
+        const { changes } = JSON.parse(init?.body as string) as { changes: { entityId: string; data: Record<string, unknown> }[] };
+        const [change] = changes;
+        onPush(change!.data);
+        if (typeof change!.data.label_id === "string") {
+          return ok(pushBody({ conflicts: [{ entityId: doc.id, entityType: "binder_item", reason: "invalid_request" }] }));
+        }
+        return ok(pushBody({ applied: [{ entityId: doc.id, entityType: "binder_item", version: 2 }] }));
+      });
+
+    it("reaches the server with its rename once the pulled delete has cleared the tag", async () => {
+      const { doc, label } = setup();
+      const sent: Record<string, unknown>[] = [];
+      const { auth, calls } = strictServer(doc, (data) => sent.push(data));
+      // The feed carries the delete this time, as it normally does before a push.
+      const base = auth.fetch.bind(auth);
+      (auth as { fetch: unknown }).fetch = (path: string, init?: RequestInit) =>
+        (init?.method ?? "GET") === "GET" && path.includes("/sync?")
+          ? ok(pullBody({ latestId: 3, changes: [{ id: 3, entityType: "taxonomy", entityId: label.id, op: "delete", data: null }] }))
+          : base(path, init);
+
+      await syncProject({ db: db.client, auth }, projectId);
+
+      expect(calls.filter((c) => c.method === "POST")).toHaveLength(1);
+      expect(sent).toHaveLength(1);
+      expect(sent[0]).toMatchObject({ title: "Renamed" });
+      expect(sent[0]).not.toHaveProperty("label_id");
+      expect(queued()).toHaveLength(0);
+    });
+
+    it("is sent again without the tag when the delete lands between the pull and the push", async () => {
+      const { doc } = setup();
+      const sent: Record<string, unknown>[] = [];
+      const { auth, calls } = strictServer(doc, (data) => sent.push(data));
+
+      const outcome = await syncProject({ db: db.client, auth }, projectId);
+
+      expect(calls.filter((c) => c.method === "POST")).toHaveLength(2);
+      expect(sent[0]).toHaveProperty("label_id");
+      expect(sent[1]).toMatchObject({ title: "Renamed" });
+      expect(sent[1]).not.toHaveProperty("label_id");
+      expect(outcome.conflicts).toEqual([]);
+      expect(outcome.pushed).toBe(1);
+      expect(queued()).toHaveLength(0);
+    });
+
+    it("is retried once and no more when the server refuses it for another reason", async () => {
+      const { doc } = setup();
+      const { auth, calls } = fakeAuth((_path, init) =>
+        (init?.method ?? "GET") === "POST"
+          ? ok(pushBody({ conflicts: [{ entityId: doc.id, entityType: "binder_item", reason: "invalid_request" }] }))
+          : ok(pullBody()),
+      );
+
+      const outcome = await syncProject({ db: db.client, auth }, projectId);
+
+      expect(calls.filter((c) => c.method === "POST")).toHaveLength(2);
+      expect(outcome.conflicts).toHaveLength(1);
+      expect(queued()).toHaveLength(0);
+    });
+  });
+
   it("clears a document conflict instead of retrying it", async () => {
     const item = COMMANDS.createBinderItem(db.adapter, { projectId, parentId: null, type: "document", title: "Chapter One" });
 

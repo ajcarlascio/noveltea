@@ -117,6 +117,35 @@ function inPushOrder(rows: PendingChange[]): PendingChange[] {
   return ordered;
 }
 
+/**
+ * Takes a tombstoned label or status off this project's items, and off what is queued.
+ *
+ * The server refuses a binder item that names a term which is not live (`requireTaxonomyRef`),
+ * one `invalid_request` for the whole change, and a non-document refusal is cleared. A tag
+ * this device still held for a term another device deleted would therefore cost the rename,
+ * move or trash sent in the same entry, and leave the row tagged with a term that is gone.
+ * The server's own item keeps the dangling id when a term is soft-deleted (`ON DELETE SET
+ * NULL` never fires), so nothing is sent for the cleared column: the key leaves the queued
+ * payload, where absent means "unchanged", and an explicit null is not needed to say what
+ * the term's tombstone already says. Run after every pull and rebuild, whichever way the
+ * tombstone arrived: a delete row, a row carrying `deleted_at`, or a prune.
+ */
+function releaseDeadTags(db: SqliteAdapter, projectId: string): void {
+  for (const column of ["label_id", "status_id"]) {
+    const dead = `SELECT id FROM taxonomy WHERE project_id = ? AND deleted_at IS NOT NULL`;
+    db.run(`UPDATE binder_item SET ${column} = NULL WHERE project_id = ? AND ${column} IN (${dead});`, [
+      projectId,
+      projectId,
+    ]);
+    db.run(
+      `UPDATE pending_change SET payload = json_remove(payload, '$.${column}')
+        WHERE project_id = ? AND entity_type = 'binder_item' AND payload IS NOT NULL
+          AND json_extract(payload, '$.${column}') IN (${dead});`,
+      [projectId, projectId],
+    );
+  }
+}
+
 export interface ChangeRecord {
   id: number;
   entityType: string;
@@ -739,6 +768,8 @@ export const SYNC_COMMANDS = {
       applied += 1;
     }
 
+    releaseDeadTags(db, input.projectId);
+
     if (input.advanceCursor === false) return { applied, skipped: [...skipped] };
 
     db.run(
@@ -923,6 +954,24 @@ export const SYNC_COMMANDS = {
     }
     clearAccepted(db, cleared);
     return { cleared: cleared.length };
+  },
+
+  /**
+   * Takes the tags off entries the server refused for naming a term it does not hold, so
+   * the rest of the change (a rename, a move, a trash) can be sent again.
+   *
+   * Only the tags that are set: a null is the author clearing one, which the server
+   * never refuses. Only an entry still as it was sent: one edited since carries newer
+   * words, and keeps them. With the tags gone the entry cannot be refused for them again,
+   * so this is a single retry.
+   */
+  stripRefusedTags: (db: SqliteAdapter, input: { sent: { id: number; payload: string | null }[] }): void => {
+    for (const { id, payload } of input.sent) {
+      if (payload === null) continue;
+      const data = JSON.parse(payload) as Record<string, unknown>;
+      for (const key of ["label_id", "status_id"]) if (typeof data[key] === "string") delete data[key];
+      db.run("UPDATE pending_change SET payload = ? WHERE id = ? AND payload = ?;", [JSON.stringify(data), id, payload]);
+    }
   },
 
   /** Records why a sync attempt failed, without touching the cursor. */
