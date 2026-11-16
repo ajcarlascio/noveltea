@@ -109,4 +109,11 @@ test("a second device receives the account's work, and edits travel both ways", 
   // B cleared the label and left the status; A sees exactly that.
   await expect(a.getByRole("treeitem").first()).not.toContainText(label);
   await expect(a.getByRole("treeitem").first()).toContainText(status);
+
+  // --- Compile ------------------------------------------------------------------------
+  // The worker writes the export and the API serves it back: two containers, one
+  // volume. Run as different users, the worker could not write there at all.
+  await a.getByText("Compile and trash").click();
+  await a.getByRole("button", { name: "Compile", exact: true }).click();
+  await expect(a.getByRole("button", { name: /^Download / })).toBeVisible({ timeout: 60_000 });
 });
