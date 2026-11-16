@@ -1,6 +1,6 @@
 // @vitest-environment node
 import type { PendingChange } from "@noveltea/client-db";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { COMMANDS } from "@/db/commands";
 import type { Authenticator } from "@/features/auth/authenticate";
 import { adoptServerProjects, syncProject } from "../engine";
@@ -504,6 +504,27 @@ describe("adopting the account's projects on a new device", () => {
     const row = db.adapter.query<{ settings: string }>("SELECT settings FROM project WHERE id = ?;", [serverProject.id])[0];
     expect(JSON.parse(row?.settings ?? "null")).toEqual({ target: 90000 });
     expect(calls.some((c) => c.path.startsWith(`/api/v1/projects/${serverProject.id}/sync`))).toBe(true);
+  });
+
+  it("creates no binder rows itself, and a second pass adopts nothing", async () => {
+    const { auth } = adoptingAuth([serverProject]);
+    const items = () =>
+      db.adapter.query("SELECT id FROM binder_item WHERE project_id = ?;", [serverProject.id]);
+
+    expect(await adoptServerProjects({ db: db.client, auth })).toBe(1);
+    expect(items()).toHaveLength(0);
+    expect(await adoptServerProjects({ db: db.client, auth })).toBe(0);
+  });
+
+  it("reports adoption before the first sync finishes", async () => {
+    const { auth } = fakeAuth((path) =>
+      path === "/api/v1/projects" ? ok([serverProject]) : new Promise<Response>(() => undefined),
+    );
+    const seen: string[][] = [];
+    void adoptServerProjects({ db: db.client, auth, onAdopted: () => seen.push(titles()) });
+
+    await vi.waitFor(() => expect(seen).toHaveLength(1));
+    expect(seen[0]).toContain("Salt");
   });
 
   it("leaves a project that is already here alone, title included", async () => {

@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useDatabase } from "@/app/db/DatabaseContext";
 import { createProject } from "@/data/binder";
 import { listProjects, type Project } from "@/data/projects";
+import { ServerUnreachable } from "@/features/auth/api";
 import { AuthContext } from "@/features/auth/AuthContext";
 import { adoptServerProjects } from "@/features/sync/engine";
 import { StorageWarning } from "@/ui/StorageWarning";
@@ -39,11 +40,16 @@ export function Projects() {
   useEffect(() => {
     if (authenticator === null) return;
     let current = true;
-    adoptServerProjects({ db, auth: authenticator })
-      .then((adopted) => {
-        if (current && adopted > 0) setReloadToken((n) => n + 1);
-      })
-      .catch(() => undefined);
+    adoptServerProjects({
+      db,
+      auth: authenticator,
+      onAdopted: () => {
+        if (current) setReloadToken((n) => n + 1);
+      },
+    }).catch((cause: unknown) => {
+      if (cause instanceof ServerUnreachable) return;
+      console.warn("Could not adopt this account's projects.", cause);
+    });
     return () => {
       current = false;
     };

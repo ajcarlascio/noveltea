@@ -32,6 +32,8 @@ export interface SyncDeps {
   /** Guards against a pathological server pinning the client in a pull loop. */
   maxPages?: number;
   pageSize?: number;
+  /** Called by `adoptServerProjects` once every new row is inserted, before any first sync. */
+  onAdopted?: (count: number) => void;
 }
 
 export class SyncFailed extends Error {
@@ -61,6 +63,9 @@ async function json(response: Response, what: string): Promise<unknown> {
  * time anyone opens it; a failure there is left for the project's own scheduler,
  * which treats "never synced" as a reason to try immediately.
  *
+ * All rows are inserted first and `onAdopted` fires then, so the list can refresh before
+ * the (possibly slow) first syncs run.
+ *
  * @returns how many projects were new to this device.
  */
 export async function adoptServerProjects(deps: SyncDeps): Promise<number> {
@@ -68,7 +73,7 @@ export async function adoptServerProjects(deps: SyncDeps): Promise<number> {
   const body = await json(response, "list projects");
   if (!Array.isArray(body)) throw new SyncFailed("The server's project list was not readable.");
 
-  let adopted = 0;
+  const adoptedIds: string[] = [];
   for (const row of body as unknown[]) {
     if (row === null || typeof row !== "object") continue;
     const { id, title, settings } = row as Record<string, unknown>;
@@ -79,10 +84,11 @@ export async function adoptServerProjects(deps: SyncDeps): Promise<number> {
       settings: settings !== null && typeof settings === "object" ? JSON.stringify(settings) : null,
     });
     if (!result.adopted) continue;
-    adopted += 1;
-    await syncProject(deps, id).catch(() => undefined);
+    adoptedIds.push(id);
   }
-  return adopted;
+  if (adoptedIds.length > 0) deps.onAdopted?.(adoptedIds.length);
+  for (const id of adoptedIds) await syncProject(deps, id).catch(() => undefined);
+  return adoptedIds.length;
 }
 
 export async function syncProject(
