@@ -192,7 +192,7 @@ export async function syncProject(
       const settled = new Set<string>();
       for (const row of push.applied) settled.add(`${row.entityType}:${row.entityId}`);
       for (const conflict of push.conflicts) {
-        if (!shouldStayQueued(conflict.reason)) settled.add(`${conflict.entityType}:${conflict.entityId}`);
+        if (!shouldStayQueued(conflict)) settled.add(`${conflict.entityType}:${conflict.entityId}`);
       }
 
       const ids = pending
@@ -217,7 +217,32 @@ export async function syncProject(
       // copy, the server has put its own version back on the feed; taking it straight
       // away keeps the window in which the author could type over a superseded base as
       // short as one round trip.
-      if (push.conflicts.some((conflict) => conflict.conflictCopyId !== null)) await pullAll();
+      //
+      // The push has already happened, so this pull failing must not lose its outcome: the
+      // copy exists, and the author is told so. The failure is recorded instead, and the
+      // next sync takes the original.
+      if (push.conflicts.some((conflict) => conflict.conflictCopyId !== null)) {
+        await pullAll().catch((cause: unknown) =>
+          db.command("recordSyncFailure", {
+            projectId,
+            error: cause instanceof Error ? cause.message : String(cause),
+          }),
+        );
+      }
+
+      // A document the server refused without a copy stayed queued (see
+      // `shouldStayQueued`). It is retried on every sync, and told on every one: a pull
+      // clears the last error, so it is recorded again here, after the last pull.
+      const refused = push.conflicts.filter(
+        (conflict) => conflict.reason !== "not_implemented" && shouldStayQueued(conflict),
+      );
+      if (refused.length > 0) {
+        const why = refused[0]?.detail ?? refused[0]?.reason ?? "";
+        await db.command("recordSyncFailure", {
+          projectId,
+          error: `The server refused ${refused.length === 1 ? "a document" : `${String(refused.length)} documents`} (${why}); the text is still on this device and will be sent again.`,
+        });
+      }
     }
 
     return outcome;

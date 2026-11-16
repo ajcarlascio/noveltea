@@ -163,16 +163,30 @@ export function parsePushResponse(raw: unknown): PushResponse {
 /**
  * Whether a refused change should stay queued.
  *
- * Only `not_implemented` is worth keeping: the server may learn to accept that entity
- * type in a later version, and the change is still valid. Everything else has already
- * had its outcome decided —
+ * `not_implemented` is worth keeping: the server may learn to accept that entity type in
+ * a later version, and the change is still valid. So is a document the server refused
+ * without keeping its text anywhere (`invalid_request`: too large, or a server fault).
+ * Clearing it would leave the only copy of the author's words on this device with no
+ * entry to send and nothing to say it never arrived — and, if the pull had skipped the
+ * server's newer row for it, with nothing to ever bring that row back. Kept, it is
+ * retried on every sync and reported on every one, which is the cost of not being silent.
+ *
+ * Everything else has already had its outcome decided —
  *
  * - `version_mismatch` on a document means the server kept its version and preserved
  *   the author's text as a conflict copy. **Retrying would create another copy on
  *   every push**, and copies would breed without bound.
  * - `duplicate_create` means the server already has it.
- * - `entity_missing` and `invalid_request` will not become true by being sent again.
+ * - `entity_missing` will not become true by being sent again.
+ * - `invalid_request` on anything but a document refuses a write that is last-write-wins,
+ *   so the next pull settles what the device holds.
  */
-export function shouldStayQueued(reason: string): boolean {
-  return reason === "not_implemented";
+export function shouldStayQueued(conflict: Pick<ConflictRecord, "reason" | "entityType" | "conflictCopyId">): boolean {
+  if (conflict.reason === "not_implemented") return true;
+  return (
+    conflict.entityType === "document" &&
+    conflict.conflictCopyId === null &&
+    conflict.reason !== "entity_missing" &&
+    conflict.reason !== "duplicate_create"
+  );
 }

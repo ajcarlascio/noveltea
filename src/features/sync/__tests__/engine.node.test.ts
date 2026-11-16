@@ -764,6 +764,45 @@ describe("unsynced writing", () => {
     expect(JSON.parse(bodyOf("copy-1") ?? "null")).toEqual(prose("first and more"));
   });
 
+  it("keeps a document the server refused, with the server's newer row skipped, and says so", async () => {
+    // The pull skipped the server's row because this device had unsynced text, and the
+    // cursor moved past it. A refusal with no copy used to clear the entry: the device
+    // stayed on its own text with a stale version, and nothing said it never arrived.
+    const chapter = COMMANDS.createBinderItem(db.adapter, { projectId, parentId: null, type: "document", title: "Chapter One" });
+    db.adapter.run("DELETE FROM pending_change;");
+    COMMANDS.saveDocument(db.adapter, { projectId, id: chapter.id, content: prose("mine"), searchText: "mine", wordCount: 1 });
+
+    let accept = false;
+    const { auth } = fakeAuth((_path, init) => {
+      if ((init?.method ?? "GET") !== "POST") {
+        return ok(pullBody({
+          latestId: 4,
+          changes: [{ id: 4, entityType: "document", entityId: chapter.id, op: "update", data: { id: chapter.id, content: prose("theirs"), version: 3, created_at: "2026-02-01T00:00:00Z", updated_at: "2026-02-01T00:00:00Z" } }],
+        }));
+      }
+      return ok(accept
+        ? pushBody({ applied: [{ entityId: chapter.id, entityType: "document", version: 4 }] })
+        : pushBody({ conflicts: [{ entityId: chapter.id, entityType: "document", reason: "invalid_request", conflictCopyId: null, serverVersion: null, detail: "content is too large" }] }));
+    });
+
+    const outcome = await syncProject({ db: db.client, auth }, projectId);
+
+    expect(outcome.conflicts).toHaveLength(1);
+    expect(queued()).toHaveLength(1);
+    expect(JSON.parse(bodyOf(chapter.id) ?? "null")).toEqual(prose("mine"));
+    expect(state().lastError).toMatch(/content is too large/);
+
+    // Retried on the next sync, and the error stays visible while it keeps being refused.
+    await syncProject({ db: db.client, auth }, projectId);
+    expect(queued()).toHaveLength(1);
+    expect(state().lastError).toMatch(/content is too large/);
+
+    accept = true;
+    await syncProject({ db: db.client, auth }, projectId);
+    expect(queued()).toHaveLength(0);
+    expect(state().lastError).toBeNull();
+  });
+
   it("never pushes a label it dropped for want of the label's row as a removal", async () => {
     // An older server's rebuild names a label this device cannot hold, so the item lands
     // unlabelled. Its next rename must not tell every other device to clear the label.
@@ -844,6 +883,29 @@ describe("pushing", () => {
     // Retrying would make another copy on every push, and copies would breed.
     expect(queued()).toHaveLength(0);
     expect(outcome.conflicts[0]).toMatchObject({ reason: "version_mismatch", conflictCopyId: "copy-1" });
+  });
+
+  it("still reports a conflict copy when the pull that follows it fails", async () => {
+    // The push had already made the copy. Throwing past it meant the author was never
+    // told one existed.
+    const item = COMMANDS.createBinderItem(db.adapter, { projectId, parentId: null, type: "document", title: "Chapter One" });
+    db.adapter.run("DELETE FROM pending_change;");
+    COMMANDS.saveDocument(db.adapter, { projectId, id: item.id, content: { type: "doc", content: [] }, searchText: "", wordCount: 0 });
+    let pulls = 0;
+    const { auth } = fakeAuth((_path, init) => {
+      if ((init?.method ?? "GET") === "POST") {
+        return ok(pushBody({ conflicts: [{ entityId: item.id, entityType: "document", reason: "version_mismatch", conflictCopyId: "copy-1", serverVersion: 4, detail: null }] }));
+      }
+      pulls += 1;
+      return pulls === 1 ? ok(pullBody()) : Promise.resolve(new Response("", { status: 503 }));
+    });
+
+    const outcome = await syncProject({ db: db.client, auth }, projectId);
+
+    expect(outcome.conflicts).toHaveLength(1);
+    expect(queued()).toHaveLength(0);
+    // The failed pull is still recorded, and the next sync takes the original back.
+    expect(state().lastError).toMatch(/503/);
   });
 
   it("keeps a change the server cannot handle yet", async () => {
