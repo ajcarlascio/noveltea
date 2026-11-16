@@ -19,17 +19,20 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
-tauri-plugin-updater = "2"
-# Two windows would be two in-memory databases writing the same file, and whichever
-# flushed last would silently discard the other's work. With the whole database written
-# on every save, single-instance is a correctness requirement rather than a nicety.
-tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Signature verification only. No RNG feature: the app never generates a key, and
 # the issuing tool reads /dev/urandom directly.
 ed25519-dalek = "2"
 base64 = "0.23.1"
+
+# Desktop-only: neither plugin has a mobile implementation.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-updater = "2"
+# Two windows would be two in-memory databases writing the same file, and whichever
+# flushed last would silently discard the other's work. With the whole database written
+# on every save, single-instance is a correctness requirement rather than a nicety.
+tauri-plugin-single-instance = "2"
 
 [[bin]]
 name = "noveltea"
