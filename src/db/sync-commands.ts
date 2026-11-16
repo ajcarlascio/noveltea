@@ -1,5 +1,5 @@
 import type { SqliteAdapter, SqlValue } from "@noveltea/client-db";
-import { clearAccepted, enqueueChange, markAttempted, pendingChanges } from "@noveltea/client-db";
+import { clearAccepted, enqueueChange, markAttempted, pendingChanges, type PendingChange } from "@noveltea/client-db";
 import { between } from "@/data/order";
 import { markTrashQueued, mintTrash, queueItem, requireItem } from "./binder-item";
 import { queueValue, type MetadataValueRow } from "./metadata-commands";
@@ -54,6 +54,68 @@ const PRUNABLE: Record<string, string> = {
                JOIN binder_item b ON b.id = s.document_id
               WHERE b.project_id = ? AND s.is_automatic = 0;`,
 };
+
+/**
+ * What the server checks a pushed change against, as [payload key, entity type it names].
+ * Each is read from `SyncService` (`applyBinderItem`, `applyDocument`, `applyComment`,
+ * `applySnapshot`) and `SyncEntitySpec`'s parent refs; nothing the server does not check
+ * is listed. A document's key is its own id: its body needs the item of the same id.
+ */
+const REFERENCES: Record<string, readonly (readonly [string, string])[]> = {
+  binder_item: [["parent_id", "binder_item"], ["label_id", "taxonomy"], ["status_id", "taxonomy"]],
+  document: [["id", "binder_item"]],
+  custom_metadata_value: [["binder_item_id", "binder_item"], ["field_id", "custom_metadata_field"]],
+  collection_item: [["collection_id", "collection"], ["binder_item_id", "binder_item"]],
+  comment: [["document_id", "binder_item"], ["parent_comment_id", "comment"]],
+  snapshot: [["document_id", "binder_item"]],
+};
+
+/**
+ * The queue in an order the server can apply, one change per transaction, as received.
+ *
+ * Coalescing keeps an entry's first position, so an item created early and moved into a
+ * folder made later sits ahead of that folder, and the server refuses it for a parent it
+ * has not seen: the entry is cleared and the item exists on this device alone. A stable
+ * topological sort fixes that: each entry waits for the entries in this queue that
+ * create what it names, and otherwise keeps its place. Any prefix is then safe to send,
+ * so a batch limit never strands a dependency behind its dependent.
+ *
+ * Deletes run the other way for the tree. The server tombstones a folder's whole
+ * subtree as it stands, so a child moved out in this queue must have moved first.
+ *
+ * A cycle cannot exist in a valid tree; the visited mark stops one from looping and
+ * leaves its members in queue order.
+ */
+function inPushOrder(rows: PendingChange[]): PendingChange[] {
+  const live = new Map<string, PendingChange>();
+  const moves: PendingChange[] = [];
+  for (const row of rows) {
+    if (row.op === "delete") continue;
+    live.set(`${row.entity_type}:${row.entity_id}`, row);
+    if (row.entity_type === "binder_item" && row.op === "update") moves.push(row);
+  }
+
+  const dependencies = (row: PendingChange): PendingChange[] => {
+    if (row.op === "delete") return row.entity_type === "binder_item" || row.entity_type === "document" ? moves : [];
+    const data = row.payload === null ? {} : (JSON.parse(row.payload) as Record<string, unknown>);
+    return (REFERENCES[row.entity_type] ?? []).flatMap(([key, type]) => {
+      const id = key === "id" ? row.entity_id : data[key];
+      const target = typeof id === "string" ? live.get(`${type}:${id}`) : undefined;
+      return target === undefined || target === row ? [] : [target];
+    });
+  };
+
+  const done = new Set<PendingChange>();
+  const ordered: PendingChange[] = [];
+  const visit = (row: PendingChange) => {
+    if (done.has(row)) return;
+    done.add(row);
+    for (const dependency of dependencies(row)) visit(dependency);
+    ordered.push(row);
+  };
+  rows.forEach(visit);
+  return ordered;
+}
 
 export interface ChangeRecord {
   id: number;
@@ -773,22 +835,7 @@ export const SYNC_COMMANDS = {
     /** The queued text as taken, so `settlePush` can tell whether it changed in flight. */
     payload: string | null;
   }[] => {
-    // Terms go first. An item created before its label was made sits earlier in the queue
-    // (coalescing keeps its place), and the server refuses a tag that names a term it has
-    // not seen yet, which dropped the item and left its document with no parent.
-    // Then the trash node: what is trashed names it as its parent, and the server refuses
-    // a parent it has not heard of. Queue order alone would put a node minted by
-    // `ensureTrash` behind the moves already waiting.
-    // Array#sort is stable, so everything else keeps its order.
-    const trash = db.query<{ id: string }>(
-      "SELECT id FROM binder_item WHERE project_id = ? AND type = 'trash';",
-      [input.projectId],
-    )[0]?.id;
-    const first = (row: { entity_type: string; entity_id: string }): number =>
-      row.entity_type === "taxonomy" ? 2 : row.entity_id === trash ? 1 : 0;
-    const rows = pendingChanges(db, input.projectId)
-      .sort((a, b) => first(b) - first(a))
-      .slice(0, input.limit ?? 200);
+    const rows = inPushOrder(pendingChanges(db, input.projectId)).slice(0, input.limit ?? 200);
     markAttempted(db, rows.map((row) => row.id));
 
     return rows.map((row) => ({

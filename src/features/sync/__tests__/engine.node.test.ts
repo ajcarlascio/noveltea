@@ -1100,6 +1100,42 @@ describe("pushing", () => {
     expect(calls.map((c) => c.method)).toEqual(["GET", "POST"]);
   });
 
+  it("lets a document made before its folder reach a server that refuses unknown parents", async () => {
+    const doc = COMMANDS.createBinderItem(db.adapter, { projectId, parentId: null, type: "document", title: "D" });
+    const folder = COMMANDS.createBinderItem(db.adapter, { projectId, parentId: null, type: "folder", title: "F" });
+    COMMANDS.moveBinderItem(db.adapter, { projectId, id: doc.id, parentId: folder.id, afterId: null });
+    COMMANDS.saveDocument(db.adapter, { projectId, id: doc.id, content: { type: "doc", content: [] }, searchText: "", wordCount: 0 });
+
+    // Like the real server: each change on its own, in the order received.
+    const known = new Set<string>();
+    const { auth } = fakeAuth((_path, init) => {
+      if ((init?.method ?? "GET") !== "POST") return ok(pullBody());
+      const applied: unknown[] = [];
+      const conflicts: unknown[] = [];
+      const { changes } = JSON.parse(init?.body as string) as {
+        changes: { entityType: string; entityId: string; data: { parent_id?: string | null } }[];
+      };
+      for (const change of changes) {
+        const parent = change.data?.parent_id;
+        const unknown = change.entityType === "binder_item" && parent != null && !known.has(parent);
+        const orphan = change.entityType === "document" && !known.has(change.entityId);
+        if (unknown || orphan) {
+          conflicts.push({ entityId: change.entityId, entityType: change.entityType, reason: "invalid_request" });
+          continue;
+        }
+        if (change.entityType === "binder_item") known.add(change.entityId);
+        applied.push({ entityId: change.entityId, entityType: change.entityType, version: 1 });
+      }
+      return ok(pushBody({ applied, conflicts }));
+    });
+
+    const outcome = await syncProject({ db: db.client, auth }, projectId);
+
+    expect(outcome.conflicts).toEqual([]);
+    expect([...known].sort()).toEqual([doc.id, folder.id].sort());
+    expect(queued()).toHaveLength(0);
+  });
+
   it("clears a document conflict instead of retrying it", async () => {
     const item = COMMANDS.createBinderItem(db.adapter, { projectId, parentId: null, type: "document", title: "Chapter One" });
 

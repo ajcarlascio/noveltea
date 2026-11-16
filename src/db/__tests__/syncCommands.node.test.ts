@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { enqueueChange, type PendingChange } from "@noveltea/client-db";
+import { enqueueChange, type EnqueueInput, type PendingChange } from "@noveltea/client-db";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { COMMANDS } from "@/db/commands";
 import { openTestDatabase, type TestDatabase } from "@/test/sqlite";
@@ -354,6 +354,95 @@ describe("takePending", () => {
     const taken = COMMANDS.takePending(db.adapter, { projectId });
     const order = taken.map((row) => row.entityType);
     expect(order.indexOf("taxonomy")).toBeLessThan(order.indexOf("binder_item"));
+  });
+
+  describe("in an order the server can apply", () => {
+    const put = (
+      entityType: EnqueueInput["entityType"],
+      entityId: string,
+      payload: Record<string, unknown> = {},
+      op: EnqueueInput["op"] = "create",
+    ) => enqueueChange(db.adapter, { projectId, entityType, entityId, op, payload });
+    const order = (limit?: number) =>
+      COMMANDS.takePending(db.adapter, limit === undefined ? { projectId } : { projectId, limit }).map((row) => `${row.op[0]}:${row.entityId}`);
+
+    it("sends a folder before the document moved into it after both were made", () => {
+      const doc = COMMANDS.createBinderItem(db.adapter, { projectId, parentId: null, type: "document", title: "D" });
+      const folder = COMMANDS.createBinderItem(db.adapter, { projectId, parentId: null, type: "folder", title: "F" });
+      COMMANDS.moveBinderItem(db.adapter, { projectId, id: doc.id, parentId: folder.id, afterId: null });
+
+      expect(order()).toEqual([`c:${folder.id}`, `c:${doc.id}`]);
+    });
+
+    it("sends the trash node before an item trashed under it", () => {
+      put("binder_item", "gone", { parent_id: "trash" });
+      put("binder_item", "trash", { type: "trash", parent_id: null });
+      expect(order()).toEqual(["c:trash", "c:gone"]);
+    });
+
+    it("sends a field before a value, and an item before its value", () => {
+      put("custom_metadata_value", "v", { field_id: "f", binder_item_id: "i" });
+      put("custom_metadata_field", "f");
+      put("binder_item", "i");
+      expect(order()).toEqual(["c:i", "c:f", "c:v"]);
+    });
+
+    it("sends a collection and its item before the entry that joins them", () => {
+      put("collection_item", "ci", { collection_id: "c", binder_item_id: "i" });
+      put("collection", "c");
+      put("binder_item", "i");
+      expect(order()).toEqual(["c:c", "c:i", "c:ci"]);
+    });
+
+    it("sends a document's body after its item", () => {
+      put("document", "d", {}, "update");
+      put("binder_item", "d");
+      expect(order()).toEqual(["c:d", "u:d"]);
+    });
+
+    it("sends a thread before its reply, and the document before both", () => {
+      put("comment", "reply", { document_id: "d", parent_comment_id: "thread" });
+      put("comment", "thread", { document_id: "d" });
+      put("snapshot", "snap", { document_id: "d" });
+      put("binder_item", "d");
+      expect(order()).toEqual(["c:d", "c:thread", "c:reply", "c:snap"]);
+    });
+
+    it("sorts a three-level chain queued in reverse", () => {
+      put("binder_item", "c", { parent_id: "b" });
+      put("binder_item", "b", { parent_id: "a" });
+      put("binder_item", "a", { parent_id: null });
+      expect(order()).toEqual(["c:a", "c:b", "c:c"]);
+    });
+
+    it("sends a move out of a folder before the folder's delete", () => {
+      put("binder_item", "folder", {}, "delete");
+      put("binder_item", "child", { parent_id: null }, "update");
+      expect(order()).toEqual(["u:child", "d:folder"]);
+    });
+
+    it("keeps unrelated entries where they were", () => {
+      put("binder_item", "x");
+      put("taxonomy", "t");
+      put("binder_item", "child", { parent_id: "parent" });
+      put("collection", "c");
+      put("binder_item", "parent");
+      put("compile_preset", "p");
+      expect(order()).toEqual(["c:x", "c:t", "c:parent", "c:child", "c:c", "c:p"]);
+    });
+
+    it("never leaves a dependency for a later batch than its dependent", () => {
+      put("binder_item", "child", { parent_id: "parent" });
+      put("binder_item", "other");
+      put("binder_item", "parent");
+      expect(order(2)).toEqual(["c:parent", "c:child"]);
+    });
+
+    it("does not hang on a cycle", () => {
+      put("binder_item", "a", { parent_id: "b" });
+      put("binder_item", "b", { parent_id: "a" });
+      expect(order()).toHaveLength(2);
+    });
   });
 
   it("returns nothing when there is nothing queued", () => {
