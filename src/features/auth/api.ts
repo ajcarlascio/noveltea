@@ -131,7 +131,18 @@ function errorFrom(response: Response, serverUrl: string, body: unknown): AuthEr
     return new AuthError("That email address already has an account on this server.", code);
   }
   if (response.status === 429) {
-    return new AuthError("Too many attempts. Wait a minute and try again.", "rate_limited");
+    // The server says how long (its window, 300 s by default), in the Retry-After header
+    // and as retryAfterSeconds in the body. Quote that rather than guess.
+    const header = Number(response.headers.get("retry-after"));
+    const seconds = header > 0 ? header : Number((problem as { retryAfterSeconds?: unknown }).retryAfterSeconds);
+    if (seconds > 0) {
+      const minutes = Math.max(1, Math.ceil(seconds / 60));
+      return new AuthError(
+        `Too many attempts. Wait ${String(minutes)} ${minutes === 1 ? "minute" : "minutes"} and try again.`,
+        "rate_limited",
+      );
+    }
+    return new AuthError("Too many attempts. Wait a little and try again.", "rate_limited");
   }
 
   const message = typeof problem.message === "string" ? problem.message : "";

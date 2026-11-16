@@ -105,11 +105,25 @@ describe("registration", () => {
 });
 
 describe("other refusals", () => {
-  it("explains a rate limit as something to wait out", async () => {
+  it("explains a rate limit as something to wait out, without a number it was not given", async () => {
     const fetcher = fetchMock(() => Promise.resolve(problem(429)));
-    await expect(login(SERVER, CREDENTIALS, fetcher)).rejects.toThrow(
-      /wait a minute/i,
+    const error = await rejection(login(SERVER, CREDENTIALS, fetcher), AuthError);
+    expect(error.message).toMatch(/wait a little/i);
+    expect(error.code).toBe("rate_limited");
+  });
+
+  it("quotes the server's Retry-After, rounded up to minutes", async () => {
+    const fetcher = fetchMock(() =>
+      Promise.resolve(new Response("{}", { status: 429, headers: { "Retry-After": "300" } })),
     );
+    await expect(login(SERVER, CREDENTIALS, fetcher)).rejects.toThrow(/wait 5 minutes/i);
+  });
+
+  it("falls back to the body's retryAfterSeconds, and says 1 minute for a short wait", async () => {
+    const fetcher = fetchMock(() =>
+      Promise.resolve(problem(429, { error: "too_many_requests", retryAfterSeconds: 20 })),
+    );
+    await expect(login(SERVER, CREDENTIALS, fetcher)).rejects.toThrow(/wait 1 minute and/i);
   });
 
   it("passes through a message the server did author", async () => {
