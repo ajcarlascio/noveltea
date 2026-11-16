@@ -32,6 +32,7 @@ FROM nginx:alpine AS runtime
 
 COPY --from=build /src/dist /usr/share/nginx/html
 COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
+COPY deploy/40-trusted-proxy.sh /docker-entrypoint.d/40-trusted-proxy.sh
 
 EXPOSE 80
 

@@ -68,8 +68,14 @@ Three things `deploy/nginx.conf` does that matter:
 - Sends no `Cross-Origin-Embedder-Policy`. The replica uses sqlite-wasm's SAH Pool VFS
   precisely so it needs no `SharedArrayBuffer`, so `require-corp` would cost every
   cross-origin resource later and buy nothing.
-- Forwards `X-Forwarded-For`. The API's rate limiter reads its first entry; without it
-  every caller arrives as the proxy and one person guessing a password throttles everyone.
+- Forwards `X-Forwarded-For` as the address nginx itself saw, discarding any the client
+  sent. The API's rate limiter trusts its first entry, so passing a client's through would
+  let anyone dodge the sign-in lockout. If a TLS-terminating proxy (Caddy, Traefik, nginx)
+  sits in front of this container, every caller arrives as that proxy and shares one
+  lockout bucket; set `NOVELTEA_TRUSTED_PROXY` on the container to its address or CIDR
+  (comma-separated for several, e.g. `172.18.0.0/16`) and nginx takes the client address
+  from the `X-Forwarded-For` that proxy sends. Empty by default — only set it when the
+  proxy overwrites or appends that header, and nothing else can reach port 80.
 
 If you serve the built bundle yourself instead, send the Content-Security-Policy as a
 **response header** as well as the one the build puts in a `<meta>` element, and add
