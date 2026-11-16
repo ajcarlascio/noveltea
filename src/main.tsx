@@ -7,12 +7,15 @@ import { SettingsProvider } from "./app/settings/SettingsProvider";
 import { AuthProvider } from "./features/auth/AuthProvider";
 import { ThemeProvider } from "./app/theme/ThemeProvider";
 import { browserFontAdapters, loadAndRegisterAllCustomFonts } from "./app/typography/customFonts";
+import { registerServiceWorker } from "./platform/serviceWorker";
 import "./styles/global.css";
 
 // Imported reading fonts register themselves before anything waits on them: the
 // app renders with the fallback stack and reflows once, the same trade the
 // pre-paint script documents for faces it does not know.
 void loadAndRegisterAllCustomFonts(browserFontAdapters(), document.documentElement);
+
+registerServiceWorker();
 
 const container = document.getElementById("root");
 if (!container) {

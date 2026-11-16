@@ -37,6 +37,10 @@ export default defineConfig({
   use: {
     baseURL: "http://127.0.0.1:4173",
     trace: "retain-on-failure",
+    // The production build registers a service worker; a worker serving cached files to
+    // a suite that mocks routes and reuses origins would make failures unreproducible.
+    // offline.spec.ts opts back in.
+    serviceWorkers: "block",
   },
   projects: [
     {

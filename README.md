@@ -128,6 +128,12 @@ already tested against real SQLite.
 
 ## Using NovelTea
 
+**Offline and installed.** After one online visit the web app opens with no network — a
+service worker keeps the app shell, and your work lives in the on-device database — and it
+can be added to a home screen or installed from the browser. Service workers and local
+storage only exist on HTTPS or `localhost`; over plain `http://` on another host the app
+still loads but cannot be opened offline or installed. The desktop app needs none of this.
+
 ### Organising a book
 
 The **binder** on the left is the manuscript's shape: folders and documents, dragged into

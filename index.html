@@ -11,6 +11,14 @@
          gets a white bar above a near-black app. -->
     <meta name="theme-color" content="#e6e0d1" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#1a1b1d" media="(prefers-color-scheme: dark)" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- iOS ignores the manifest's icons and display mode; these are what Add to Home
+         Screen reads. -->
+    <link rel="apple-touch-icon" href="/icons/icon-256.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="NovelTea" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>NovelTea</title>
     <script>
       // Applied before first paint so a reader who chose dark never sees a white flash.
