@@ -153,6 +153,22 @@ describe("submitting", () => {
     expect(calledUrl(fetcher)).toBe("https://write.example.com/api/v1/auth/register");
   });
 
+  it("tells someone who tries to register on a closed server to ask its owner", async () => {
+    // The server has no public endpoint saying whether registration is open, so the
+    // link is always offered and the refusal is where this is discovered.
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ error: "registration_closed" }), { status: 403 }),
+      );
+    renderSignIn(fetcher);
+    await userEvent.click(screen.getByRole("button", { name: /create an account instead/i }));
+    await fill();
+    await userEvent.click(screen.getByRole("button", { name: "Create account" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/does not accept new accounts/i);
+  });
+
   it("never puts the password anywhere but the request body", async () => {
     const fetcher = renderSignIn();
     await fill();
