@@ -32,6 +32,8 @@ export interface SyncDeps {
   /** Guards against a pathological server pinning the client in a pull loop. */
   maxPages?: number;
   pageSize?: number;
+  /** Called by `adoptServerProjects` once every new row is inserted, before any first sync. */
+  onAdopted?: (count: number) => void;
 }
 
 export class SyncFailed extends Error {
@@ -50,6 +52,43 @@ async function json(response: Response, what: string): Promise<unknown> {
   } catch (cause) {
     throw new SyncFailed(`The server's ${what} response was not readable.`, { cause });
   }
+}
+
+/**
+ * Brings down the projects this account has on the server and this device does not.
+ *
+ * Without this a second device signs in and stays empty forever: sync is addressed by
+ * project id, so a replica that has never heard of a project has nothing to ask for.
+ * Each newly adopted project is synced straight away, so it has its binder by the
+ * time anyone opens it; a failure there is left for the project's own scheduler,
+ * which treats "never synced" as a reason to try immediately.
+ *
+ * All rows are inserted first and `onAdopted` fires then, so the list can refresh before
+ * the (possibly slow) first syncs run.
+ *
+ * @returns how many projects were new to this device.
+ */
+export async function adoptServerProjects(deps: SyncDeps): Promise<number> {
+  const response = await deps.auth.fetch("/api/v1/projects");
+  const body = await json(response, "list projects");
+  if (!Array.isArray(body)) throw new SyncFailed("The server's project list was not readable.");
+
+  const adoptedIds: string[] = [];
+  for (const row of body as unknown[]) {
+    if (row === null || typeof row !== "object") continue;
+    const { id, title, settings } = row as Record<string, unknown>;
+    if (typeof id !== "string" || typeof title !== "string" || title.trim() === "") continue;
+    const result = await deps.db.command("adoptProject", {
+      id,
+      title,
+      settings: settings !== null && typeof settings === "object" ? JSON.stringify(settings) : null,
+    });
+    if (!result.adopted) continue;
+    adoptedIds.push(id);
+  }
+  if (adoptedIds.length > 0) deps.onAdopted?.(adoptedIds.length);
+  for (const id of adoptedIds) await syncProject(deps, id).catch(() => undefined);
+  return adoptedIds.length;
 }
 
 export async function syncProject(

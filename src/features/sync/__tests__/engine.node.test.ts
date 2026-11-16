@@ -1,9 +1,9 @@
 // @vitest-environment node
 import type { PendingChange } from "@noveltea/client-db";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { COMMANDS } from "@/db/commands";
 import type { Authenticator } from "@/features/auth/authenticate";
-import { syncProject } from "../engine";
+import { adoptServerProjects, syncProject } from "../engine";
 import { openTestDatabase, type TestDatabase } from "@/test/sqlite";
 
 /**
@@ -483,5 +483,60 @@ describe("the harness", () => {
       syncEpoch: 1,
     });
     expect(db.adapter.query("SELECT id FROM binder_item WHERE id = 'proof';")).toHaveLength(1);
+  });
+});
+
+describe("adopting the account's projects on a new device", () => {
+  const serverProject = { id: "0b0e7c1e-3f0a-4d7e-9a53-0d1f6f0a9c11", title: "Salt", settings: { target: 90000 } };
+
+  const adoptingAuth = (projects: unknown) =>
+    fakeAuth((path) => (path === "/api/v1/projects" ? ok(projects) : ok(pullBody())));
+
+  const titles = () =>
+    db.adapter.query<{ title: string }>("SELECT title FROM project ORDER BY title;").map((r) => r.title);
+
+  it("creates the local row under the server's id and syncs it at once", async () => {
+    const { auth, calls } = adoptingAuth([serverProject]);
+
+    expect(await adoptServerProjects({ db: db.client, auth })).toBe(1);
+
+    expect(titles()).toEqual(["Salt", "The Lighthouse"]);
+    const row = db.adapter.query<{ settings: string }>("SELECT settings FROM project WHERE id = ?;", [serverProject.id])[0];
+    expect(JSON.parse(row?.settings ?? "null")).toEqual({ target: 90000 });
+    expect(calls.some((c) => c.path.startsWith(`/api/v1/projects/${serverProject.id}/sync`))).toBe(true);
+  });
+
+  it("creates no binder rows itself, and a second pass adopts nothing", async () => {
+    const { auth } = adoptingAuth([serverProject]);
+    const items = () =>
+      db.adapter.query("SELECT id FROM binder_item WHERE project_id = ?;", [serverProject.id]);
+
+    expect(await adoptServerProjects({ db: db.client, auth })).toBe(1);
+    expect(items()).toHaveLength(0);
+    expect(await adoptServerProjects({ db: db.client, auth })).toBe(0);
+  });
+
+  it("reports adoption before the first sync finishes", async () => {
+    const { auth } = fakeAuth((path) =>
+      path === "/api/v1/projects" ? ok([serverProject]) : new Promise<Response>(() => undefined),
+    );
+    const seen: string[][] = [];
+    void adoptServerProjects({ db: db.client, auth, onAdopted: () => seen.push(titles()) });
+
+    await vi.waitFor(() => expect(seen).toHaveLength(1));
+    expect(seen[0]).toContain("Salt");
+  });
+
+  it("leaves a project that is already here alone, title included", async () => {
+    const { auth } = adoptingAuth([{ id: projectId, title: "Renamed on the server" }]);
+
+    expect(await adoptServerProjects({ db: db.client, auth })).toBe(0);
+    expect(titles()).toEqual(["The Lighthouse"]);
+  });
+
+  it("skips rows it cannot read instead of failing the rest", async () => {
+    const { auth } = adoptingAuth([null, { id: 7 }, { id: "x", title: " " }, serverProject]);
+
+    expect(await adoptServerProjects({ db: db.client, auth })).toBe(1);
   });
 });

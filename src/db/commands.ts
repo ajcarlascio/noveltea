@@ -49,7 +49,9 @@ function trashNodeId(db: SqliteAdapter, projectId: string): string {
     "SELECT id FROM binder_item WHERE project_id = ? AND type = 'trash';",
     [projectId],
   )[0];
-  if (!row) throw new Error("This project has no trash node.");
+  // Only an adopted project that has not synced yet lacks one: its real trash node,
+  // with the server's id, comes down with the first pull. See `adoptProject`.
+  if (!row) throw new Error("This project has not finished arriving from the server. Sync it first.");
   return row.id;
 }
 
@@ -131,6 +133,13 @@ function requireReparentIsSafe(
 
 export interface CreateProjectInput {
   title: string;
+}
+
+export interface AdoptProjectInput {
+  id: string;
+  title: string;
+  /** JSON text, or null to take the column default. */
+  settings: string | null;
 }
 
 export interface CreateBinderItemInput {
@@ -272,6 +281,31 @@ export const COMMANDS = {
       [newId(), id, between(null, null), stamp, stamp],
     );
     return { id, title };
+  },
+
+  /**
+   * Adds a project the server already holds, under the server's id.
+   *
+   * This is how a second device gets its books: nothing else brings a project row
+   * down, because the change feed is scoped to a project the client must already
+   * know about. No trash node is made here — the server's own arrives with the first
+   * pull, and making a local one would leave the project with two.
+   *
+   * Never touches a project that is already here: the local title may be a rename
+   * still waiting to be pushed.
+   */
+  adoptProject: (db: SqliteAdapter, input: AdoptProjectInput): { adopted: boolean } => {
+    const title = input.title.trim();
+    if (title.length === 0) throw new Error("A project needs a title.");
+    if (db.query("SELECT 1 FROM project WHERE id = ?;", [input.id]).length > 0) {
+      return { adopted: false };
+    }
+    const stamp = now();
+    db.run(
+      "INSERT INTO project (id, title, settings, created_at, updated_at) VALUES (?, ?, ?, ?, ?);",
+      [input.id, title, input.settings ?? "{}", stamp, stamp],
+    );
+    return { adopted: true };
   },
 
   createBinderItem: (db: SqliteAdapter, input: CreateBinderItemInput): BinderItemRow => {

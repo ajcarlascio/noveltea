@@ -106,6 +106,10 @@ export function Project() {
   }, [projectId, expandedIds]);
 
   const nodes = binder?.roots ?? [];
+  // A project adopted from the server has no trash node until its first sync lands
+  // (see `adoptProject`). Anything written before then would be ordered against a
+  // binder that has not arrived, and trashing cannot work at all, so writes wait.
+  const arriving = binder !== null && binder.trashId === null;
   // Falls back to the binder when the chosen collection is gone — deleted here, or
   // deleted on another device and arrived in a pull.
   const showing = collections.find((collection) => collection.id === showingCollectionId) ?? null;
@@ -227,6 +231,13 @@ export function Project() {
       <SyncStatus projectId={projectId} />
       <ConflictsPanel projectId={projectId} />
 
+      {arriving && (
+        <p className="project__hint" role="status">
+          This project is still arriving from the server. Editing opens once it has synced
+          for the first time — use “Sync now” above once you are online.
+        </p>
+      )}
+
       {error !== null && (
         <p className="project__error" role="alert">
           {error}
@@ -242,6 +253,7 @@ export function Project() {
         />
         <ToolbarButton
           label="New folder"
+          disabled={arriving}
           short="Folder"
           icon={<FolderPlusIcon />}
           onClick={() =>
@@ -253,6 +265,7 @@ export function Project() {
         />
         <ToolbarButton
           label="New document"
+          disabled={arriving}
           short="Document"
           icon={<DocumentPlusIcon />}
           onClick={() =>
@@ -267,6 +280,7 @@ export function Project() {
             and still announced in full. */}
         <ToolbarButton
           label="Import text or Markdown"
+          disabled={arriving}
           short="Import"
           compact
           icon={<ImportIcon />}
@@ -298,7 +312,7 @@ export function Project() {
           label="Move to trash"
           short="Trash"
           icon={<TrashIcon />}
-          disabled={selected === null}
+          disabled={selected === null || arriving}
           onClick={() =>
             void run(async (db) => {
               if (selected) await trashItem(db, projectId, selected.id);
