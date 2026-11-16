@@ -1,0 +1,64 @@
+# The real stack for the full-stack smoke test: Postgres, API and worker built from the
+# pinned vendor/noveltea-server submodule, and the web client built from THIS checkout.
+# Throwaway credentials, nothing persisted past `down -v`.
+#
+#   npm run test:fullstack
+#
+# Only the web entrypoint publishes a port, on loopback, and not the 8080/4173 that other
+# things on a developer machine tend to hold.
+name: nt-fullstack-test
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: noveltea
+      POSTGRES_USER: noveltea
+      POSTGRES_PASSWORD: fullstack-test-only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U noveltea -d noveltea"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: ../vendor/noveltea-server
+      dockerfile: api/Dockerfile
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/noveltea
+      DB_USERNAME: noveltea
+      DB_PASSWORD: fullstack-test-only
+      NOVELTEA_JWT_SECRET: fullstack-test-only-jwt-secret-not-for-anything-real-0123456789
+      NOVELTEA_ADMIN_EMAIL: admin@localhost
+      # Twelve characters or more, so the server does not force a password change first.
+      NOVELTEA_ADMIN_PASSWORD: fullstack-admin-pw
+    volumes:
+      - exports:/var/lib/noveltea/exports
+      - staging:/var/lib/noveltea/staging
+
+  worker:
+    build:
+      context: ../vendor/noveltea-server
+      dockerfile: worker/Dockerfile
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      NOVELTEA_DB_URL: postgresql://noveltea:fullstack-test-only@postgres:5432/noveltea
+    volumes:
+      - exports:/var/lib/noveltea/exports
+      - staging:/var/lib/noveltea/staging
+
+  web:
+    build:
+      context: ..
+    depends_on:
+      api: { condition: service_healthy }
+    ports:
+      - "127.0.0.1:${NOVELTEA_FULLSTACK_PORT:-8197}:80"
+
+volumes:
+  exports:
+  staging:

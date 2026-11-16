@@ -21,6 +21,7 @@
     "licenses": "license-checker --production --onlyAllow \"MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;Unlicense;OFL-1.1\" --excludePackages \"$npm_package_name@$npm_package_version\" --summary",
     "client-db:generate": "npm run generate -w @noveltea/client-db",
     "test:e2e": "playwright test",
+    "test:fullstack": "node scripts/fullstack.mjs",
     "check:submodule": "node scripts/check-submodule.mjs",
     "predev": "npm run check:submodule",
     "prebuild": "npm run check:submodule && node tooling/ensure-thesaurus.mjs",

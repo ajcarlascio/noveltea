@@ -8,6 +8,10 @@ on:
     # what ships and nothing had ever run against it.
     branches: [main, "0.*"]
 
+# No job writes to the repository; artifact upload uses the runner's own token.
+permissions:
+  contents: read
+
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -51,6 +55,40 @@ jobs:
           path: |
             playwright-report/
             test-results/
+          retention-days: 7
+
+  fullstack:
+    name: Full stack (real server)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The server is built from the pinned submodule, so client and server are
+          # tested as the pair this commit says they are.
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      # Builds the images, waits for health, runs the spec, dumps compose logs if it
+      # failed, and tears the stack down with its volumes either way.
+      - name: Full-stack test
+        run: npm run test:fullstack
+
+      - name: Upload failure traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fullstack-traces
+          path: test-results/
           retention-days: 7
 
   rust:

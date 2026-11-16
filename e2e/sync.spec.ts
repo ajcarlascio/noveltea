@@ -109,13 +109,12 @@ test("applies what the server sends", async ({ page }) => {
   await page.route(`${SERVER}/api/v1/auth/**`, (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: sessionBody }),
   );
-  await signIn(page);
-  await openProject(page);
-  const projectId = new URL(page.url()).pathname.split("/").pop()!;
-
   await stubRegistration(page);
-  await page.route(`${SERVER}/api/v1/projects/**`, (route) =>
-    route.fulfill({
+  // Before sign-in: a never-synced project syncs on its own, and a request made before
+  // its route exists goes to the network. The project id is read off the request.
+  await page.route(`${SERVER}/api/v1/projects/**`, (route) => {
+    const projectId = new URL(route.request().url()).pathname.split("/")[4] ?? "";
+    return route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
@@ -143,9 +142,11 @@ test("applies what the server sends", async ({ page }) => {
         resyncRequired: false,
         syncEpoch: 1,
       }),
-    }),
-  );
+    });
+  });
 
+  await signIn(page);
+  await openProject(page);
   await page.getByRole("button", { name: "Sync now" }).click();
   await expect(page.getByRole("treeitem").filter({ hasText: "Written on another device" })).toBeVisible({
     timeout: 10_000,
