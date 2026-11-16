@@ -1,5 +1,5 @@
 import { act, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { DatabaseProvider } from "@/app/db/DatabaseProvider";
 import { DatabaseClient } from "@/db/client";
 import { fakeWorker } from "@/test/worker";
@@ -16,7 +16,14 @@ function renderWarning() {
   return fake;
 }
 
+const originalSecure = Object.getOwnPropertyDescriptor(window, "isSecureContext");
+
 describe("StorageWarning", () => {
+  afterEach(() => {
+    if (originalSecure) Object.defineProperty(window, "isSecureContext", originalSecure);
+    else Reflect.deleteProperty(window, "isSecureContext");
+  });
+
   it("says nothing while the database is still opening", () => {
     renderWarning();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
