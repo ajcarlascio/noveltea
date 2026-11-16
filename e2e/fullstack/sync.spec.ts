@@ -66,6 +66,18 @@ test("a second device receives the account's work, and edits travel both ways", 
   await a.getByRole("button", { name: "New document" }).click();
   await a.getByRole("treeitem").first().click();
   await writeManuscript(a, fromA);
+  // A also tags the document. Terms are their own synced rows; the tag on the item is a
+  // binder_item field, which is the path the server used to drop.
+  const label = `POV ${run}`;
+  const status = `Drafted ${run}`;
+  await a.getByText("Labels and statuses").click();
+  for (const [kind, name] of [["label", label], ["status", status]] as const) {
+    await a.getByLabel(kind === "label" ? "New label" : "New status").fill(name);
+    await a.getByRole("button", { name: kind === "label" ? "Add label" : "Add status" }).click();
+    await expect(a.getByLabel(`Name of ${name}`)).toHaveValue(name);
+  }
+  await a.getByLabel("Label", { exact: true }).selectOption({ label });
+  await a.getByLabel("Status", { exact: true }).selectOption({ label: status });
   await syncNow(a);
   const projectUrl = a.url();
 
@@ -79,9 +91,14 @@ test("a second device receives the account's work, and edits travel both ways", 
   await expect(b).toHaveURL(projectUrl);
   await b.getByRole("treeitem").first().click();
   await expect(b.getByRole("textbox", { name: "Manuscript" })).toHaveText(fromA);
+  // The tag set on A has crossed the wire, and B renders it.
+  await expect(b.getByLabel("Label", { exact: true })).toHaveValue(/.+/);
+  await expect(b.getByRole("treeitem").first()).toContainText(label);
+  await expect(b.getByRole("treeitem").first()).toContainText(status);
 
   // --- B edits, A receives -----------------------------------------------------------
   await writeManuscript(b, fromB);
+  await b.getByLabel("Label", { exact: true }).selectOption("");
   await syncNow(b);
 
   await syncNow(a);
@@ -89,4 +106,7 @@ test("a second device receives the account's work, and edits travel both ways", 
   await expect(a.locator("html")).toHaveAttribute("data-db-status", "ready", { timeout: 30_000 });
   await a.getByRole("treeitem").first().click();
   await expect(a.getByRole("textbox", { name: "Manuscript" })).toHaveText(fromB);
+  // B cleared the label and left the status; A sees exactly that.
+  await expect(a.getByRole("treeitem").first()).not.toContainText(label);
+  await expect(a.getByRole("treeitem").first()).toContainText(status);
 });
