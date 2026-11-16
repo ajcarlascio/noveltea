@@ -80,18 +80,20 @@ tokens does not.
 **In scope for v1 as code. Lowest priority to ship.**
 
 Tauri v2 reaches Android from the same codebase, which is why it is in scope at all.
-**Whether it builds is not yet known**, and this entry used to imply otherwise. Tauri's
-mobile support has never been initialised in this repository — `src-tauri/gen/` holds only
-schemas, and `gen/android` and `gen/apple` are gitignored — so
-`.github/workflows/mobile.yml` runs `tauri <platform> init` and builds what that generates.
-It is a **spike, not a gate**: it runs on request, it has not passed yet, and until it has,
-nothing here is evidence that the app builds for a phone. First results (Android and iOS
-alike): the toolchain and `tauri <platform> init` work, but the Rust build stops at
-`src-tauri/src/lib.rs:312` because `tauri-plugin-single-instance` is desktop-only and has no
-`init` on mobile. That is in the app, not the workflow, and the SQLite/OPFS question has not
-been reached. The substantive risk it exists to
-answer is whether Tauri v2 mobile can carry this app's SQLite and OPFS use at all, or
-whether a phone needs a different local store. That question is open.
+The `mobile.yml` spike (manual dispatch; it runs `tauri <platform> init`, since
+`gen/android` and `gen/apple` are gitignored) now **compiles and packages on both
+platforms**: a debug Android APK (about 137 MB uploaded) and an unsigned iOS simulator
+`.app` (about 21 MB). What it took was gating the desktop-only plugins
+(`tauri-plugin-updater`, `tauri-plugin-single-instance`) behind `cfg(desktop)`, moving them
+to a non-mobile Cargo target section, splitting their permission into a desktop-only
+capability, and turning off `createUpdaterArtifacts` for mobile; on mobile the update
+commands are stubs. Nothing more was needed.
+
+**That is a build result, not evidence the app works on a phone.** Nothing has been run on
+a device or emulator. The question the spike exists for is still open: whether the
+webview's in-memory SQLite plus the Rust file save (`db_load` / `db_save`) behaves on
+Android WebView and WKWebView, and whether OPFS is available there. Release signing (an
+Android keystore, an Apple developer account) is untouched.
 
 Publishing is a separate and slower problem: a personal Play Console account must run a
 closed test with twelve testers opted in continuously for fourteen days before it can reach
