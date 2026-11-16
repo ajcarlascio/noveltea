@@ -41,6 +41,14 @@ export function DocumentEditor({ projectId, documentId }: { projectId: string; d
   // the state someone reaching for history actually wants back.
   const lastAutoSnapshot = useRef(0);
 
+  // What the editor's text is based on. `base` is the version its next save claims to
+  // have seen; `seen` is the last row read back, so a change can be told apart: the same
+  // text under a new version is this device's own push being accepted, different text is
+  // another device's.
+  const base = useRef(0);
+  const seen = useRef<{ version: number; text: string } | null>(null);
+  const stateRef = useRef<SaveState>("clean");
+
   const autosave = useAutosave(
     async (payload) => {
       const { searchText, words: count } = summarise(payload as never);
@@ -48,9 +56,10 @@ export function DocumentEditor({ projectId, documentId }: { projectId: string; d
       if (due) lastAutoSnapshot.current = Date.now();
       // The capture rides along inside the save's own transaction, so it sees the
       // content being replaced and costs no extra round trip to the worker.
-      await saveDocument(db, projectId, documentId, payload, searchText, count, due);
+      await saveDocument(db, projectId, documentId, payload, searchText, count, due, base.current);
     },
     (next, message) => {
+      stateRef.current = next;
       setState(next);
       setError(next === "error" ? (message ?? "Unknown error") : null);
     },
@@ -125,6 +134,9 @@ export function DocumentEditor({ projectId, documentId }: { projectId: string; d
         setMissing(row === null);
         setWords(row?.wordCount ?? 0);
         setState("clean");
+        stateRef.current = "clean";
+        base.current = row?.version ?? 0;
+        seen.current = row === null ? null : { version: row.version, text: JSON.stringify(row.content) };
       },
       (cause: unknown) => {
         if (!current) return;
@@ -135,6 +147,45 @@ export function DocumentEditor({ projectId, documentId }: { projectId: string; d
       current = false;
     };
   }, [db, projectId, documentId]);
+
+  // Sync writes straight to the replica, and the editor holds its own copy of the text.
+  // Without this a pulled edit sits in the database while the old words stay on screen,
+  // and the next keystroke saves them over it.
+  useEffect(() => {
+    if (editor === null || loaded?.id !== documentId) return;
+    let current = true;
+    const unsubscribe = db.subscribeToChanges(() => {
+      void loadDocument(db, projectId, documentId).then((row) => {
+        if (!current || row === null || editor.isDestroyed) return;
+        const text = JSON.stringify(row.content);
+        const before = seen.current;
+        seen.current = { version: row.version, text };
+
+        if (before !== null && text === before.text) {
+          // Our own push accepted: the text is unchanged and the version moved. Followed
+          // only if the editor was on the version that was replaced, so a save made
+          // while another device's edit was waiting keeps its old base and conflicts.
+          if (base.current === before.version) base.current = row.version;
+          return;
+        }
+        // Different text, and the author has something unsaved or mid-write. Their words
+        // are not replaced: the next save goes out against `base`, the server calls it a
+        // conflict, and it keeps them in a copy.
+        if (stateRef.current !== "clean") return;
+
+        base.current = row.version;
+        const { from, to } = editor.state.selection;
+        // Not an edit: no autosave, and not an undo step that would return to the old text.
+        editor.chain().setMeta("addToHistory", false).setContent(row.content, { emitUpdate: false }).run();
+        editor.commands.setTextSelection({ from, to });
+        setWords(row.wordCount);
+      });
+    });
+    return () => {
+      current = false;
+      unsubscribe();
+    };
+  }, [db, projectId, documentId, editor, loaded?.id]);
 
   if (missing) {
     return (

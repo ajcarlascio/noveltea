@@ -78,4 +78,14 @@ export const saveDocument = (
   searchText: string,
   wordCount: number,
   snapshotBefore = false,
-) => db.command("saveDocument", { projectId, id, content, searchText, wordCount, snapshotBefore });
+  baseVersion?: number,
+) =>
+  db.command("saveDocument", {
+    projectId,
+    id,
+    content,
+    searchText,
+    wordCount,
+    snapshotBefore,
+    baseVersion,
+  });

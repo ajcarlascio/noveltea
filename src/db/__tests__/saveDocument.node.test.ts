@@ -76,6 +76,20 @@ describe("saveDocument", () => {
     expect(row().word_count).toBe(2);
   });
 
+  it("queues the version the author saw when the row has moved on since", () => {
+    // A pull applied another device's edit under an open editor. Based on the row's own
+    // version this save would overwrite it silently; based on the one seen, it conflicts.
+    db.adapter.run("UPDATE document SET version = 5 WHERE id = ?;", [documentId]);
+    save({ baseVersion: 4 });
+    expect(queued()[0]!.base_version).toBe(4);
+  });
+
+  it("never queues a version the replica does not hold", () => {
+    db.adapter.run("UPDATE document SET version = 5 WHERE id = ?;", [documentId]);
+    save({ baseVersion: 9 });
+    expect(queued()[0]!.base_version).toBe(5);
+  });
+
   it("queues an update carrying the version last synced", () => {
     db.adapter.run("UPDATE document SET version = 4 WHERE id = ?;", [documentId]);
     save();
