@@ -1,10 +1,12 @@
 import sqlite3InitModule, { type Database, type Sqlite3Static } from "@sqlite.org/sqlite-wasm";
-import type { StorageKind } from "./protocol";
+import { REPLICA_LOCK, type StorageKind } from "./protocol";
 
 /** Where the replica lives inside OPFS. One database per origin. */
 const VFS_NAME = "noveltea";
 const VFS_DIRECTORY = ".noveltea";
 const DATABASE_FILE = "/noveltea.sqlite3";
+
+const REPLICA_LOCK_WAIT_MS = 3000;
 
 export interface OpenedDatabase {
   db: Database;
@@ -37,18 +39,27 @@ export interface OpenedDatabase {
  * be kept. Queueing behind the lock lets the old worker finish dying first.
  *
  * A genuine second tab never gets the lock, so the wait is bounded: after it, the open
- * is attempted anyway, fails, and the interface says why.
+ * is attempted anyway, fails, and the interface says why. The queued request is aborted
+ * then, so this worker never takes the lock behind the blocked page's back.
+ *
+ * Resolves to whether the lock was obtained; without Web Locks there is nothing to lose.
  */
-async function waitForReplicaLock(ms = 3000): Promise<void> {
+async function waitForReplicaLock(ms = REPLICA_LOCK_WAIT_MS): Promise<boolean> {
   const locks = (globalThis.navigator as Navigator | undefined)?.locks;
-  if (locks === undefined) return;
-  await new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    void locks.request("noveltea-replica", () => {
-      clearTimeout(timer);
-      resolve();
-      return new Promise<never>(() => undefined);
-    });
+  if (locks === undefined) return true;
+  const abort = new AbortController();
+  return new Promise<boolean>((resolve) => {
+    const timer = setTimeout(() => {
+      abort.abort();
+      resolve(false);
+    }, ms);
+    locks
+      .request(REPLICA_LOCK, { signal: abort.signal }, () => {
+        clearTimeout(timer);
+        resolve(true);
+        return new Promise<never>(() => undefined);
+      })
+      .catch(() => undefined); // The abort above; nothing else to report.
   });
 }
 
@@ -69,7 +80,7 @@ export async function openDatabase(initial: ArrayBuffer | null = null,
   }
 
   if (typeof sqlite3.installOpfsSAHPoolVfs === "function") {
-    await waitForReplicaLock();
+    const locked = await waitForReplicaLock();
     try {
       const pool = await sqlite3.installOpfsSAHPoolVfs({
         name: VFS_NAME,
@@ -80,6 +91,9 @@ export async function openDatabase(initial: ArrayBuffer | null = null,
       // Private browsing, a storage quota refusal, or another tab holding the
       // pool. Fall through rather than leaving the app with nothing at all.
       console.warn("OPFS unavailable; the local replica will not survive a reload.", error);
+      // Without the lock the cause is another tab, not the browser: tell the caller, because
+      // writing into this memory database would be losing work the other tab never sees.
+      if (!locked) return { db: new sqlite3.oo1.DB(":memory:"), storage: "contended" };
     }
   }
 

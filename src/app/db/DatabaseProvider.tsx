@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { DatabaseClient, createDatabaseClient, type DbStatus } from "@/db/client";
+import { AnotherTab } from "@/ui/AnotherTab";
 import { DatabaseContext, type DatabaseContextValue } from "./DatabaseContext";
 
 /**
@@ -63,5 +64,9 @@ export function DatabaseProvider({
 
   const value = useMemo<DatabaseContextValue>(() => ({ db: client, status }), [client, status]);
 
-  return <DatabaseContext.Provider value={value}>{children}</DatabaseContext.Provider>;
+  return (
+    <DatabaseContext.Provider value={value}>
+      {status.state === "ready" && status.storage === "contended" ? <AnotherTab /> : children}
+    </DatabaseContext.Provider>
+  );
 }

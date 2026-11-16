@@ -52,12 +52,18 @@ export type DbLifecycle =
   | { kind: "ready"; storage: StorageKind; appliedVersions: number[]; schemaVersion: number }
   | { kind: "fatal"; error: DbErrorPayload };
 
+/** Web Lock held by the worker that owns the replica; a blocked page waits on it to retry. */
+export const REPLICA_LOCK = "noveltea-replica";
+
 /**
  * Which backing store the worker ended up with. Reported rather than assumed:
  * "your work is not being saved" is the single most important thing this layer
  * can tell an author, and it must never be inferred from a silent fallback.
+ *
+ * "contended" is memory because another tab holds the replica. Unlike "memory" it is
+ * not a degraded mode to warn about but one the interface must refuse to write into.
  */
-export type StorageKind = "opfs" | "memory" | "host";
+export type StorageKind = "opfs" | "memory" | "host" | "contended";
 
 /**
  * Sent once by the main thread to start the worker off.

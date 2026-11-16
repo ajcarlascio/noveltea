@@ -83,3 +83,24 @@ test("keeps working, and says so, when the engine cannot persist", async ({ page
   await page.getByRole("link", { name: "Untitled project" }).first().click();
   await expect(page.getByRole("heading", { name: "Untitled project" })).toBeVisible();
 });
+
+test("refuses a second tab instead of letting it write into memory, then recovers", async ({ page }) => {
+  await page.goto("/projects");
+  test.skip(!(await hasOpfs(page)), "This engine has no OPFS; a second tab loses nothing extra.");
+  expect((await replicaState(page)).storage).toBe("opfs");
+
+  const second = await page.context().newPage();
+  await second.goto("/projects");
+  // Falling back to memory here would let an author write a chapter that is gone on close.
+  await expect(second.getByRole("alert")).toContainText(/already open in another tab/i, {
+    timeout: 30_000,
+  });
+  await expect(second.getByRole("button", { name: "New project" })).toHaveCount(0);
+
+  // Closing the first tab frees the replica, and the waiting tab reloads into it.
+  await page.close();
+  await expect(second.locator("html")).toHaveAttribute("data-db-storage", "opfs", {
+    timeout: 30_000,
+  });
+  await expect(second.getByRole("alert")).toHaveCount(0);
+});
