@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import type { Editor } from "@tiptap/core";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DatabaseContext } from "@/app/db/DatabaseContext";
 import { SettingsProvider } from "@/app/settings/SettingsProvider";
 import { DEFAULT_SETTINGS } from "@/app/settings/settings";
@@ -36,7 +36,13 @@ beforeEach(() => {
   db.adapter.run("DELETE FROM pending_change;");
   db.adapter.run("UPDATE document SET version = 4 WHERE id = ?;", [documentId]);
 });
-afterEach(() => db.close());
+afterEach(() => {
+  // Reads still in flight would reach a closed database.
+  for (const timer of slowTimers) clearTimeout(timer);
+  slowTimers.clear();
+  db.close();
+});
+const slowTimers = new Set<ReturnType<typeof setTimeout>>();
 
 const doc = (text: string) => ({
   type: "doc",
@@ -71,9 +77,23 @@ const stored = () =>
 const queued = () =>
   db.adapter.query<{ base_version: number | null }>("SELECT base_version FROM pending_change;");
 
-async function open() {
+/**
+ * A client whose reads take a moment, as the worker round trip does. The in-process
+ * database answers before the editor says "clean", which hides what a read made after
+ * the editor's own save sees.
+ */
+const slowReads = (ms: number) =>
+  ({
+    ...db.client,
+    query: (sql: string, params?: never) =>
+      new Promise((resolve) => {
+        slowTimers.add(setTimeout(() => resolve(db.client.query(sql, params)), ms));
+      }),
+  }) as unknown as typeof db.client;
+
+async function open(client = db.client) {
   render(
-    <DatabaseContext.Provider value={{ db: db.client, status: READY }}>
+    <DatabaseContext.Provider value={{ db: client, status: READY }}>
       <SettingsProvider initial={DEFAULT_SETTINGS}>
         <DocumentEditor projectId={projectId} documentId={documentId} />
       </SettingsProvider>
@@ -180,5 +200,49 @@ describe("a push accepted while the author keeps writing", () => {
 
     await waitFor(() => expect(queued()).toHaveLength(1), { timeout: 3000 });
     expect(queued()[0]?.base_version).toBe(5);
+  });
+});
+
+describe("the editor's own save, read back by the change handler", () => {
+  it("is not an edit to the editor: no setContent, so no transaction and no cursor jump", async () => {
+    const editor = await open(slowReads(5));
+    const transactions = vi.fn();
+    editor.on("transaction", transactions);
+
+    type(editor, " mine");
+    await waitFor(() => expect(queued()).toHaveLength(1), { timeout: 3000 });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    // The one transaction is the keystroke.
+    expect(transactions).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not move the base to a version the author never saw", async () => {
+    const editor = await open(slowReads(5));
+    type(editor, " mine");
+    await waitFor(() => expect(queued()).toHaveLength(1), { timeout: 3000 });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    // The push conflicted: entry cleared. The author writes on, and another device's
+    // version 5 is pulled in before the autosave fires; the editor keeps its text.
+    let [taken] = COMMANDS.takePending(db.adapter, { projectId });
+    await act(async () => {
+      await db.client.command("settlePush", { ids: [taken!.id], sent: [{ id: taken!.id, payload: taken!.payload }] });
+    });
+    type(editor, " more");
+    await pull("theirs", 5);
+    await waitFor(() => expect(queued()).toHaveLength(1), { timeout: 3000 });
+    expect(queued()[0]?.base_version).toBe(4);
+    await new Promise((resolve) => setTimeout(resolve, 200)); // the save's echo is read back
+
+    // Conflicted again, and the follow-up pull has not landed: the next save must still
+    // claim version 4, or the server accepts it and version 5's text is gone.
+    [taken] = COMMANDS.takePending(db.adapter, { projectId });
+    await act(async () => {
+      await db.client.command("settlePush", { ids: [taken!.id], sent: [{ id: taken!.id, payload: taken!.payload }] });
+    });
+    type(editor, " x");
+    await waitFor(() => expect(queued()).toHaveLength(1), { timeout: 3000 });
+    expect(queued()[0]?.base_version).toBe(4);
   });
 });

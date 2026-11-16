@@ -47,6 +47,9 @@ export function DocumentEditor({ projectId, documentId }: { projectId: string; d
   // another device's.
   const base = useRef(0);
   const seen = useRef<{ version: number; text: string } | null>(null);
+  // The text of this editor's last autosave, so the row read back after it can be told
+  // from another device's.
+  const lastSaved = useRef<string | null>(null);
   const stateRef = useRef<SaveState>("clean");
 
   const autosave = useAutosave(
@@ -56,6 +59,7 @@ export function DocumentEditor({ projectId, documentId }: { projectId: string; d
       if (due) lastAutoSnapshot.current = Date.now();
       // The capture rides along inside the save's own transaction, so it sees the
       // content being replaced and costs no extra round trip to the worker.
+      lastSaved.current = JSON.stringify(payload);
       await saveDocument(db, projectId, documentId, payload, searchText, count, due, base.current);
     },
     (next, message) => {
@@ -136,6 +140,7 @@ export function DocumentEditor({ projectId, documentId }: { projectId: string; d
         setState("clean");
         stateRef.current = "clean";
         base.current = row?.version ?? 0;
+        lastSaved.current = null;
         seen.current = row === null ? null : { version: row.version, text: JSON.stringify(row.content) };
       },
       (cause: unknown) => {
@@ -161,10 +166,18 @@ export function DocumentEditor({ projectId, documentId }: { projectId: string; d
         const before = seen.current;
         seen.current = { version: row.version, text };
 
-        if (before !== null && text === before.text) {
-          // Our own push accepted: the text is unchanged and the version moved. Followed
-          // only if the editor was on the version that was replaced, so a save made
-          // while another device's edit was waiting keeps its old base and conflicts.
+        if (before !== null && (text === before.text || text === lastSaved.current)) {
+          // The text is the editor's own: unchanged, or what it just saved. Either way
+          // `setContent` is not called, and `base` follows the row only if the editor was
+          // on the version being replaced, which is how an accepted push (same text, new
+          // version) is told from a save landing on a row another device has moved.
+          //
+          //   case                         seen        base
+          //   own save echo                row         unchanged (row version == seen's)
+          //   own push accepted (+1)       row         follows, if base == previous seen
+          //   foreign text, clean          row         row (adopted, below)
+          //   foreign text, dirty          row         kept: the save is a conflict
+          //   own save after kept foreign  row         kept: it is not a version seen
           if (base.current === before.version) base.current = row.version;
           return;
         }
