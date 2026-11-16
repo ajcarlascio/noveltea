@@ -21,11 +21,25 @@ export function StorageWarning() {
   }
 
   if (status.state === "ready" && status.storage === "memory") {
+    // Browsers only offer persistent storage to pages served over HTTPS (or from
+    // localhost). On a self-hosted address reached over plain http that is the whole
+    // cause, and blaming private browsing sends the author looking in the wrong place.
+    if (typeof window !== "undefined" && !window.isSecureContext) {
+      return (
+        <p className="storage-warning" role="alert">
+          <strong>This browser is not storing your work.</strong> This address is served
+          over plain http, and browsers only keep a local database for pages on https.
+          Anything you write will be lost when you close this tab. Put the server behind
+          https, or use the desktop app.
+        </p>
+      );
+    }
     return (
       <p className="storage-warning" role="alert">
         <strong>This browser is not storing your work.</strong> Persistent storage is
-        unavailable, so anything you write will be lost when you close this tab. Private
-        browsing is the usual cause.
+        unavailable, so anything you write will be lost when you close this tab. The usual
+        causes are NovelTea already being open in another tab — close this one and write
+        there — or a private window.
       </p>
     );
   }

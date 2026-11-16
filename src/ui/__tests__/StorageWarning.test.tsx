@@ -1,5 +1,5 @@
 import { act, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { DatabaseProvider } from "@/app/db/DatabaseProvider";
 import { DatabaseClient } from "@/db/client";
 import { fakeWorker } from "@/test/worker";
@@ -16,7 +16,14 @@ function renderWarning() {
   return fake;
 }
 
+const originalSecure = Object.getOwnPropertyDescriptor(window, "isSecureContext");
+
 describe("StorageWarning", () => {
+  afterEach(() => {
+    if (originalSecure) Object.defineProperty(window, "isSecureContext", originalSecure);
+    else Reflect.deleteProperty(window, "isSecureContext");
+  });
+
   it("says nothing while the database is still opening", () => {
     renderWarning();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -39,6 +46,20 @@ describe("StorageWarning", () => {
     const alert = screen.getByRole("alert");
     expect(alert).toHaveTextContent(/not storing your work/i);
     expect(alert).toHaveTextContent(/lost when you close this tab/i);
+  });
+
+  it.each([
+    [false, /plain http/i],
+    [true, /another tab/i],
+  ])("names the real cause when isSecureContext is %s", (secure, expected) => {
+    // Private browsing is not why a self-hosted http address has no storage, and it is
+    // not why a second tab has none either. The wrong reason is a wasted afternoon.
+    Object.defineProperty(window, "isSecureContext", { value: secure, configurable: true });
+    const fake = renderWarning();
+    act(() =>
+      fake.reply({ kind: "ready", storage: "memory", appliedVersions: [], schemaVersion: 11 }),
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(expected);
   });
 
   it("reports why the database could not be opened at all", () => {

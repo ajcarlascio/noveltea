@@ -28,6 +28,30 @@ export interface OpenedDatabase {
  * an in-memory replica loses every word on reload, and a writing app that fails
  * that way quietly is worse than one that refuses to start.
  */
+/**
+ * Takes the replica's Web Lock and keeps it for as long as this worker lives.
+ *
+ * The SAH pool's file handles are exclusive, and a page being reloaded can still hold
+ * them for a moment after its replacement has started. Losing that race used to mean
+ * opening in memory — a whole session written into a database that was never going to
+ * be kept. Queueing behind the lock lets the old worker finish dying first.
+ *
+ * A genuine second tab never gets the lock, so the wait is bounded: after it, the open
+ * is attempted anyway, fails, and the interface says why.
+ */
+async function waitForReplicaLock(ms = 3000): Promise<void> {
+  const locks = (globalThis.navigator as Navigator | undefined)?.locks;
+  if (locks === undefined) return;
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    void locks.request("noveltea-replica", () => {
+      clearTimeout(timer);
+      resolve();
+      return new Promise<never>(() => undefined);
+    });
+  });
+}
+
 export async function openDatabase(initial: ArrayBuffer | null = null,
                                    hosted = false): Promise<OpenedDatabase> {
   const sqlite3: Sqlite3Static = await sqlite3InitModule();
@@ -45,6 +69,7 @@ export async function openDatabase(initial: ArrayBuffer | null = null,
   }
 
   if (typeof sqlite3.installOpfsSAHPoolVfs === "function") {
+    await waitForReplicaLock();
     try {
       const pool = await sqlite3.installOpfsSAHPoolVfs({
         name: VFS_NAME,
