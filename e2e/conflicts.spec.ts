@@ -177,11 +177,7 @@ test("marks a conflict copy in the binder so it is not mistaken for a chapter", 
   );
   await page.route(`${SERVER}/api/v1/projects`, (route) => route.fulfill(json({}, 201)));
   await page.route(`${SERVER}/api/v1/projects/*/conflicts`, (route) => route.fulfill(json([])));
-  await signIn(page);
-  await openProject(page);
-  const projectId = new URL(page.url()).pathname.split("/").pop()!;
-
-  const row = (id: string, title: string, extra: object) => ({
+  const row = (projectId: string, id: string, title: string, extra: object) => ({
     id: id === ORIGINAL_ID ? 6 : 7,
     entityType: "binder_item",
     entityId: id,
@@ -200,12 +196,17 @@ test("marks a conflict copy in the binder so it is not mistaken for a chapter", 
     },
   });
 
-  await page.route(`${SERVER}/api/v1/projects/*/sync*`, (route) =>
-    route.fulfill(
+  // Registered before the app can run: signing in and opening a never-synced project
+  // starts a sync on its own, and a request made before its route exists goes to the
+  // network instead. The project id comes from the request, which is the only place it
+  // is known this early.
+  await page.route(`${SERVER}/api/v1/projects/*/sync*`, (route) => {
+    const projectId = new URL(route.request().url()).pathname.split("/")[4]!;
+    return route.fulfill(
       json({
         changes: [
-          row(ORIGINAL_ID, "The lighthouse", {}),
-          row(COPY_ID, "The lighthouse (Conflicted Copy, Phone)", {
+          row(projectId, ORIGINAL_ID, "The lighthouse", {}),
+          row(projectId, COPY_ID, "The lighthouse (Conflicted Copy, Phone)", {
             conflict_of_id: ORIGINAL_ID,
             conflict_base_version: 3,
           }),
@@ -215,9 +216,11 @@ test("marks a conflict copy in the binder so it is not mistaken for a chapter", 
         resyncRequired: false,
         syncEpoch: 1,
       }),
-    ),
-  );
+    );
+  });
 
+  await signIn(page);
+  await openProject(page);
   await page.getByRole("button", { name: "Sync now" }).click();
 
   const copy = page.getByRole("treeitem").filter({ hasText: "Conflicted Copy" });

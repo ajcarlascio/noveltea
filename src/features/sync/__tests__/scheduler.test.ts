@@ -140,6 +140,30 @@ describe("overlap", () => {
   });
 });
 
+describe("a click during an automatic run", () => {
+  it("runs again afterwards instead of being absorbed by it", async () => {
+    const releases: (() => void)[] = [];
+    const run = vi
+      .fn<() => Promise<unknown>>()
+      .mockImplementation(() => new Promise<void>((resolve) => releases.push(resolve)));
+    const scheduler = createScheduler({
+      run: () => run(),
+      online: () => true,
+      subscribe: () => () => {},
+      firstSync: () => true,
+    });
+    // Constructed online with no cursor: the automatic first sync is already running.
+    expect(run).toHaveBeenCalledTimes(1);
+
+    const click = scheduler.syncNow();
+    releases[0]?.();
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2));
+    releases[1]?.();
+    await click;
+    expect(scheduler.running()).toBe(false);
+  });
+});
+
 describe("failure", () => {
   it("reports the error instead of throwing it", async () => {
     const onError = vi.fn();

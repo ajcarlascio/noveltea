@@ -83,6 +83,8 @@ export function createScheduler({
 }: SchedulerOptions): Scheduler {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let inFlight: Promise<void> | null = null;
+  // True when the run in flight was started by `syncNow`, i.e. someone is watching it.
+  let inFlightManual = false;
   let stopped = false;
 
   const clear = () => {
@@ -92,11 +94,19 @@ export function createScheduler({
     }
   };
 
-  const fire = async () => {
+  const fire = async (manual = false) => {
     if (stopped) return;
     // One at a time. A second sync while the first is mid-push would send the same
     // queue entries twice.
-    if (inFlight !== null) return inFlight;
+    if (inFlight !== null) {
+      if (!manual || inFlightManual) return inFlight;
+      // A click during an automatic run must not be swallowed by it: that run started
+      // before the author asked and may have read state (or hit a server) that no longer
+      // holds, and it may fail. Wait for it, then run again.
+      await inFlight;
+      return fire(true);
+    }
+    inFlightManual = manual;
     inFlight = (async () => {
       try {
         await run();
@@ -142,7 +152,7 @@ export function createScheduler({
       // button is watching, and asking for it is the consent — refusing here would be
       // the app overruling an explicit instruction about the author's own data.
       clear();
-      await fire();
+      await fire(true);
     },
     running: () => inFlight !== null,
     reconsider: decide,
