@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Link } from "react-router";
 import { useTransientNotice } from "./useTransientNotice";
 import { describeWhen, useSync } from "./useSync";
@@ -10,9 +11,13 @@ import "./SyncStatus.css";
  * safe locally, so a failed sync is information, not an emergency. Nothing here blocks
  * writing, and nothing demands a decision.
  */
-export function SyncStatus({ projectId }: { projectId: string }) {
-  const { lastSyncedAt, pending, lastError, running, conflicts, dropped, possible, metering, heldForWifi, syncNow } =
+export function SyncStatus({ projectId, reviewed = 0 }: { projectId: string; reviewed?: number }) {
+  const { lastSyncedAt, pending, lastError, running, conflicts, dropped, possible, metering, heldForWifi, syncNow, dismissConflicts } =
     useSync(projectId);
+  // The conflicts notice has done its job once the author opens the panel it points to.
+  useEffect(() => {
+    if (reviewed > 0) dismissConflicts();
+  }, [reviewed, dismissConflicts]);
   // Hooks run before the early return, or this one would be skipped whenever an
   // account exists and React would see a different hook order between renders.
   const noticeVisible = useTransientNotice();
@@ -74,6 +79,9 @@ export function SyncStatus({ projectId }: { projectId: string }) {
           {conflicts.length === 1 ? "1 change" : `${String(conflicts.length)} changes`} could not be
           applied. Where your text was at risk it was kept as a conflict copy in the binder,
           so nothing was overwritten.
+          <button type="button" className="button" onClick={dismissConflicts}>
+            Dismiss
+          </button>
         </p>
       )}
 

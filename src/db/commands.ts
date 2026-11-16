@@ -186,6 +186,16 @@ export interface SaveDocumentInput {
    * transaction delays the only write that actually matters.
    */
   snapshotBefore?: boolean;
+  /**
+   * The version of the document these words were written against, if the caller knows.
+   *
+   * The row's own version moves under an open editor — a pull applies another device's
+   * edit — and saving on top of that as though the author had seen it would overwrite it
+   * silently. Queued with the version the author actually saw, the push is a conflict
+   * and their text lands in a conflict copy. Never above the row's: that would claim a
+   * version the replica does not hold.
+   */
+  baseVersion?: number | undefined;
 }
 
 export interface DocumentRow {
@@ -234,7 +244,12 @@ export function requireDocumentRow(db: SqliteAdapter, id: string): DocumentRow {
  * reads a missing key as "leave it alone", so this is belt and braces — but the belt is
  * the half that survives someone adding a third pane.
  */
-export function queueDocument(db: SqliteAdapter, projectId: string, row: DocumentRow): void {
+export function queueDocument(
+  db: SqliteAdapter,
+  projectId: string,
+  row: DocumentRow,
+  baseVersion = row.version,
+): void {
   enqueueChange(db, {
     projectId,
     entityType: "document",
@@ -253,7 +268,7 @@ export function queueDocument(db: SqliteAdapter, projectId: string, row: Documen
     },
     // Local edits never bump version; the server assigns it. This is the version
     // last synced, which is what the server checks the push against.
-    baseVersion: row.version,
+    baseVersion: Math.min(baseVersion, row.version),
   });
 }
 
@@ -492,7 +507,7 @@ export const COMMANDS = {
     );
 
     const row = requireDocumentRow(db, input.id);
-    queueDocument(db, input.projectId, row);
+    queueDocument(db, input.projectId, row, input.baseVersion);
     return row;
   },
 

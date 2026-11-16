@@ -127,3 +127,51 @@ describe("a replica that has synced before", () => {
     expect(syncProject).not.toHaveBeenCalled();
   });
 });
+
+describe("the conflicts notice", () => {
+  const conflict = (entityId: string) => ({
+    entityId,
+    entityType: "document",
+    reason: "stale_base",
+    conflictCopyId: `copy-${entityId}`,
+    serverVersion: 5,
+    detail: null,
+  });
+  const run = (ms = 0) => settle(ms);
+
+  it("outlives the next run, which is what lets an author who looked away still read it", async () => {
+    const { answerStateRead, result } = harness(null);
+    vi.mocked(syncProject).mockResolvedValueOnce({ conflicts: [conflict("a")], dropped: 0, pushed: 1, pulled: 0 } as never);
+    await answerStateRead();
+    await run();
+    expect(result.current.conflicts).toHaveLength(1);
+
+    // Nothing to report this time.
+    // The first run's closing read of sync state, which has to be answered for it to end.
+    await answerStateRead();
+    act(() => result.current.syncNow());
+    await settle(10);
+    expect(syncProject).toHaveBeenCalledTimes(2);
+
+    expect(result.current.conflicts).toHaveLength(1);
+  });
+
+  it("adds a different conflict, lists a repeated one once, and clears when dismissed", async () => {
+    const { answerStateRead, result } = harness(null);
+    vi.mocked(syncProject)
+      .mockResolvedValueOnce({ conflicts: [conflict("a")], dropped: 0, pushed: 1, pulled: 0 } as never)
+      .mockResolvedValueOnce({ conflicts: [conflict("a"), conflict("b")], dropped: 0, pushed: 1, pulled: 0 } as never);
+    await answerStateRead();
+    await run();
+    // The first run's closing read of sync state, which has to be answered for it to end.
+    await answerStateRead();
+    act(() => result.current.syncNow());
+    await settle(10);
+    expect(syncProject).toHaveBeenCalledTimes(2);
+
+    expect(result.current.conflicts.map((c) => c.entityId)).toEqual(["a", "b"]);
+
+    act(() => result.current.dismissConflicts());
+    expect(result.current.conflicts).toEqual([]);
+  });
+});

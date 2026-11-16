@@ -70,6 +70,8 @@ export function Project() {
   const [expandedIds, setExpandedIds] = useState<ReadonlySet<string>>(
     () => new Set(readExpandedIds(safeStorage(), projectId)),
   );
+  // Bumped when the author opens a conflict, which is what retires the sync notice.
+  const [reviewedConflicts, setReviewedConflicts] = useState(0);
   const [renaming, setRenaming] = useState(false);
   /**
    * Writing, or looking at the shape of it.
@@ -228,8 +230,8 @@ export function Project() {
           target they stop noticing. */}
       <ProgressStrip projectId={projectId} words={words} goals={goals} />
       <StorageWarning />
-      <SyncStatus projectId={projectId} />
-      <ConflictsPanel projectId={projectId} />
+      <SyncStatus projectId={projectId} reviewed={reviewedConflicts} />
+      <ConflictsPanel projectId={projectId} onReview={() => setReviewedConflicts((n) => n + 1)} />
 
       {arriving && (
         <p className="project__hint" role="status">

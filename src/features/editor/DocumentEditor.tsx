@@ -35,11 +35,23 @@ export function DocumentEditor({ projectId, documentId }: { projectId: string; d
   const [state, setState] = useState<SaveState>("clean");
   const [error, setError] = useState<string | null>(null);
   const [words, setWords] = useState(0);
+  const [keptCopy, setKeptCopy] = useState(false);
 
   // Zero, not the mount time, so the first save of a session captures. What that
   // snapshot holds is the document as it was *before* this session's edits, which is
   // the state someone reaching for history actually wants back.
   const lastAutoSnapshot = useRef(0);
+
+  // What the editor's text is based on. `base` is the version its next save claims to
+  // have seen; `seen` is the last row read back, so a change can be told apart: the same
+  // text under a new version is this device's own push being accepted, different text is
+  // another device's.
+  const base = useRef(0);
+  const seen = useRef<{ version: number; text: string } | null>(null);
+  // The text of this editor's last autosave, so the row read back after it can be told
+  // from another device's.
+  const lastSaved = useRef<string | null>(null);
+  const stateRef = useRef<SaveState>("clean");
 
   const autosave = useAutosave(
     async (payload) => {
@@ -48,9 +60,11 @@ export function DocumentEditor({ projectId, documentId }: { projectId: string; d
       if (due) lastAutoSnapshot.current = Date.now();
       // The capture rides along inside the save's own transaction, so it sees the
       // content being replaced and costs no extra round trip to the worker.
-      await saveDocument(db, projectId, documentId, payload, searchText, count, due);
+      lastSaved.current = JSON.stringify(payload);
+      await saveDocument(db, projectId, documentId, payload, searchText, count, due, base.current);
     },
     (next, message) => {
+      stateRef.current = next;
       setState(next);
       setError(next === "error" ? (message ?? "Unknown error") : null);
     },
@@ -125,6 +139,11 @@ export function DocumentEditor({ projectId, documentId }: { projectId: string; d
         setMissing(row === null);
         setWords(row?.wordCount ?? 0);
         setState("clean");
+        stateRef.current = "clean";
+        base.current = row?.version ?? 0;
+        lastSaved.current = null;
+        setKeptCopy(false);
+        seen.current = row === null ? null : { version: row.version, text: JSON.stringify(row.content) };
       },
       (cause: unknown) => {
         if (!current) return;
@@ -135,6 +154,64 @@ export function DocumentEditor({ projectId, documentId }: { projectId: string; d
       current = false;
     };
   }, [db, projectId, documentId]);
+
+  // Sync writes straight to the replica, and the editor holds its own copy of the text.
+  // Without this a pulled edit sits in the database while the old words stay on screen,
+  // and the next keystroke saves them over it.
+  useEffect(() => {
+    if (editor === null || loaded?.id !== documentId) return;
+    let current = true;
+    // The copies this document already had, so a new one arriving with the server's text
+    // can be told from an old one. Sync makes the copy and returns the original together.
+    const copies = () =>
+      db
+        .query<{ id: string }>("SELECT id FROM binder_item WHERE conflict_of_id = ? AND deleted_at IS NULL;", [documentId])
+        .then((rows) => rows.map((row) => row.id));
+    const known = copies().then((ids) => new Set(ids));
+    const unsubscribe = db.subscribeToChanges(() => {
+      void Promise.all([loadDocument(db, projectId, documentId), copies(), known]).then(([row, ids, knownCopies]) => {
+        if (!current || row === null || editor.isDestroyed) return;
+        const copied = ids.some((id) => !knownCopies.has(id));
+        for (const id of ids) knownCopies.add(id);
+        const text = JSON.stringify(row.content);
+        const before = seen.current;
+        seen.current = { version: row.version, text };
+
+        if (before !== null && (text === before.text || text === lastSaved.current)) {
+          // The text is the editor's own: unchanged, or what it just saved. Either way
+          // `setContent` is not called, and `base` follows the row only if the editor was
+          // on the version being replaced, which is how an accepted push (same text, new
+          // version) is told from a save landing on a row another device has moved.
+          //
+          //   case                         seen        base
+          //   own save echo                row         unchanged (row version == seen's)
+          //   own push accepted (+1)       row         follows, if base == previous seen
+          //   foreign text, clean          row         row (adopted, below)
+          //   foreign text, dirty          row         kept: the save is a conflict
+          //   own save after kept foreign  row         kept: it is not a version seen
+          if (base.current === before.version) base.current = row.version;
+          return;
+        }
+        // Different text, and the author has something unsaved or mid-write. Their words
+        // are not replaced: the next save goes out against `base`, the server calls it a
+        // conflict, and it keeps them in a copy.
+        if (stateRef.current !== "clean") return;
+
+        base.current = row.version;
+        const { from, to } = editor.state.selection;
+        // Not an edit: no autosave, and not an undo step that would return to the old text.
+        editor.chain().setMeta("addToHistory", false).setContent(row.content, { emitUpdate: false }).run();
+        editor.commands.setTextSelection({ from, to });
+        setWords(row.wordCount);
+        // The author's words are now in the copy; say so where they are looking.
+        if (copied) setKeptCopy(true);
+      });
+    });
+    return () => {
+      current = false;
+      unsubscribe();
+    };
+  }, [db, projectId, documentId, editor, loaded?.id]);
 
   if (missing) {
     return (
@@ -162,6 +239,15 @@ export function DocumentEditor({ projectId, documentId }: { projectId: string; d
       {error !== null && (
         <p className="editor__error" role="alert">
           {error}
+        </p>
+      )}
+
+      {keptCopy && (
+        <p className="editor__notice" role="status">
+          This document changed on another device. Your version was kept as a conflict copy in the binder.
+          <button type="button" className="button" onClick={() => setKeptCopy(false)}>
+            Dismiss
+          </button>
         </p>
       )}
 
