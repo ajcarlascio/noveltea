@@ -300,6 +300,32 @@ describe("applyPull", () => {
   });
 });
 
+describe("a pull over an unpushed tag", () => {
+  it("keeps the local label and leaves it queued", () => {
+    const doc = COMMANDS.createBinderItem(db.adapter, { projectId, parentId: null, type: "document", title: "One" });
+    const term = COMMANDS.createTaxonomy(db.adapter, { projectId, kind: "label", name: "POV", color: "#3d6b8e" });
+    COMMANDS.setItemTaxonomy(db.adapter, { projectId, id: doc.id, labelId: term.id });
+
+    // The server's older row for the same item: no label.
+    COMMANDS.applyPull(db.adapter, {
+      projectId,
+      changes: [
+        { id: 1, entityType: "binder_item", entityId: doc.id, op: "update", data: { ...doc, label_id: null } },
+      ],
+      latestId: 1,
+      syncEpoch: 1,
+    });
+
+    const row = db.adapter.query<{ label_id: string | null }>(
+      "SELECT label_id FROM binder_item WHERE id = ?;",
+      [doc.id],
+    )[0]!;
+    expect(row.label_id).toBe(term.id);
+    const payload = JSON.parse(queued().find((q) => q.entity_id === doc.id)!.payload!) as Record<string, unknown>;
+    expect(payload.label_id).toBe(term.id);
+  });
+});
+
 describe("takePending", () => {
   it("marks rows in flight before handing them over", () => {
     COMMANDS.createBinderItem(db.adapter, { projectId, parentId: null, type: "folder", title: "Act I" });
@@ -318,6 +344,16 @@ describe("takePending", () => {
     const [taken] = COMMANDS.takePending(db.adapter, { projectId });
     expect(taken).toMatchObject({ entityType: "binder_item", entityId: item.id, op: "create" });
     expect(taken!.data).toMatchObject({ title: "Act I" });
+  });
+
+  it("sends a term before an item created earlier that wears it", () => {
+    const doc = COMMANDS.createBinderItem(db.adapter, { projectId, parentId: null, type: "document", title: "One" });
+    const term = COMMANDS.createTaxonomy(db.adapter, { projectId, kind: "label", name: "POV", color: "#3d6b8e" });
+    COMMANDS.setItemTaxonomy(db.adapter, { projectId, id: doc.id, labelId: term.id });
+
+    const taken = COMMANDS.takePending(db.adapter, { projectId });
+    const order = taken.map((row) => row.entityType);
+    expect(order.indexOf("taxonomy")).toBeLessThan(order.indexOf("binder_item"));
   });
 
   it("returns nothing when there is nothing queued", () => {

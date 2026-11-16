@@ -602,7 +602,17 @@ export const SYNC_COMMANDS = {
         // so an item's oldest row can name a label whose own row comes later in the
         // feed — and a server too old for `/sync/state` never sends it at all. The item
         // matters more than its tag; the tag returns with the later row that set it.
+        // A tag still waiting in the outbox is the author's newer word: keep the local
+        // column rather than let the server's older value (or the echo of a rename)
+        // erase it until the push lands. Dropping the key leaves the column out of the
+        // upsert. Rebuilds apply through here too.
+        const queued = db.query<{ payload: string | null }>(
+          "SELECT payload FROM pending_change WHERE entity_type = 'binder_item' AND entity_id = ?;",
+          [change.entityId],
+        )[0]?.payload;
+        const queuedKeys = queued ? (JSON.parse(queued) as Record<string, unknown>) : {};
         for (const key of ["label_id", "status_id"]) {
+          if (key in queuedKeys) delete data[key];
           const ref = data[key];
           if (typeof ref !== "string") continue;
           if (db.query("SELECT 1 FROM taxonomy WHERE id = ?;", [ref]).length === 0) data[key] = null;
@@ -763,15 +773,21 @@ export const SYNC_COMMANDS = {
     /** The queued text as taken, so `settlePush` can tell whether it changed in flight. */
     payload: string | null;
   }[] => {
-    // The trash node first: what is trashed names it as its parent, and the server refuses
-    // a parent it has not heard of. Queue order alone would put a node minted by `ensureTrash`
-    // behind the moves already waiting.
+    // Terms go first. An item created before its label was made sits earlier in the queue
+    // (coalescing keeps its place), and the server refuses a tag that names a term it has
+    // not seen yet, which dropped the item and left its document with no parent.
+    // Then the trash node: what is trashed names it as its parent, and the server refuses
+    // a parent it has not heard of. Queue order alone would put a node minted by
+    // `ensureTrash` behind the moves already waiting.
+    // Array#sort is stable, so everything else keeps its order.
     const trash = db.query<{ id: string }>(
       "SELECT id FROM binder_item WHERE project_id = ? AND type = 'trash';",
       [input.projectId],
     )[0]?.id;
+    const first = (row: { entity_type: string; entity_id: string }): number =>
+      row.entity_type === "taxonomy" ? 2 : row.entity_id === trash ? 1 : 0;
     const rows = pendingChanges(db, input.projectId)
-      .sort((a, b) => Number(b.entity_id === trash) - Number(a.entity_id === trash))
+      .sort((a, b) => first(b) - first(a))
       .slice(0, input.limit ?? 200);
     markAttempted(db, rows.map((row) => row.id));
 
