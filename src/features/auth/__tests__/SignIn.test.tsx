@@ -1,10 +1,10 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthProvider } from "../AuthProvider";
 import { SignIn } from "../SignIn";
 import { SERVERS_STORAGE_KEY, rememberServer } from "../servers";
-import { calledBody, calledUrl, type FetchMock } from "@/test/fetch";
+import { calledUrl, type FetchMock } from "@/test/fetch";
 
 const okSession = () =>
   Promise.resolve(
@@ -28,6 +28,16 @@ function renderSignIn(fetcher: FetchMock = vi.fn<typeof fetch>().mockImplementat
   );
   return fetcher;
 }
+
+const urlOf = (input: Parameters<typeof fetch>[0]) =>
+  typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+
+/** The calls that are not the sign-in screen asking whether registration is open. */
+const submitted = (fetcher: FetchMock) =>
+  fetcher.mock.calls.filter(([input]) => !urlOf(input).endsWith("/auth/config"));
+
+const config = (body: unknown, status = 200) =>
+  Promise.resolve(new Response(JSON.stringify(body), { status }));
 
 function remember(...servers: { url: string; email: string | null }[]) {
   let list: ReturnType<typeof rememberServer> = [];
@@ -107,8 +117,8 @@ describe("submitting", () => {
     await fill();
     await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
 
-    expect(fetcher).toHaveBeenCalledTimes(1);
-    expect(calledUrl(fetcher)).toBe("https://write.example.com/api/v1/auth/login");
+    expect(submitted(fetcher)).toHaveLength(1);
+    expect(urlOf(submitted(fetcher)[0]![0])).toBe("https://write.example.com/api/v1/auth/login");
   });
 
   it("refuses an address that is not a server, without calling out", async () => {
@@ -150,12 +160,12 @@ describe("submitting", () => {
     await fill();
     await userEvent.click(screen.getByRole("button", { name: "Create account" }));
 
-    expect(calledUrl(fetcher)).toBe("https://write.example.com/api/v1/auth/register");
+    expect(urlOf(submitted(fetcher)[0]![0])).toBe("https://write.example.com/api/v1/auth/register");
   });
 
   it("tells someone who tries to register on a closed server to ask its owner", async () => {
-    // The server has no public endpoint saying whether registration is open, so the
-    // link is always offered and the refusal is where this is discovered.
+    // A server too old to say whether registration is open still offers the link, and
+    // the refusal is where this is discovered.
     const fetcher = vi
       .fn<typeof fetch>()
       .mockResolvedValue(
@@ -174,9 +184,83 @@ describe("submitting", () => {
     await fill();
     await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
 
-    expect(calledUrl(fetcher)).not.toMatch(/battery/);
-    expect(JSON.stringify(calledBody(fetcher))).toMatch(/battery/);
+    const [login] = submitted(fetcher);
+    expect(urlOf(login![0])).not.toMatch(/battery/);
+    expect(JSON.stringify(JSON.parse(login![1]!.body as string))).toMatch(/battery/);
     // And nothing remembered on this device carries it.
     expect(window.localStorage.getItem(SERVERS_STORAGE_KEY) ?? "").not.toMatch(/battery/);
+  });
+});
+
+describe("offering to create an account", () => {
+  const link = () => screen.queryByRole("button", { name: /create an account instead/i });
+  const asked = (fetcher: FetchMock) =>
+    fetcher.mock.calls.some(([input]) => urlOf(input) === "https://a.example/api/v1/auth/config");
+
+  it("shows the link while the answer is not in, and when the server says open", async () => {
+    remember({ url: "https://a.example", email: null });
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(() => config({ registrationOpen: true }));
+    renderSignIn(fetcher);
+
+    expect(link()).toBeInTheDocument();
+    await waitFor(() => expect(asked(fetcher)).toBe(true));
+    expect(link()).toBeInTheDocument();
+  });
+
+  it("hides the link when the server says registration is closed", async () => {
+    remember({ url: "https://a.example", email: null });
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(() => config({ registrationOpen: false }));
+    renderSignIn(fetcher);
+
+    await waitFor(() => expect(link()).not.toBeInTheDocument());
+    expect(calledUrl(fetcher)).toBe("https://a.example/api/v1/auth/config");
+  });
+
+  it.each([
+    ["an older server without the endpoint", () => config({}, 404)],
+    ["a server error", () => config({}, 500)],
+    ["an answer in an unknown shape", () => config({ registrationOpen: "no" })],
+    ["a server that cannot be reached", () => Promise.reject(new TypeError("Failed to fetch"))],
+  ])("keeps the link for %s", async (_name, answer) => {
+    remember({ url: "https://a.example", email: null });
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(answer);
+    renderSignIn(fetcher);
+
+    await waitFor(() => expect(asked(fetcher)).toBe(true));
+    expect(link()).toBeInTheDocument();
+  });
+
+  it("asks again when the server changes, and does not carry one server's answer to another", async () => {
+    remember({ url: "https://open.example", email: null }, { url: "https://closed.example", email: null });
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockImplementation((input) => config({ registrationOpen: !urlOf(input).startsWith("https://closed") }));
+    renderSignIn(fetcher);
+
+    // Most recent first, so the closed one is chosen on arrival.
+    await waitFor(() => expect(link()).not.toBeInTheDocument());
+
+    await userEvent.selectOptions(screen.getByLabelText("Server"), "https://open.example");
+    expect(link()).toBeInTheDocument();
+    await waitFor(() =>
+      expect(fetcher.mock.calls.some(([input]) => urlOf(input) === "https://open.example/api/v1/auth/config")).toBe(true),
+    );
+    expect(link()).toBeInTheDocument();
+  });
+
+  it("drops back to signing in when the server turns out to be closed", async () => {
+    remember({ url: "https://open.example", email: null }, { url: "https://closed.example", email: null });
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockImplementation((input) => config({ registrationOpen: !urlOf(input).startsWith("https://closed") }));
+    renderSignIn(fetcher);
+
+    await userEvent.selectOptions(screen.getByLabelText("Server"), "https://open.example");
+    await userEvent.click(link()!);
+    expect(screen.getByRole("heading", { name: "Create an account" })).toBeInTheDocument();
+
+    await userEvent.selectOptions(screen.getByLabelText("Server"), "https://closed.example");
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Sign in" })).toBeInTheDocument());
+    expect(link()).not.toBeInTheDocument();
   });
 });

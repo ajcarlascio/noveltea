@@ -9,6 +9,8 @@ export interface AuthContextValue {
   authenticator: Authenticator | null;
   signIn: (serverUrl: string, credentials: Credentials) => Promise<void>;
   signUp: (serverUrl: string, credentials: Credentials) => Promise<void>;
+  /** True/false as the server says, null when unknown. See `registrationOpen` in api.ts. */
+  registrationOpen: (serverUrl: string) => Promise<boolean | null>;
   signOut: () => void;
   /**
    * Changes the signed-in account's password and adopts the session that comes back.

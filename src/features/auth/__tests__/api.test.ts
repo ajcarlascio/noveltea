@@ -5,6 +5,7 @@ import {
   changePassword,
   login,
   register,
+  registrationOpen,
   ServerUnreachable,
   type Credentials,
 } from "../api";
@@ -273,5 +274,25 @@ describe("changing a password", () => {
   it("tells an unreachable server apart from a refusal", async () => {
     const fetcher = fetchMock(() => Promise.reject(new TypeError("Failed to fetch")));
     await rejection(changePassword(SERVER, "t", "a", "b", fetcher), ServerUnreachable);
+  });
+});
+
+describe("registrationOpen", () => {
+  const answer = (status: number, body: unknown) =>
+    fetchMock(() => Promise.resolve(new Response(JSON.stringify(body), { status })));
+
+  it("reads the flag from the unauthenticated config route, without credentials", async () => {
+    const fetcher = answer(200, { registrationOpen: false });
+    expect(await registrationOpen(SERVER, fetcher)).toBe(false);
+    expect(calledUrl(fetcher)).toBe(`${SERVER}/api/v1/auth/config`);
+    expect(calledInit(fetcher).credentials).toBe("omit");
+  });
+
+  it("says unknown, not closed, when it cannot be told", async () => {
+    expect(await registrationOpen(SERVER, answer(404, {}))).toBeNull();
+    expect(await registrationOpen(SERVER, answer(200, { registrationOpen: 0 }))).toBeNull();
+    expect(
+      await registrationOpen(SERVER, fetchMock(() => Promise.reject(new TypeError("Failed to fetch")))),
+    ).toBeNull();
   });
 });

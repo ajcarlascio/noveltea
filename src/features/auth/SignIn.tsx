@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { currentPlatform, suggestDeviceName } from "@/platform/platform";
 import { useAuth } from "./AuthContext";
 import { InvalidServerUrl, isInsecure, normaliseServerUrl, readServers } from "./servers";
@@ -47,7 +47,7 @@ function safeStorage(): Storage | undefined {
  * common case.
  */
 export function SignIn() {
-  const { signIn, signUp } = useAuth();
+  const { signIn, signUp, registrationOpen } = useAuth();
   const known = useMemo(() => readServers(safeStorage()), []);
   const servedFrom = useMemo(thisPageOrigin, []);
 
@@ -56,7 +56,9 @@ export function SignIn() {
   const [email, setEmail] = useState(known[0]?.lastEmail ?? "");
   const [password, setPassword] = useState("");
   const [deviceName, setDeviceName] = useState(suggestDeviceName);
-  const [creating, setCreating] = useState(false);
+  const [wantsToCreate, setWantsToCreate] = useState(false);
+  // Which server the answer is for, so one server's answer is never applied to another.
+  const [registration, setRegistration] = useState<{ server: string; open: boolean | null }>();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -68,6 +70,27 @@ export function SignIn() {
     // Shown only once the form is submitted; warning while someone types is noise.
     normalised = null;
   }
+
+  // Closed only when the server said so about the address in the field right now. Unknown,
+  // pending and stale all leave the link where it has always been.
+  const closed = normalised !== null && registration?.server === normalised && registration.open === false;
+  const creating = wantsToCreate && !closed;
+
+  useEffect(() => {
+    if (normalised === null) return;
+    let stale = false;
+    // Debounced: the address is normalised on every keystroke, and each prefix of it is
+    // a valid-looking host that would otherwise be asked.
+    const timer = setTimeout(() => {
+      void registrationOpen(normalised).then((open) => {
+        if (!stale) setRegistration({ server: normalised, open });
+      });
+    }, 400);
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+  }, [normalised, registrationOpen]);
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
@@ -198,16 +221,18 @@ export function SignIn() {
           <button type="submit" className="button button--confirm" disabled={busy}>
             {busy ? "Working" : creating ? "Create account" : "Sign in"}
           </button>
-          <button
-            type="button"
-            className="button"
-            onClick={() => {
-              setCreating((current) => !current);
-              setError(null);
-            }}
-          >
-            {creating ? "I already have an account" : "Create an account instead"}
-          </button>
+          {!closed && (
+            <button
+              type="button"
+              className="button"
+              onClick={() => {
+                setWantsToCreate((current) => !current);
+                setError(null);
+              }}
+            >
+              {creating ? "I already have an account" : "Create an account instead"}
+            </button>
+          )}
         </div>
       </form>
     </section>

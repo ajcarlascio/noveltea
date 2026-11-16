@@ -207,6 +207,28 @@ export async function changePassword(
   };
 }
 
+/**
+ * Whether the server accepts self-registration, or null when that cannot be told.
+ *
+ * Null covers an older server without the endpoint (404), an unreachable one and any
+ * answer in a shape this version does not know. Callers treat it as "offer sign-up":
+ * the register screen already explains a refusal, and hiding the link on a guess would
+ * lock people out of a server that is in fact open.
+ */
+export async function registrationOpen(
+  serverUrl: string,
+  fetcher: typeof fetch = fetch,
+): Promise<boolean | null> {
+  try {
+    const response = await fetcher(`${serverUrl}/api/v1/auth/config`, { credentials: "omit" });
+    if (!response.ok) return null;
+    const open = ((await response.json()) as { registrationOpen?: unknown }).registrationOpen;
+    return typeof open === "boolean" ? open : null;
+  } catch {
+    return null;
+  }
+}
+
 export const login = (serverUrl: string, credentials: Credentials, fetcher: typeof fetch = fetch) =>
   post(serverUrl, "login", credentials, fetcher);
 
