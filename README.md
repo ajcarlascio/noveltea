@@ -74,7 +74,7 @@ Three things `deploy/nginx.conf` does that matter:
   let anyone dodge the sign-in lockout. If a TLS-terminating proxy (Caddy, Traefik, nginx)
   sits in front of this container, every caller arrives as that proxy and shares one
   lockout bucket; set `NOVELTEA_TRUSTED_PROXY` on the container to its address or CIDR
-  (comma-separated for several, e.g. `172.18.0.0/16`) and nginx takes the client address
+  (addresses only, not hostnames; comma-separated for several, e.g. `172.18.0.0/16`) and nginx takes the client address
   from the `X-Forwarded-For` that proxy sends. Empty by default — only set it when the
   proxy overwrites or appends that header, and nothing else can reach port 80.
 

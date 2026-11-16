@@ -41,6 +41,8 @@ COPY --from=build /src/dist /usr/share/nginx/html
 COPY --from=build /src/csp.conf /etc/nginx/csp.conf
 COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
 COPY deploy/40-trusted-proxy.sh /docker-entrypoint.d/40-trusted-proxy.sh
+# So the include resolves even if the entrypoint script never runs (another CMD, nginx -t).
+RUN : > /etc/nginx/noveltea-realip.conf
 
 EXPOSE 80
 
