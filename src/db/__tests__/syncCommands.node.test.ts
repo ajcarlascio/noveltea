@@ -546,19 +546,51 @@ describe("pruneMissing keeps every type's unsynced rows", () => {
     });
   }
 
-  it("never deletes a manual snapshot whose content only this device holds, and queues it again", () => {
-    // Pulled snapshots never carry content, so one that does was taken here; a server
-    // that does not list it has lost it. Deleting it would destroy the only copy.
-    pull(...chapterRows());
-    const taken = COMMANDS.captureSnapshot(db.adapter, { projectId, documentId: "d1", label: "Before the cut", automatic: false });
-    db.adapter.run("DELETE FROM pending_change;");
+  describe("a manual snapshot whose content only this device holds", () => {
+    // Pulled snapshots never carry content, so one that does was taken here. Deleting it
+    // would destroy a draft that may be the only copy.
+    const taken = () => {
+      pull(...chapterRows());
+      const snapshot = COMMANDS.captureSnapshot(db.adapter, { projectId, documentId: "d1", label: "Before the cut", automatic: false });
+      db.adapter.run("DELETE FROM pending_change;");
+      return snapshot;
+    };
+    const held = (id: string) =>
+      db.adapter.query("SELECT content IS NOT NULL AS held FROM snapshot WHERE id = ?;", [id]);
 
-    COMMANDS.pruneMissing(db.adapter, { projectId, keep: { snapshot: [] } });
+    it("is queued again when the server lost it", () => {
+      const snapshot = taken();
 
-    expect(db.adapter.query("SELECT content IS NOT NULL AS held FROM snapshot WHERE id = ?;", [taken.id])).toEqual([{ held: 1 }]);
-    const [entry] = queued();
-    expect(entry).toMatchObject({ entity_type: "snapshot", entity_id: taken.id, op: "create" });
-    expect(JSON.parse(entry?.payload ?? "{}")).toMatchObject({ document_id: "d1", label: "Before the cut", content: { type: "doc" } });
+      COMMANDS.pruneMissing(db.adapter, { projectId, keep: { snapshot: [] }, requeueSnapshots: true });
+
+      expect(held(snapshot.id)).toEqual([{ held: 1 }]);
+      const [entry] = queued();
+      expect(entry).toMatchObject({ entity_type: "snapshot", entity_id: snapshot.id, op: "create" });
+      expect(JSON.parse(entry?.payload ?? "{}")).toMatchObject({ document_id: "d1", label: "Before the cut", content: { type: "doc" } });
+    });
+
+    it("is kept but not queued when the server may only have been told to delete it", () => {
+      const snapshot = taken();
+
+      COMMANDS.pruneMissing(db.adapter, { projectId, keep: { snapshot: [] } });
+
+      expect(held(snapshot.id)).toEqual([{ held: 1 }]);
+      expect(queued()).toHaveLength(0);
+      // Unsynced is a state it tolerates: the author can still delete it, and the server
+      // accepts the delete of a snapshot it has not got.
+      COMMANDS.deleteSnapshot(db.adapter, { projectId, id: snapshot.id });
+      expect(held(snapshot.id)).toEqual([]);
+    });
+
+    it("is not queued when its document is tombstoned here", () => {
+      const snapshot = taken();
+      db.adapter.run("UPDATE binder_item SET deleted_at = ? WHERE id = 'd1';", [stamp]);
+
+      COMMANDS.pruneMissing(db.adapter, { projectId, keep: { snapshot: [] }, requeueSnapshots: true });
+
+      expect(queued()).toHaveLength(0);
+      expect(held(snapshot.id)).toEqual([]);
+    });
   });
 });
 

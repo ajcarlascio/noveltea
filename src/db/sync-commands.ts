@@ -412,21 +412,30 @@ function isUniqueCollision(error: unknown): boolean {
 }
 
 /**
- * Queues a manual snapshot this device holds the content of as a create, for a server
- * that has lost it. Returns false for one without content, which only the server had.
+ * Whether this device took a manual snapshot and still holds its content, for a document
+ * that is not tombstoned here. Rows pulled from the server never carry content, so one
+ * that does was taken on this device; a snapshot of a deleted document is no one's draft.
  */
-function requeueSnapshot(db: SqliteAdapter, projectId: string, id: string): boolean {
+function ownSnapshot(db: SqliteAdapter, id: string): boolean {
+  return (
+    db.query(
+      `SELECT 1 FROM snapshot s JOIN binder_item b ON b.id = s.document_id
+        WHERE s.id = ? AND s.content IS NOT NULL AND b.deleted_at IS NULL;`,
+      [id],
+    ).length > 0
+  );
+}
+
+/** Queues a manual snapshot as a create again, for a server that has lost it. */
+function requeueSnapshot(db: SqliteAdapter, projectId: string, id: string): void {
   const row = db.query<{
     document_id: string;
     content: string;
     word_count: number;
     label: string | null;
     created_at: string;
-  }>(
-    "SELECT document_id, content, word_count, label, created_at FROM snapshot WHERE id = ? AND content IS NOT NULL;",
-    [id],
-  )[0];
-  if (!row) return false;
+  }>("SELECT document_id, content, word_count, label, created_at FROM snapshot WHERE id = ?;", [id])[0];
+  if (!row) return;
   // The same payload captureSnapshot queues.
   enqueueChange(db, {
     projectId,
@@ -443,7 +452,6 @@ function requeueSnapshot(db: SqliteAdapter, projectId: string, id: string): bool
       created_at: row.created_at,
     },
   });
-  return true;
 }
 
 /**
@@ -480,6 +488,8 @@ export interface RebuildInput {
   /** Where the feed resumes: the resync answer's latestId and epoch. */
   latestId: number;
   syncEpoch: number;
+  /** The server was restored from a backup, so a manual snapshot it does not list is lost. */
+  epochChanged?: boolean;
   now?: string;
 }
 
@@ -792,10 +802,15 @@ export const SYNC_COMMANDS = {
    * but the binder, on a server without `/sync/state` — says nothing by its absence.
    *
    * A manual snapshot that holds its content here is never removed: rows pulled from the
-   * server never carry content, so one that does was taken on this device, and the
-   * server's silence means it lost it — a restore from an older backup, or a create it
-   * refused. Deleting it would destroy a draft nothing else holds. It is queued as a
-   * create again instead, so it reaches the server.
+   * server never carry content, so one that does was taken on this device. Deleting it
+   * would destroy a draft that may be the only copy. Whether the server's silence means
+   * it lost the snapshot depends on why the rebuild happened, so the caller says:
+   * `requeueSnapshots` after a restore from an older backup (the sync epoch changed),
+   * which queues it as a create again. After an ordinary purge of the change log the
+   * absence may be another device's delete, and re-creating it would undo that; it is
+   * kept here, unsynced, which a snapshot tolerates — it is immutable, its restore reads
+   * the local content, and a delete of it is accepted by a server that has none. A
+   * snapshot of a document tombstoned here is neither kept nor queued.
    *
    * Rows with a pending change are left alone. Those are local edits the server has
    * never seen — it cannot have listed them, and their absence says nothing about
@@ -804,7 +819,7 @@ export const SYNC_COMMANDS = {
    */
   pruneMissing: (
     db: SqliteAdapter,
-    input: { projectId: string; keep: Record<string, string[]>; now?: string },
+    input: { projectId: string; keep: Record<string, string[]>; requeueSnapshots?: boolean; now?: string },
   ): { removed: number } => {
     const stamp = input.now ?? new Date().toISOString();
     const pending = new Set(
@@ -826,7 +841,10 @@ export const SYNC_COMMANDS = {
 
       for (const { id } of db.query<{ id: string }>(rows, [input.projectId])) {
         if (keep.has(id) || pending.has(id)) continue;
-        if (type === "snapshot" && requeueSnapshot(db, input.projectId, id)) continue;
+        if (type === "snapshot" && ownSnapshot(db, id)) {
+          if (input.requeueSnapshots === true) requeueSnapshot(db, input.projectId, id);
+          continue;
+        }
         if (tombstone) {
           db.run(`UPDATE ${table} SET deleted_at = ?, updated_at = ? WHERE id = ?;`, [stamp, stamp, id]);
         } else {
@@ -881,7 +899,7 @@ export const SYNC_COMMANDS = {
     if (state !== null) {
       const keep: Record<string, string[]> = Object.fromEntries(STATE_TYPES.map((type) => [type, []]));
       for (const row of state) keep[row.entityType]?.push(row.entityId);
-      SYNC_COMMANDS.pruneMissing(db, { projectId, keep, now });
+      SYNC_COMMANDS.pruneMissing(db, { projectId, keep, requeueSnapshots: input.epochChanged, now });
     }
     apply(stateRows(false));
     apply(input.binder);

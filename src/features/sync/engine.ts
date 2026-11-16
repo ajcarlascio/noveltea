@@ -131,7 +131,8 @@ export async function syncProject(
 
         if (pull.resyncRequired) {
           // The cursor points into history the server can no longer explain: retention
-          // purged it, or the project was restored from an older backup.
+          // purged it, or the project was restored from an older backup (the epoch
+          // moved, which is what tells the rebuild a snapshot the server lacks is lost).
           //
           // Rebuilt by converging on the server rather than by wiping first. Deleting
           // everything and re-fetching would open a window in which the author's binder
@@ -140,7 +141,7 @@ export async function syncProject(
           // both. The cursor moves in the same transaction, to latestId, not to 0:
           // pulling from 0 would land below the purge point again and ask for a resync
           // forever.
-          await rebuildFromServer(db, auth, projectId, pull);
+          await rebuildFromServer(db, auth, projectId, pull, pull.syncEpoch !== epoch);
           cursor = pull.latestId;
           epoch = pull.syncEpoch;
           outcome.resynced = true;
@@ -278,6 +279,7 @@ async function rebuildFromServer(
   auth: Authenticator,
   projectId: string,
   answer: { latestId: number; syncEpoch: number; stateAvailable: boolean },
+  epochChanged: boolean,
 ): Promise<void> {
   const state = answer.stateAvailable ? await fetchState(auth, projectId) : null;
 
@@ -297,6 +299,7 @@ async function rebuildFromServer(
     documents,
     latestId: answer.latestId,
     syncEpoch: answer.syncEpoch,
+    epochChanged,
   });
 }
 

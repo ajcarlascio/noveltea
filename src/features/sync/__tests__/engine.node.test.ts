@@ -398,6 +398,8 @@ describe("a resync restores everything the feed carries", () => {
     documents?: unknown[] | number;
     /** Whether the resync answer says /sync/state exists. Servers before it do not. */
     advertised?: boolean;
+    /** The epoch the server answers with. A different one than the replica's is a restore. */
+    epoch?: number;
   }) => {
     let pulls = 0;
     const fail = (status: number) => Promise.resolve(new Response("", { status }));
@@ -416,7 +418,7 @@ describe("a resync restores everything the feed carries", () => {
           pullBody({
             resyncRequired: pulls === 1,
             latestId: 60,
-            syncEpoch: 2,
+            syncEpoch: server.epoch ?? 2,
             stateAvailable: server.advertised ?? true,
           }),
         );
@@ -522,6 +524,42 @@ describe("a resync restores everything the feed carries", () => {
     // Automatic captures never leave the device; the server's silence about one means nothing.
     expect(ids("snapshot")).toEqual([automatic.id]);
     expect(queued().map((q) => q.entity_type).sort()).toEqual(["collection", "collection_item", "taxonomy"]);
+  });
+
+  describe("a manual snapshot the server does not list", () => {
+    /** A chapter and a manual snapshot of it taken here, both synced as far as this device knows. */
+    const snapshotHere = () => {
+      const chapter = COMMANDS.createBinderItem(db.adapter, { projectId, parentId: null, type: "document", title: "Chapter One" });
+      const taken = COMMANDS.captureSnapshot(db.adapter, { projectId, documentId: chapter.id, label: "Before the cut", automatic: false });
+      db.adapter.run("DELETE FROM pending_change;");
+      const binder = [{ id: chapter.id, type: "document", title: "Chapter One", orderKey: "m", version: 1 }];
+      const documents = [{ id: chapter.id, content: { type: "doc" }, version: 1, updatedAt: stamp }];
+      return { chapter, taken, binder, documents };
+    };
+    const held = (id: string) =>
+      db.adapter.query("SELECT 1 FROM snapshot WHERE id = ? AND content IS NOT NULL;", [id]).length;
+
+    it("is queued again when the server was restored from a backup", async () => {
+      const { taken, binder, documents } = snapshotHere();
+      const auth = purgedServer({ state: [], binder, documents, epoch: 2 });
+
+      await syncProject({ db: db.client, auth }, projectId);
+
+      expect(held(taken.id)).toBe(1);
+      expect(queued().map((q) => [q.entity_type, q.entity_id, q.op])).toEqual([["snapshot", taken.id, "create"]]);
+    });
+
+    it("is kept, and not re-created, when a purge of the change log is all that happened", async () => {
+      // Its absence may be another device's delete, and creating it again would undo that.
+      const { taken, binder, documents } = snapshotHere();
+      const auth = purgedServer({ state: [], binder, documents, epoch: 1 });
+
+      const outcome = await syncProject({ db: db.client, auth }, projectId);
+
+      expect(outcome.resynced).toBe(true);
+      expect(held(taken.id)).toBe(1);
+      expect(queued()).toHaveLength(0);
+    });
   });
 
   it("falls back to the tree and the bodies on a server that does not advertise the endpoint", async () => {
