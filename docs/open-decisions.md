@@ -85,7 +85,11 @@ mobile support has never been initialised in this repository — `src-tauri/gen/
 schemas, and `gen/android` and `gen/apple` are gitignored — so
 `.github/workflows/mobile.yml` runs `tauri <platform> init` and builds what that generates.
 It is a **spike, not a gate**: it runs on request, it has not passed yet, and until it has,
-nothing here is evidence that the app builds for a phone. The substantive risk it exists to
+nothing here is evidence that the app builds for a phone. First results (Android and iOS
+alike): the toolchain and `tauri <platform> init` work, but the Rust build stops at
+`src-tauri/src/lib.rs:312` because `tauri-plugin-single-instance` is desktop-only and has no
+`init` on mobile. That is in the app, not the workflow, and the SQLite/OPFS question has not
+been reached. The substantive risk it exists to
 answer is whether Tauri v2 mobile can carry this app's SQLite and OPFS use at all, or
 whether a phone needs a different local store. That question is open.
 
