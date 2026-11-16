@@ -57,6 +57,18 @@ describe("createProject", () => {
   });
 });
 
+describe("an adopted project that has not synced yet", () => {
+  // Its trash node is the server's and arrives with the first pull; nothing local may
+  // stand in for it. The commands that need it refuse in words an author can act on.
+  it("has no trash node, and the trash commands say to sync first", () => {
+    const adopted = "from-server";
+    COMMANDS.adoptProject(db.adapter, { id: adopted, title: "Elsewhere", settings: null });
+    const rows = db.adapter.query("SELECT id FROM binder_item WHERE project_id = ?;", [adopted]);
+    expect(rows).toHaveLength(0);
+    expect(() => COMMANDS.emptyTrash(db.adapter, { projectId: adopted })).toThrow(/Sync it first/);
+  });
+});
+
 describe("createBinderItem", () => {
   it("appends to the end of the sibling list", () => {
     create("Act I");

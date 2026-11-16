@@ -49,7 +49,9 @@ function trashNodeId(db: SqliteAdapter, projectId: string): string {
     "SELECT id FROM binder_item WHERE project_id = ? AND type = 'trash';",
     [projectId],
   )[0];
-  if (!row) throw new Error("This project has no trash node.");
+  // Only an adopted project that has not synced yet lacks one: its real trash node,
+  // with the server's id, comes down with the first pull. See `adoptProject`.
+  if (!row) throw new Error("This project has not finished arriving from the server. Sync it first.");
   return row.id;
 }
 
