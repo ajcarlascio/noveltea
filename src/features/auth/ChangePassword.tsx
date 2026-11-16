@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { useAuth } from "./AuthContext";
 import { MINIMUM_PASSWORD_LENGTH } from "./passwords";
 import "./SignIn.css";

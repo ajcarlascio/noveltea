@@ -1,5 +1,5 @@
 import { act, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 import { DatabaseProvider } from "@/app/db/DatabaseProvider";
 import { DatabaseClient } from "@/db/client";
@@ -11,7 +11,7 @@ function renderProjects() {
   const client = new DatabaseClient(fake.worker);
   render(
     <DatabaseProvider create={() => client}>
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <MemoryRouter>
         <Projects />
       </MemoryRouter>
     </DatabaseProvider>,

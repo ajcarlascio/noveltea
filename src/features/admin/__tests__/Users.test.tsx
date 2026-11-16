@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 import { AuthProvider } from "@/features/auth/AuthProvider";
 import type { Session } from "@/features/auth/session";
@@ -79,7 +79,7 @@ function server(handlers: { users?: () => Response; create?: () => Response; res
 
 function renderUsers(fetcher = server({}), session: Session | null = SESSION) {
   render(
-    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <MemoryRouter>
       <AuthProvider initialSession={session} fetcher={fetcher}>
         <Users />
       </AuthProvider>
