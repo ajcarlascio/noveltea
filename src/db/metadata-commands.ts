@@ -204,7 +204,7 @@ function queueField(
   });
 }
 
-function queueValue(
+export function queueValue(
   db: SqliteAdapter,
   projectId: string,
   row: MetadataValueRow,

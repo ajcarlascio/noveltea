@@ -1,6 +1,7 @@
 import { enqueueChange, type SqliteAdapter } from "@noveltea/client-db";
 import {
   ITEM_COLUMNS,
+  mintTrash,
   queueItem as queue,
   requireItem,
   type BinderItemRow,
@@ -260,10 +261,10 @@ export const COMMANDS = {
   /**
    * Creates a project and its trash node locally.
    *
-   * Nothing is queued: `pending_change` has no `project` entity type, because the
-   * sync endpoint is scoped by a project id in its path and so cannot carry the
-   * creation of one. A project made offline therefore does not reach the server
-   * yet — see README, "Creating a project offline".
+   * The project itself is not queued: `pending_change` has no `project` entity type,
+   * because the sync endpoint is scoped by a project id in its path and so cannot carry
+   * the creation of one. The engine registers it before its first sync. The trash node
+   * is queued, as a binder item like any other.
    */
   createProject: (db: SqliteAdapter, input: CreateProjectInput): { id: string; title: string } => {
     const title = input.title.trim();
@@ -275,11 +276,7 @@ export const COMMANDS = {
       "INSERT INTO project (id, title, created_at, updated_at) VALUES (?, ?, ?, ?);",
       [id, title, stamp, stamp],
     );
-    db.run(
-      `INSERT INTO binder_item (id, project_id, parent_id, type, title, order_key, created_at, updated_at)
-       VALUES (?, ?, NULL, 'trash', 'Trash', ?, ?, ?);`,
-      [newId(), id, between(null, null), stamp, stamp],
-    );
+    mintTrash(db, id);
     return { id, title };
   },
 
@@ -288,8 +285,8 @@ export const COMMANDS = {
    *
    * This is how a second device gets its books: nothing else brings a project row
    * down, because the change feed is scoped to a project the client must already
-   * know about. No trash node is made here — the server's own arrives with the first
-   * pull, and making a local one would leave the project with two.
+   * know about. No trash node is made here — the one the project's first device pushed
+   * arrives with the first pull, and making a local one would leave the project with two.
    *
    * Never touches a project that is already here: the local title may be a rename
    * still waiting to be pushed.

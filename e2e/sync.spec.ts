@@ -83,8 +83,9 @@ test("shows what is waiting to go out", async ({ page }) => {
   await page.getByRole("button", { name: "New folder" }).click();
   await expect(page.getByRole("treeitem")).toHaveCount(1);
 
-  // Ambient status: a count, not a prompt.
-  await expect(page.getByText(/1 change waiting/i)).toBeVisible({ timeout: 10_000 });
+  // Ambient status: a count, not a prompt. Two, because the stub accepts nothing: the
+  // folder, and the project's trash node, which is queued like any other binder item.
+  await expect(page.getByText(/2 changes waiting/i)).toBeVisible({ timeout: 10_000 });
 });
 
 test("keeps writing possible when the server cannot be reached", async ({ page }) => {

@@ -52,6 +52,15 @@ describe("createProject", () => {
     expect(trash).toHaveLength(1);
   });
 
+  it("queues the trash node, which the server makes only for its own REST endpoint", () => {
+    // Without it, whatever is trashed here moves under a parent the server has never
+    // heard of, and the push is refused.
+    expect(queued().map((row) => [row.entity_type, row.entity_id, row.op])).toEqual([
+      ["binder_item", trashId(), "create"],
+    ]);
+    expect(JSON.parse(queued()[0]!.payload!)).toMatchObject({ type: "trash", parent_id: null });
+  });
+
   it("refuses a blank title", () => {
     expect(() => COMMANDS.createProject(db.adapter, { title: "   " })).toThrow(/title/i);
   });
@@ -84,7 +93,7 @@ describe("createBinderItem", () => {
 
   it("queues a create for the server", () => {
     const folder = create("Act I");
-    const rows = queued();
+    const rows = queued().filter((row) => row.entity_id !== trashId());
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ entity_type: "binder_item", entity_id: folder.id, op: "create" });
     expect(JSON.parse(rows[0]!.payload!)).toMatchObject({ title: "Act I", type: "folder" });
@@ -126,7 +135,7 @@ describe("renameBinderItem", () => {
     const folder = create("Act I");
     COMMANDS.renameBinderItem(db.adapter, { projectId, id: folder.id, title: "Act One" });
     // Downgrading to "update" would push an edit for a row the server has never seen.
-    const rows = queued();
+    const rows = queued().filter((row) => row.entity_id !== trashId());
     expect(rows).toHaveLength(1);
     expect(rows[0]!.op).toBe("create");
     expect(JSON.parse(rows[0]!.payload!)).toMatchObject({ title: "Act One" });

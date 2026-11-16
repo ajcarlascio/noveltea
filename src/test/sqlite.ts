@@ -40,7 +40,17 @@ export function openTestDatabase(): TestDatabase {
       Promise.resolve(adapter.query<T>(sql, params)),
     command: <K extends CommandName>(name: K, input: CommandInput<K>) => {
       const run = COMMANDS[name] as (db: SqliteAdapter, value: unknown) => CommandResult<K>;
-      const result = run(adapter, input);
+      // One transaction per command, as the worker's dispatcher runs them, so a command
+      // that throws partway leaves nothing behind here either.
+      adapter.exec("BEGIN;");
+      let result: CommandResult<K>;
+      try {
+        result = run(adapter, input);
+        adapter.exec("COMMIT;");
+      } catch (error) {
+        adapter.exec("ROLLBACK;");
+        return Promise.reject(error instanceof Error ? error : new Error(String(error)));
+      }
       if (!READ_ONLY_COMMANDS.has(name)) {
         for (const listener of changeListeners) listener();
       }

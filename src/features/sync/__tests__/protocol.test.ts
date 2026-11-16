@@ -99,7 +99,7 @@ describe("parsePushResponse", () => {
     // Retrying an unknown refusal forever is worse than dropping it once.
     const parsed = parsePushResponse({ conflicts: [{ entityId: "d1" }] });
     expect(parsed.conflicts[0]!.reason).toBe("invalid_request");
-    expect(shouldStayQueued(parsed.conflicts[0]!.reason)).toBe(false);
+    expect(shouldStayQueued(parsed.conflicts[0]!)).toBe(false);
   });
 
   it("survives arrays that are not arrays", () => {
@@ -109,15 +109,32 @@ describe("parsePushResponse", () => {
 });
 
 describe("shouldStayQueued", () => {
-  it("keeps only what a later server version might accept", () => {
-    expect(shouldStayQueued("not_implemented")).toBe(true);
+  const refusal = (over: Partial<Parameters<typeof shouldStayQueued>[0]>) => ({
+    reason: "invalid_request",
+    entityType: "binder_item",
+    conflictCopyId: null,
+    ...over,
+  });
+
+  it("keeps what a later server version might accept", () => {
+    expect(shouldStayQueued(refusal({ reason: "not_implemented" }))).toBe(true);
+  });
+
+  it("keeps a document the server refused without keeping its text anywhere", () => {
+    // Cleared, the only copy of the words would sit on this device with nothing to say
+    // it never arrived.
+    for (const reason of ["invalid_request", "who_knows"]) {
+      expect(shouldStayQueued(refusal({ entityType: "document", reason })), reason).toBe(true);
+    }
   });
 
   it("clears everything whose outcome is already decided", () => {
     // version_mismatch above all: the server kept its version and preserved the
     // author's text as a conflict copy. Retrying would make another copy every push.
     for (const reason of ["version_mismatch", "duplicate_create", "entity_missing", "invalid_request", "who_knows"]) {
-      expect(shouldStayQueued(reason), reason).toBe(false);
+      expect(shouldStayQueued(refusal({ reason })), reason).toBe(false);
     }
+    expect(shouldStayQueued(refusal({ entityType: "document", reason: "version_mismatch", conflictCopyId: "c1" }))).toBe(false);
+    expect(shouldStayQueued(refusal({ entityType: "document", reason: "entity_missing" }))).toBe(false);
   });
 });
