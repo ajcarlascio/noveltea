@@ -393,7 +393,7 @@ describe("pruneMissing", () => {
     });
     db.adapter.run("DELETE FROM pending_change;");
 
-    expect(COMMANDS.pruneMissing(db.adapter, { projectId, keepIds: [] })).toEqual({ removed: 1 });
+    expect(COMMANDS.pruneMissing(db.adapter, { projectId, keep: { binder_item: [] } })).toEqual({ removed: 1 });
 
     // Its delete row was purged by retention, so absence is the only thing left
     // saying it is gone. Keeping it would leave a ghost the author cannot remove.
@@ -409,7 +409,7 @@ describe("pruneMissing", () => {
     });
     db.adapter.run("DELETE FROM pending_change;");
 
-    COMMANDS.pruneMissing(db.adapter, { projectId, keepIds: [kept.id] });
+    COMMANDS.pruneMissing(db.adapter, { projectId, keep: { binder_item: [kept.id] } });
     expect(item(kept.id).deleted_at).toBeNull();
   });
 
@@ -418,7 +418,7 @@ describe("pruneMissing", () => {
       projectId, parentId: null, type: "folder", title: "Written offline",
     });
 
-    COMMANDS.pruneMissing(db.adapter, { projectId, keepIds: [] });
+    COMMANDS.pruneMissing(db.adapter, { projectId, keep: { binder_item: [] } });
 
     // The server could not have listed it. Its absence says nothing about whether the
     // author still wants it, and removing it would delete unsynced writing.
@@ -428,7 +428,7 @@ describe("pruneMissing", () => {
   it("never removes the trash node", () => {
     // The server does not list it in the binder, and a project without one has
     // nowhere to trash things.
-    COMMANDS.pruneMissing(db.adapter, { projectId, keepIds: [] });
+    COMMANDS.pruneMissing(db.adapter, { projectId, keep: { binder_item: [] } });
     expect(
       db.adapter.query("SELECT id FROM binder_item WHERE project_id = ? AND type = 'trash';", [projectId]),
     ).toHaveLength(1);
@@ -441,8 +441,39 @@ describe("pruneMissing", () => {
     });
     db.adapter.run("DELETE FROM pending_change;");
 
-    COMMANDS.pruneMissing(db.adapter, { projectId, keepIds: [] });
+    COMMANDS.pruneMissing(db.adapter, { projectId, keep: { binder_item: [] } });
     expect(item(theirs.id).deleted_at).toBeNull();
+  });
+});
+
+describe("pruneMissing beyond the binder", () => {
+  const labels = () =>
+    db.adapter.query<{ name: string }>("SELECT name FROM taxonomy WHERE deleted_at IS NULL ORDER BY name;").map((r) => r.name);
+
+  it("touches only the types it was given", () => {
+    COMMANDS.createTaxonomy(db.adapter, { projectId, kind: "label", name: "Draft", color: null });
+    db.adapter.run("DELETE FROM pending_change;");
+
+    // A server that cannot list labels says nothing about them by leaving them out.
+    COMMANDS.pruneMissing(db.adapter, { projectId, keep: { binder_item: [] } });
+    expect(labels()).toEqual(["Draft"]);
+
+    COMMANDS.pruneMissing(db.adapter, { projectId, keep: { taxonomy: [] } });
+    expect(labels()).toEqual([]);
+  });
+
+  it("deletes where the table has no tombstone, and leaves another project alone", () => {
+    const other = COMMANDS.createProject(db.adapter, { title: "Other" }).id;
+    COMMANDS.createTaxonomy(db.adapter, { projectId: other, kind: "label", name: "Theirs", color: null });
+    const item = COMMANDS.createBinderItem(db.adapter, { projectId, parentId: null, type: "folder", title: "Act I" });
+    const collection = COMMANDS.createCollection(db.adapter, { projectId, name: "Mine", color: null, query: null });
+    COMMANDS.addToCollection(db.adapter, { projectId, collectionId: collection.id, binderItemId: item.id });
+    db.adapter.run("DELETE FROM pending_change;");
+
+    COMMANDS.pruneMissing(db.adapter, { projectId, keep: { taxonomy: [], collection_item: [] } });
+
+    expect(labels()).toEqual(["Theirs"]);
+    expect(db.adapter.query("SELECT id FROM collection_item;")).toEqual([]);
   });
 });
 

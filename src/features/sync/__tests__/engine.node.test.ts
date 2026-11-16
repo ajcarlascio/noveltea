@@ -127,6 +127,30 @@ describe("pulling", () => {
     expect(calls.filter((c) => c.method === "GET")).toHaveLength(4);
   });
 
+  it("applies an item whose label's own row comes later in the same feed", async () => {
+    // Feed rows carry an entity's current state, so an item's oldest row already names a
+    // label created after it. Refusing that row would fail the page every time.
+    const labelled = binderRow("b1", { label_id: "l1" });
+    const { auth } = fakeAuth(() =>
+      ok(
+        pullBody({
+          latestId: 11,
+          changes: [
+            { id: 5, entityType: "binder_item", entityId: "b1", op: "create", data: labelled },
+            {
+              id: 10, entityType: "taxonomy", entityId: "l1", op: "create",
+              data: { id: "l1", project_id: projectId, kind: "label", name: "Draft", order_key: "m", created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z" },
+            },
+            { id: 11, entityType: "binder_item", entityId: "b1", op: "update", data: labelled },
+          ],
+        }),
+      ),
+    );
+
+    await syncProject({ db: db.client, auth }, projectId);
+    expect(db.adapter.query("SELECT label_id FROM binder_item WHERE id = 'b1';")).toEqual([{ label_id: "l1" }]);
+  });
+
   it("ignores a row that is not a change rather than stalling the feed", async () => {
     const { auth } = fakeAuth(() =>
       ok(
@@ -150,6 +174,7 @@ describe("pulling", () => {
 describe("a resync", () => {
   it("rebuilds the tree and resumes at latestId, not at zero", async () => {
     const { auth, calls } = fakeAuth((path) => {
+      if (path.endsWith("/sync/state")) return ok([]);
       if (path.includes("/binder")) return ok([{ id: "b1", type: "folder", title: "From the server", orderKey: "m", version: 2 }]);
       if (path.includes("/sync") && calls.filter((c) => c.path.includes("/sync") && c.method === "GET").length === 1) {
         return ok(pullBody({ resyncRequired: true, latestId: 88, syncEpoch: 5 }));
@@ -168,12 +193,12 @@ describe("a resync", () => {
     ]);
   });
 
-  it("rebuilds a labelled item whose label this device has never held", async () => {
-    // A new device always lands here once retention has purged any of the feed. The
-    // binder names the label by id and the server has no endpoint that lists labels,
-    // so the item must still arrive — its label_id references a row that cannot be
-    // fetched, and a foreign-key failure would fail every sync of the project.
+  it("rebuilds a labelled item from a server too old to list its label", async () => {
+    // A server without /sync/state cannot send the label, so the item's label_id names
+    // a row this device will not get from the rebuild. The item must still arrive: a
+    // foreign-key failure would fail every sync of the project.
     const { auth } = fakeAuth((path) => {
+      if (path.endsWith("/sync/state")) return Promise.resolve(new Response("", { status: 500 }));
       if (path.includes("/binder")) {
         return ok([{ id: "b1", type: "folder", title: "Labelled", orderKey: "m", version: 2, labelId: "label-from-elsewhere" }]);
       }
@@ -199,6 +224,7 @@ describe("a resync", () => {
     let binderFetches = 0;
 
     const { auth } = fakeAuth((path) => {
+      if (path.endsWith("/sync/state")) return ok([]);
       if (path.includes("/binder")) {
         binderFetches += 1;
         return ok([]);
@@ -234,6 +260,7 @@ describe("a resync", () => {
 
     let firstSync = true;
     const { auth } = fakeAuth((path) => {
+      if (path.endsWith("/sync/state")) return ok([]);
       if (path.includes("/binder")) {
         return ok([{ id: item.id, type: "document", title: "Chapter One", orderKey: "m", version: 9 }]);
       }
@@ -277,6 +304,7 @@ describe("a resync", () => {
     const seen: string[] = [];
 
     const { auth } = fakeAuth((path) => {
+      if (path.endsWith("/sync/state")) return ok([]);
       if (path.includes("/binder")) {
         return ok(ids.map((id, i) => ({ id, type: "document", title: `Doc ${String(i)}`, orderKey: `m${String(i)}`, version: 1 })));
       }
@@ -327,6 +355,7 @@ describe("a resync", () => {
 
     let firstSync = true;
     const { auth } = fakeAuth((path) => {
+      if (path.endsWith("/sync/state")) return ok([]);
       if (path.includes("/binder")) return ok([]);
       if (path.includes("/documents")) return ok({ documents: [], nextCursor: null, hasMore: false });
       if (firstSync) {
@@ -349,6 +378,144 @@ describe("a resync", () => {
     // The server cannot have listed this: it has never been pushed. Its absence says
     // nothing about whether the author still wants it.
     expect(deleted(mine.id)).toBeNull();
+  });
+});
+
+describe("a resync restores everything the feed carries", () => {
+  const stamp = "2026-03-01T00:00:00Z";
+  const row = (entityType: string, id: string, data: Record<string, unknown>) => ({
+    entityType,
+    entityId: id,
+    data: { id, version: 1, updated_by_device_id: null, created_at: stamp, updated_at: stamp, ...data },
+  });
+  const label = (id: string, name: string) =>
+    row("taxonomy", id, { project_id: projectId, kind: "label", name, color: "#cc3300", order_key: "m", deleted_at: null });
+
+  /** A server whose feed is purged: the first pull asks for a rebuild, the rest are empty. */
+  const purgedServer = (server: {
+    state: unknown[] | number;
+    binder?: unknown[];
+    documents?: unknown[];
+  }) => {
+    let pulls = 0;
+    return fakeAuth((path) => {
+      if (path.endsWith("/sync/state")) {
+        return typeof server.state === "number"
+          ? Promise.resolve(new Response("", { status: server.state }))
+          : ok(server.state);
+      }
+      if (path.includes("/binder")) return ok(server.binder ?? []);
+      if (path.includes("/documents")) {
+        return ok({ documents: server.documents ?? [], nextCursor: null, hasMore: false });
+      }
+      if (path.includes("/sync")) {
+        pulls += 1;
+        return ok(pullBody({ resyncRequired: pulls === 1, latestId: 60, syncEpoch: 2 }));
+      }
+      return ok(pushBody());
+    }).auth;
+  };
+
+  const ids = (table: string, where = "1") =>
+    db.adapter.query<{ id: string }>(`SELECT id FROM ${table} WHERE ${where} ORDER BY id;`).map((r) => r.id);
+  const live = (table: string) => ids(table, "deleted_at IS NULL");
+
+  it("gives a new device on a purged project every type, not only the tree and the prose", async () => {
+    const thread = row("comment", "c1", {
+      project_id: projectId, document_id: "d1", parent_comment_id: null, author_user_id: "u1",
+      body: "Tighten this", anchor: { from: 1, to: 4, quotedText: "The" },
+      resolved_at: null, resolved_by_user_id: null, deleted_at: null,
+    });
+    const auth = purgedServer({
+      state: [
+        label("l1", "Draft"),
+        row("taxonomy", "s1", { project_id: projectId, kind: "status", name: "First pass", color: null, order_key: "m", deleted_at: null }),
+        row("custom_metadata_field", "f1", { project_id: projectId, name: "POV", field_type: "text", options: null, order_key: "m", deleted_at: null }),
+        row("collection", "k1", { project_id: projectId, name: "Act I", query: null, is_smart: false, color: null, order_key: "m", deleted_at: null }),
+        row("compile_preset", "p1", {
+          project_id: projectId, name: "Manuscript", format: "md", included_binder_items: ["d1"],
+          include_query: null, separator_rules: {}, title_page: null, front_matter: null, deleted_at: null,
+        }),
+        row("custom_metadata_value", "v1", { binder_item_id: "d1", field_id: "f1", value: "Ann" }),
+        row("collection_item", "i1", { collection_id: "k1", binder_item_id: "d1", order_key: "m" }),
+        thread,
+        row("comment", "c2", { ...thread.data, id: "c2", parent_comment_id: "c1", anchor: null, body: "Agreed" }),
+        row("snapshot", "n1", {
+          project_id: projectId, document_id: "d1", word_count: 3, label: "Before the cut",
+          is_automatic: false, created_by_device_id: null,
+        }),
+      ],
+      binder: [{ id: "d1", type: "document", title: "Chapter One", orderKey: "m", labelId: "l1", statusId: "s1", version: 3 }],
+      documents: [{ id: "d1", content: { type: "doc" }, searchText: "The light", wordCount: 2, version: 3, updatedAt: stamp }],
+    });
+
+    await syncProject({ db: db.client, auth }, projectId);
+
+    expect(live("taxonomy")).toEqual(["l1", "s1"]);
+    expect(live("custom_metadata_field")).toEqual(["f1"]);
+    expect(live("collection")).toEqual(["k1"]);
+    expect(live("compile_preset")).toEqual(["p1"]);
+    expect(ids("collection_item")).toEqual(["i1"]);
+    expect(live("comment")).toEqual(["c1", "c2"]);
+    expect(ids("snapshot")).toEqual(["n1"]);
+    // Stored as JSON text, the way a value set on this device is.
+    expect(db.adapter.query("SELECT value FROM custom_metadata_value;")).toEqual([{ value: '"Ann"' }]);
+    // Taxonomy arrives first, so the item keeps the label it names.
+    expect(db.adapter.query("SELECT label_id, status_id FROM binder_item WHERE id = 'd1';")).toEqual([
+      { label_id: "l1", status_id: "s1" },
+    ]);
+    expect(state().lastChangeId).toBe(60);
+  });
+
+  it("loses ghosts, gains what it missed, and keeps every unsynced edit", async () => {
+    const chapter = COMMANDS.createBinderItem(db.adapter, { projectId, parentId: null, type: "document", title: "Chapter One" });
+    const ghostLabel = COMMANDS.createTaxonomy(db.adapter, { projectId, kind: "label", name: "Draft", color: null });
+    const field = COMMANDS.createMetadataField(db.adapter, { projectId, name: "POV", fieldType: "text" });
+    const ghostValue = COMMANDS.setMetadataValue(db.adapter, { projectId, binderItemId: chapter.id, fieldId: field.id, value: "Ann" });
+    const automatic = COMMANDS.captureSnapshot(db.adapter, { projectId, documentId: chapter.id, label: null, automatic: true });
+    db.adapter.run("DELETE FROM pending_change;");
+
+    // Made offline after the last sync: the server has never heard of either.
+    const offlineLabel = COMMANDS.createTaxonomy(db.adapter, { projectId, kind: "label", name: "Revise", color: null });
+    const offlineCollection = COMMANDS.createCollection(db.adapter, { projectId, name: "Mine", color: null, query: null });
+    COMMANDS.addToCollection(db.adapter, { projectId, collectionId: offlineCollection.id, binderItemId: chapter.id });
+
+    const auth = purgedServer({
+      state: [
+        // Draft was deleted and made again on another device, under a new id; so was
+        // the value, which the unique (item, field) index would refuse beside the ghost.
+        label("l2", "Draft"),
+        row("custom_metadata_field", field.id, { project_id: projectId, name: "POV", field_type: "text", options: null, order_key: "m", deleted_at: null }),
+        row("custom_metadata_value", "v2", { binder_item_id: chapter.id, field_id: field.id, value: "Bea" }),
+      ],
+      binder: [{ id: chapter.id, type: "document", title: "Chapter One", orderKey: "m", version: 2 }],
+    });
+
+    await syncProject({ db: db.client, auth }, projectId);
+
+    expect(live("taxonomy")).toEqual([offlineLabel.id, "l2"].sort());
+    expect(live("taxonomy")).not.toContain(ghostLabel.id);
+    expect(ids("custom_metadata_value")).toEqual(["v2"]);
+    expect(ghostValue.id).not.toBe("v2");
+    expect(live("collection")).toEqual([offlineCollection.id]);
+    expect(ids("collection_item")).toHaveLength(1);
+    // Automatic captures never leave the device; the server's silence about one means nothing.
+    expect(ids("snapshot")).toEqual([automatic.id]);
+    expect(queued().map((q) => q.entity_type).sort()).toEqual(["collection", "collection_item", "taxonomy"]);
+  });
+
+  it("falls back to the tree and the bodies on a server without the endpoint", async () => {
+    const kept = COMMANDS.createTaxonomy(db.adapter, { projectId, kind: "label", name: "Draft", color: null });
+    db.adapter.run("DELETE FROM pending_change;");
+
+    for (const status of [404, 500]) {
+      db.adapter.run("UPDATE sync_state SET last_change_id = 0 WHERE project_id = ?;", [projectId]);
+      await syncProject({ db: db.client, auth: purgedServer({ state: status }) }, projectId);
+
+      // It could not list labels, so its silence about this one says nothing.
+      expect(live("taxonomy")).toEqual([kept.id]);
+      expect(state().lastChangeId).toBe(60);
+    }
   });
 });
 

@@ -25,6 +25,32 @@ const TABLES: Record<string, string> = {
   comment: "comment",
 };
 
+/**
+ * The rows of a project a rebuild may prune, per entity type: live ones, scoped through
+ * whichever parent carries the project where the table has no project_id.
+ *
+ * The trash node is structural, not content: the server does not list it in the binder,
+ * and removing it would leave the project with nowhere to trash things. Automatic
+ * snapshots never leave the device, so the server's silence about them means nothing.
+ */
+const PRUNABLE: Record<string, string> = {
+  binder_item:
+    "SELECT id FROM binder_item WHERE project_id = ? AND deleted_at IS NULL AND type <> 'trash';",
+  taxonomy: "SELECT id FROM taxonomy WHERE project_id = ? AND deleted_at IS NULL;",
+  custom_metadata_field:
+    "SELECT id FROM custom_metadata_field WHERE project_id = ? AND deleted_at IS NULL;",
+  collection: "SELECT id FROM collection WHERE project_id = ? AND deleted_at IS NULL;",
+  compile_preset: "SELECT id FROM compile_preset WHERE project_id = ? AND deleted_at IS NULL;",
+  comment: "SELECT id FROM comment WHERE project_id = ? AND deleted_at IS NULL;",
+  custom_metadata_value: `SELECT v.id FROM custom_metadata_value v
+                            JOIN binder_item b ON b.id = v.binder_item_id WHERE b.project_id = ?;`,
+  collection_item: `SELECT i.id FROM collection_item i
+                      JOIN collection c ON c.id = i.collection_id WHERE c.project_id = ?;`,
+  snapshot: `SELECT s.id FROM snapshot s
+               JOIN binder_item b ON b.id = s.document_id
+              WHERE b.project_id = ? AND s.is_automatic = 0;`,
+};
+
 export interface ChangeRecord {
   id: number;
   entityType: string;
@@ -211,15 +237,23 @@ export const SYNC_COMMANDS = {
 
       const data = { ...(change.data ?? {}) };
       if (table === "binder_item") {
-        // A label or status this replica holds no row for cannot be referenced: the
-        // server offers no way to list labels, so after a rebuild the row may never
-        // arrive, and the foreign key would fail every sync of the project. The item
-        // matters more than its tag; the tag returns if its own row is ever pulled.
+        // A label or status this replica holds no row for cannot be referenced, and the
+        // foreign key would fail the page. A rebuild brings taxonomy first, so this is
+        // for what remains: the feed hydrates each row with the item's *current* state,
+        // so an item's oldest row can name a label whose own row comes later in the
+        // feed — and a server too old for `/sync/state` never sends it at all. The item
+        // matters more than its tag; the tag returns with the later row that set it.
         for (const key of ["label_id", "status_id"]) {
           const ref = data[key];
           if (typeof ref !== "string") continue;
           if (db.query("SELECT 1 FROM taxonomy WHERE id = ?;", [ref]).length === 0) data[key] = null;
         }
+      }
+      if (table === "custom_metadata_value" && data.value !== null && data.value !== undefined) {
+        // jsonb on the server, JSON text here. A text, date or select value arrives as a
+        // bare string, which stored as-is is not JSON, fails the column's check, and
+        // with it the page; a boolean would come back as 1.
+        data.value = JSON.stringify(data.value);
       }
       const names = Object.keys(data).filter((key) => columns.has(key));
       if (!names.includes("id")) names.push("id");
@@ -357,27 +391,26 @@ export const SYNC_COMMANDS = {
   },
 
   /**
-   * Tombstones binder items the server did not list during a rebuild.
+   * Removes rows the server did not list during a rebuild.
    *
-   * A rebuild that only upserts leaves ghosts: an item deleted on the server while
-   * this client was away, whose delete row retention has since purged, would linger
-   * locally forever with nothing left to say it is gone.
+   * A rebuild that only upserts leaves ghosts: a row deleted on the server while this
+   * client was away, whose delete row retention has since purged, would linger locally
+   * forever with nothing left to say it is gone. Removed as a pulled delete would remove
+   * it — tombstoned where the table has `deleted_at`, deleted where it has not.
    *
-   * Items with a pending change are left alone. Those are local edits the server has
+   * Only the types in `keep` are touched. A type the server could not list — anything
+   * but the binder, on a server without `/sync/state` — says nothing by its absence.
+   *
+   * Rows with a pending change are left alone. Those are local edits the server has
    * never seen — it cannot have listed them, and their absence says nothing about
-   * whether the author still wants them.
+   * whether the author still wants them. Matched by id alone, so a binder item whose
+   * document has unpushed writing is kept along with it.
    */
   pruneMissing: (
     db: SqliteAdapter,
-    input: { projectId: string; keepIds: string[]; now?: string },
+    input: { projectId: string; keep: Record<string, string[]>; now?: string },
   ): { removed: number } => {
     const stamp = input.now ?? new Date().toISOString();
-    const keep = new Set(input.keepIds);
-
-    const rows = db.query<{ id: string; type: string }>(
-      "SELECT id, type FROM binder_item WHERE project_id = ? AND deleted_at IS NULL;",
-      [input.projectId],
-    );
     const pending = new Set(
       db
         .query<{ entity_id: string }>(
@@ -388,17 +421,22 @@ export const SYNC_COMMANDS = {
     );
 
     let removed = 0;
-    for (const row of rows) {
-      // The trash node is structural, not content: the server does not list it in the
-      // binder, and removing it would leave the project with nowhere to trash things.
-      if (row.type === "trash") continue;
-      if (keep.has(row.id) || pending.has(row.id)) continue;
-      db.run("UPDATE binder_item SET deleted_at = ?, updated_at = ? WHERE id = ?;", [
-        stamp,
-        stamp,
-        row.id,
-      ]);
-      removed += 1;
+    for (const [type, ids] of Object.entries(input.keep)) {
+      const rows = PRUNABLE[type];
+      const table = TABLES[type];
+      if (rows === undefined || table === undefined) continue;
+      const keep = new Set(ids);
+      const tombstone = columnsOf(db, table).has("deleted_at");
+
+      for (const { id } of db.query<{ id: string }>(rows, [input.projectId])) {
+        if (keep.has(id) || pending.has(id)) continue;
+        if (tombstone) {
+          db.run(`UPDATE ${table} SET deleted_at = ?, updated_at = ? WHERE id = ?;`, [stamp, stamp, id]);
+        } else {
+          db.run(`DELETE FROM ${table} WHERE id = ?;`, [id]);
+        }
+        removed += 1;
+      }
     }
     return { removed };
   },

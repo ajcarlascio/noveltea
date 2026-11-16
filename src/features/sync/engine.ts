@@ -216,26 +216,68 @@ export async function syncProject(
 }
 
 /**
+ * Every type `GET /sync/state` lists. A type the server listed nothing for still has to
+ * be pruned, so this is fixed here rather than read from the rows.
+ */
+const STATE_TYPES = [
+  "taxonomy",
+  "custom_metadata_field",
+  "collection",
+  "compile_preset",
+  "custom_metadata_value",
+  "collection_item",
+  "comment",
+  "snapshot",
+];
+
+/** State rows that reference a binder item or a document, and so go in after them. */
+const NEEDS_BINDER = new Set(["custom_metadata_value", "collection_item", "comment", "snapshot"]);
+
+/**
  * Rebuilds a project from the server after a resync.
  *
- * Three steps, in this order:
+ * Five steps, in this order:
  *
- * 1. The tree, from `GET /binder`.
- * 2. Every document body, from `GET /projects/{id}/documents`, paged. This endpoint
+ * 1. Everything else the feed carries, from `GET /sync/state`. Rows of those types the
+ *    server did not list are removed first, because the replica's unique indexes would
+ *    otherwise refuse the server's row while a ghost still holds its place — a value
+ *    cleared and set again on another device comes back under a new id for the same
+ *    item and field. Then labels, statuses, metadata fields, collections and presets go
+ *    in, so the binder items that name them can.
+ * 2. The tree, from `GET /binder`.
+ * 3. Every document body, from `GET /projects/{id}/documents`, paged. This endpoint
  *    exists only for this: the change feed carries content, but only on rows appended
  *    since a cursor, so a client rebuilding from nothing cannot otherwise recover a
  *    document nobody has edited recently.
- * 3. Anything the server did not list is tombstoned — otherwise an item deleted while
+ * 4. The rest of the state rows — metadata values, collection items, comments, manual
+ *    snapshots — now that what they hang on is here.
+ * 5. Binder items the server did not list are removed — otherwise an item deleted while
  *    this client was away, whose delete row retention has since purged, would linger
  *    forever with nothing left to say it is gone.
  *
- * Bodies after structure, because a document row references its binder item.
+ * On a server that predates `/sync/state` the rebuild is the tree and the bodies alone,
+ * as it was before: those types are then neither restored nor pruned.
  */
 async function rebuildFromServer(
   db: DatabaseClient,
   auth: Authenticator,
   projectId: string,
 ): Promise<void> {
+  const state = await fetchState(auth, projectId);
+  const stateRows = (needsBinder: boolean) =>
+    (state ?? []).flatMap((row) =>
+      row.data !== null && NEEDS_BINDER.has(row.entityType) === needsBinder
+        ? [{ ...row, data: row.data }]
+        : [],
+    );
+
+  if (state !== null) {
+    const keep: Record<string, string[]> = Object.fromEntries(STATE_TYPES.map((type) => [type, []]));
+    for (const row of state) keep[row.entityType]?.push(row.entityId);
+    await db.command("pruneMissing", { projectId, keep });
+  }
+  await applyRows(db, projectId, stateRows(false));
+
   const response = await auth.fetch(`/api/v1/projects/${projectId}/binder`);
   const flat = flattenBinder(await json(response, "read the binder"));
 
@@ -251,9 +293,47 @@ async function rebuildFromServer(
 
   const documentIds = await fetchDocumentBodies(db, auth, projectId);
 
+  await applyRows(db, projectId, stateRows(true));
+
   await db.command("pruneMissing", {
     projectId,
-    keepIds: [...flat.map((node) => node.id), ...documentIds],
+    keep: { binder_item: [...flat.map((node) => node.id), ...documentIds] },
+  });
+}
+
+interface Row {
+  entityType: string;
+  entityId: string;
+  data: Record<string, unknown>;
+}
+
+/**
+ * The rows of `GET /sync/state`, or null from a server too old to have it.
+ *
+ * Too old means 404 or 500. Servers before this endpoint answer a route they do not have
+ * with 500 `internal_error` — their catch-all handler swallows the not-found — and
+ * failing on that would fail every rebuild against a server pinned to one, which is
+ * worse than the rebuild they always had. The price is that a real 500 here also
+ * degrades to it rather than failing the sync.
+ *
+ * A row whose data is unreadable keeps its id with null data: it is not applied, but it
+ * is still listed, so the prune does not take it as a row the server has lost.
+ */
+async function fetchState(
+  auth: Authenticator,
+  projectId: string,
+): Promise<(Omit<Row, "data"> & { data: Record<string, unknown> | null })[] | null> {
+  const response = await auth.fetch(`/api/v1/projects/${projectId}/sync/state`);
+  if (response.status === 404 || response.status === 500) return null;
+  const body = await json(response, "read the project's state");
+  if (!Array.isArray(body)) throw new SyncFailed("The server's project state was not readable.");
+
+  return (body as unknown[]).flatMap((row) => {
+    if (row === null || typeof row !== "object") return [];
+    const { entityType, entityId, data } = row as Record<string, unknown>;
+    if (typeof entityType !== "string" || typeof entityId !== "string") return [];
+    const readable = data !== null && typeof data === "object" && !Array.isArray(data);
+    return [{ entityType, entityId, data: readable ? (data as Record<string, unknown>) : null }];
   });
 }
 
@@ -313,7 +393,7 @@ async function fetchDocumentBodies(
 async function applyRows(
   db: DatabaseClient,
   projectId: string,
-  rows: { entityType: string; entityId: string; data: Record<string, unknown> }[],
+  rows: Row[],
 ): Promise<void> {
   if (rows.length === 0) return;
   await db.command("applyPull", {
