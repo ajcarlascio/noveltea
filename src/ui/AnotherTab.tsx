@@ -23,8 +23,10 @@ export function AnotherTab() {
 
   return (
     <main className="another-tab">
-      <h1>NovelTea is already open in another tab or window</h1>
-      <p role="alert">Use that one, or close it and reload here.</p>
+      <div role="alert">
+        <h1>NovelTea is already open in another tab or window</h1>
+        <p>Use that one, or close it and reload here.</p>
+      </div>
       <button ref={reloadRef} type="button" onClick={() => window.location.reload()}>
         Reload
       </button>
