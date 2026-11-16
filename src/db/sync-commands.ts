@@ -899,7 +899,7 @@ export const SYNC_COMMANDS = {
     if (state !== null) {
       const keep: Record<string, string[]> = Object.fromEntries(STATE_TYPES.map((type) => [type, []]));
       for (const row of state) keep[row.entityType]?.push(row.entityId);
-      SYNC_COMMANDS.pruneMissing(db, { projectId, keep, requeueSnapshots: input.epochChanged, now });
+      SYNC_COMMANDS.pruneMissing(db, { projectId, keep, requeueSnapshots: input.epochChanged === true, now });
     }
     apply(stateRows(false));
     apply(input.binder);
