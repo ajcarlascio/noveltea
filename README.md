@@ -63,15 +63,22 @@ them from two hostnames and you have to tell the server about this one.
 
 Three things `deploy/nginx.conf` does that matter:
 
-- Sends `frame-ancestors 'none'` as a **header**. The build-time policy arrives in a
-  `<meta>` element, where browsers ignore that directive.
+- Sends the full Content-Security-Policy as a **header**: the build's `<meta>` policy
+  (extracted into the image at build, so there is one source) plus `frame-ancestors
+  'none'`, which a `<meta>` cannot express. Only a header also governs the database worker.
 - Sends no `Cross-Origin-Embedder-Policy`. The replica uses sqlite-wasm's SAH Pool VFS
   precisely so it needs no `SharedArrayBuffer`, so `require-corp` would cost every
   cross-origin resource later and buy nothing.
-- Forwards `X-Forwarded-For`. The API's rate limiter reads its first entry; without it
-  every caller arrives as the proxy and one person guessing a password throttles everyone.
+- Forwards `X-Forwarded-For` as the address nginx itself saw, discarding any the client
+  sent. The API's rate limiter trusts its first entry, so passing a client's through would
+  let anyone dodge the sign-in lockout. If a TLS-terminating proxy (Caddy, Traefik, nginx)
+  sits in front of this container, every caller arrives as that proxy and shares one
+  lockout bucket; set `NOVELTEA_TRUSTED_PROXY` on the container to its address or CIDR
+  (addresses only, not hostnames; comma-separated for several, e.g. `172.18.0.0/16`) and nginx takes the client address
+  from the `X-Forwarded-For` that proxy sends. Empty by default — only set it when the
+  proxy overwrites or appends that header, and nothing else can reach port 80.
 
-If you serve the built bundle yourself instead, send the Content-Security-Policy as a
+If you serve the built bundle yourself instead, send the same policy as a
 **response header** as well as the one the build puts in a `<meta>` element, and add
 `X-Frame-Options: DENY`. A `<meta>` policy cannot express `frame-ancestors` and does not
 reach worker contexts at all, so the database worker is ungoverned without a header.

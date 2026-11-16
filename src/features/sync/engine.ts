@@ -114,7 +114,13 @@ export async function syncProject(
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
       });
-      if (!reg.ok && reg.status !== 409) {
+      // Registering again under the same account answers with the project, not an
+      // error. A 409 means the id belongs to someone else's project, and every sync
+      // after it would be refused, so say so here instead of failing with a bare 404.
+      if (reg.status === 409) {
+        throw new SyncFailed("The server already holds another project under this project's id, so it cannot sync.");
+      }
+      if (!reg.ok) {
         throw new SyncFailed(`Could not register the project with the server (${String(reg.status)}).`);
       }
     }

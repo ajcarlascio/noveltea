@@ -26,12 +26,23 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
+# One CSP source: lift the policy the build injected into index.html's <meta> and re-emit
+# it as an nginx header include (un-escaping the HTML), with frame-ancestors appended.
+RUN set -eu; \
+    policy=$(sed -n 's/.*http-equiv="Content-Security-Policy" content="\([^"]*\)".*/\1/p' dist/index.html | sed "s/&#39;/'/g"); \
+    test -n "$policy"; \
+    echo "add_header Content-Security-Policy \"$policy; frame-ancestors 'none'\" always;" > csp.conf
+
 # ---------------------------------------------------------------------------
 
 FROM nginx:alpine AS runtime
 
 COPY --from=build /src/dist /usr/share/nginx/html
+COPY --from=build /src/csp.conf /etc/nginx/csp.conf
 COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
+COPY deploy/40-trusted-proxy.sh /docker-entrypoint.d/40-trusted-proxy.sh
+# So the include resolves even if the entrypoint script never runs (another CMD, nginx -t).
+RUN : > /etc/nginx/noveltea-realip.conf
 
 EXPOSE 80
 

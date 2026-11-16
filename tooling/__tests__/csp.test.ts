@@ -1,5 +1,6 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { contentSecurityPolicy } from "../csp-plugin";
+import { buildPolicy, contentSecurityPolicy } from "../csp-plugin";
 
 /**
  * The desktop build's policy has to name Tauri's IPC scheme, and the web build's must
@@ -49,5 +50,18 @@ describe("the injected Content-Security-Policy", () => {
     for (const mode of ["tauri", "production"]) {
       expect(policyFor(mode)).toContain("'wasm-unsafe-eval'");
     }
+  });
+});
+
+describe("the desktop shell's own policy", () => {
+  it("IS THE DESKTOP BUILD'S POLICY, so the <meta> and Tauri's header intersect to it", () => {
+    // Tauri sends app.security.csp as a header and appends its own hashes to script-src
+    // at build time; the <meta> carries the same policy with the page's hashes. If they
+    // differ, the effective policy is whichever is stricter on each directive, and the
+    // difference shows up as a blocked request in the desktop app only.
+    const conf = JSON.parse(readFileSync("src-tauri/tauri.conf.json", "utf8")) as {
+      app: { security: { csp: unknown } };
+    };
+    expect(conf.app.security.csp).toBe(buildPolicy(true, []));
   });
 });

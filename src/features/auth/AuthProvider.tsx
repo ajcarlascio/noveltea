@@ -1,5 +1,11 @@
 import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
-import { changePassword as changePasswordRequest, login, register, type Credentials } from "./api";
+import {
+  changePassword as changePasswordRequest,
+  login,
+  register,
+  registrationOpen,
+  type Credentials,
+} from "./api";
 import { AuthContext, type AuthContextValue } from "./AuthContext";
 import { createAuthenticator, type Authenticator } from "./authenticate";
 import { readSession, writeSession, type Session, type SessionResponse } from "./session";
@@ -70,6 +76,11 @@ export function AuthProvider({
     [adopt, fetcher],
   );
 
+  const askRegistrationOpen = useCallback(
+    (serverUrl: string) => registrationOpen(serverUrl, fetcher),
+    [fetcher],
+  );
+
   const changePassword = useCallback(
     async (currentPassword: string, newPassword: string) => {
       if (session === null) throw new Error("Not signed in.");
@@ -123,8 +134,16 @@ export function AuthProvider({
   authenticatorRef.current = authenticator;
 
   const value = useMemo<AuthContextValue>(
-    () => ({ session, authenticator, signIn, signUp, signOut, changePassword }),
-    [session, authenticator, signIn, signUp, signOut, changePassword],
+    () => ({
+      session,
+      authenticator,
+      signIn,
+      signUp,
+      registrationOpen: askRegistrationOpen,
+      signOut,
+      changePassword,
+    }),
+    [session, authenticator, signIn, signUp, askRegistrationOpen, signOut, changePassword],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
