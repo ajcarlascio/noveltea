@@ -1,5 +1,5 @@
 // @vitest-environment node
-import type { PendingChange } from "@noveltea/client-db";
+import { enqueueChange, type PendingChange } from "@noveltea/client-db";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { COMMANDS } from "@/db/commands";
 import { openTestDatabase, type TestDatabase } from "@/test/sqlite";
@@ -648,6 +648,35 @@ describe("applyPull and a local row holding the server's natural key", () => {
     expect(JSON.parse(queued()[0]?.payload ?? "{}")).toMatchObject({ name: "Draft (2)" });
   });
 
+  it("sets it aside under the first free suffix when \"Name (2)\" and \"Name (3)\" are taken too", () => {
+    pull(serverRow("taxonomy", "known", { project_id: projectId, kind: "label", name: "Old", color: null, order_key: "a", deleted_at: null }));
+    for (const name of ["Draft (2)", "Draft (3)"]) {
+      COMMANDS.createTaxonomy(db.adapter, { projectId, kind: "label", name, color: null });
+    }
+    COMMANDS.updateTaxonomy(db.adapter, { projectId, id: "known", name: "Draft", color: null });
+
+    pull(serverLabel());
+
+    expect(db.adapter.query("SELECT name FROM taxonomy WHERE id = 'known';")).toEqual([{ name: "Draft (4)" }]);
+    expect(JSON.parse(queued().find((q) => q.entity_id === "known")?.payload ?? "{}")).toMatchObject({ name: "Draft (4)" });
+  });
+
+  it("points a queued payload at the server's label without touching prose that happens to hold the id", () => {
+    // Ids are UUIDs, but a document body is the author's text: a replace over the whole
+    // payload rewrites whatever it finds there, and the author's words are not ours to edit.
+    pull(...chapterRows());
+    const mine = COMMANDS.createTaxonomy(db.adapter, { projectId, kind: "label", name: "Draft", color: null });
+    COMMANDS.setItemTaxonomy(db.adapter, { projectId, id: "d1", labelId: mine.id });
+    const quoted = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: `label ${mine.id}` }] }] };
+    COMMANDS.saveDocument(db.adapter, { projectId, id: "d1", content: quoted, searchText: `label ${mine.id}`, wordCount: 2 });
+
+    pull(serverLabel());
+
+    const entry = (type: string) => queued().find((q) => q.entity_type === type)?.payload ?? "";
+    expect(JSON.parse(entry("binder_item"))).toMatchObject({ label_id: SERVER_LABEL });
+    expect(JSON.parse(entry("document"))).toMatchObject({ content: quoted, search_text: `label ${mine.id}` });
+  });
+
   it("tombstones a stale label with nothing pending, keeping what points at it valid", () => {
     pull(serverRow("taxonomy", "stale", { project_id: projectId, kind: "label", name: "Draft", color: null, order_key: "a", deleted_at: null }));
     pull(serverLabel());
@@ -702,6 +731,55 @@ describe("queued tags", () => {
     expect(payload).toMatchObject({ title: "Renamed", label_id: "t1" });
     // Only the tag the author touched.
     expect(payload).not.toHaveProperty("status_id");
+  });
+});
+
+describe("settlePush and a row edited while its push was in flight", () => {
+  it("turns an edited create into an update on the version the server gave it", () => {
+    // The server has the row now. Sent again as a create it would be taken for a re-delivery
+    // and accepted without applying the edit — silently, since a second create is not a
+    // conflict.
+    const folder = COMMANDS.createBinderItem(db.adapter, { projectId, parentId: null, type: "folder", title: "Act I" });
+    db.adapter.run("DELETE FROM pending_change WHERE entity_id <> ?;", [folder.id]);
+    const [taken] = COMMANDS.takePending(db.adapter, { projectId });
+    COMMANDS.renameBinderItem(db.adapter, { projectId, id: folder.id, title: "Act One" });
+    expect(queued()[0]).toMatchObject({ op: "create" });
+
+    COMMANDS.settlePush(db.adapter, {
+      ids: [taken!.id],
+      sent: [{ id: taken!.id, payload: taken!.payload }],
+      applied: [{ entityType: "binder_item", entityId: folder.id, version: 1 }],
+    });
+
+    expect(queued()).toHaveLength(1);
+    expect(queued()[0]).toMatchObject({ op: "update", base_version: 1 });
+    expect(JSON.parse(queued()[0]!.payload!)).toMatchObject({ title: "Act One" });
+  });
+
+  it("clears an accepted delete, and rebases one revived while it was in flight", () => {
+    const [a, b] = ["A", "B"].map((title) =>
+      COMMANDS.createBinderItem(db.adapter, { projectId, parentId: null, type: "folder", title }),
+    );
+    db.adapter.run("DELETE FROM pending_change;");
+    for (const row of [a!, b!]) {
+      enqueueChange(db.adapter, { projectId, entityType: "binder_item", entityId: row.id, op: "delete", baseVersion: 1 });
+    }
+    const taken = COMMANDS.takePending(db.adapter, { projectId });
+    expect(taken.map((row) => row.op)).toEqual(["delete", "delete"]);
+
+    // B is edited again before the response: a delete and an update merge into an update.
+    enqueueChange(db.adapter, {
+      projectId, entityType: "binder_item", entityId: b!.id, op: "update",
+      payload: { id: b!.id, title: "B again" }, baseVersion: 1,
+    });
+
+    COMMANDS.settlePush(db.adapter, {
+      ids: taken.map((row) => row.id),
+      sent: taken.map((row) => ({ id: row.id, payload: row.payload })),
+      applied: [a!, b!].map((row) => ({ entityType: "binder_item", entityId: row.id, version: 7 })),
+    });
+
+    expect(queued().map((q) => [q.entity_id, q.op, q.base_version])).toEqual([[b!.id, "update", 7]]);
   });
 });
 

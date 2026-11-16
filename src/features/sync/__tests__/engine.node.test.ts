@@ -526,6 +526,25 @@ describe("a resync restores everything the feed carries", () => {
     expect(queued().map((q) => q.entity_type).sort()).toEqual(["collection", "collection_item", "taxonomy"]);
   });
 
+  it("moves the cursor in the same step as the rows, so a failure right after does not ask for another rebuild", async () => {
+    // Written by the rebuild's own transaction, not left to the pull that follows: a
+    // closed tab between the two would otherwise repeat the whole rebuild.
+    let pulls = 0;
+    const { auth } = fakeAuth((path) => {
+      if (path.endsWith("/sync/state")) return ok([]);
+      if (path.includes("/binder")) return ok([]);
+      if (path.includes("/documents")) return ok({ documents: [], nextCursor: null, hasMore: false });
+      pulls += 1;
+      return pulls === 1
+        ? ok(pullBody({ resyncRequired: true, latestId: 60, syncEpoch: 2, stateAvailable: true }))
+        : Promise.resolve(new Response("", { status: 503 }));
+    });
+
+    await expect(syncProject({ db: db.client, auth }, projectId)).rejects.toThrow(/503/);
+
+    expect(state()).toMatchObject({ lastChangeId: 60, syncEpoch: 2 });
+  });
+
   describe("a manual snapshot the server does not list", () => {
     /** A chapter and a manual snapshot of it taken here, both synced as far as this device knows. */
     const snapshotHere = () => {
@@ -1039,6 +1058,35 @@ describe("pushing", () => {
     expect(queued()).toHaveLength(0);
     // The failed pull is still recorded, and the next sync takes the original back.
     expect(state().lastError).toMatch(/503/);
+  });
+
+  it("settles each row of a push on its own outcome", async () => {
+    const [accepted, refused, deferred, unanswered] = ["A", "B", "C", "D"].map((title) =>
+      COMMANDS.createBinderItem(db.adapter, { projectId, parentId: null, type: "folder", title }),
+    );
+    db.adapter.run("DELETE FROM pending_change WHERE entity_type <> 'binder_item';");
+    const { auth } = fakeAuth((_path, init) =>
+      (init?.method ?? "GET") === "POST"
+        ? ok(pushBody({
+            applied: [{ entityId: accepted!.id, entityType: "binder_item", version: 6 }],
+            conflicts: [
+              { entityId: refused!.id, entityType: "binder_item", reason: "invalid_request", conflictCopyId: null, serverVersion: null, detail: "order_key taken" },
+              { entityId: deferred!.id, entityType: "binder_item", reason: "not_implemented", conflictCopyId: null, serverVersion: null, detail: null },
+            ],
+          }))
+        : ok(pullBody()),
+    );
+
+    const outcome = await syncProject({ db: db.client, auth }, projectId);
+
+    // Accepted and refused are done with; deferred and one the response never mentioned
+    // wait for the next push, each still the create it was.
+    expect(outcome.pushed).toBe(1);
+    expect(queued().map((q) => [q.entity_id, q.op]).sort()).toEqual(
+      [[deferred!.id, "create"], [unanswered!.id, "create"]].sort(),
+    );
+    expect(db.adapter.query("SELECT version FROM binder_item WHERE id = ?;", [accepted!.id])).toEqual([{ version: 6 }]);
+    expect(db.adapter.query("SELECT version FROM binder_item WHERE id = ?;", [refused!.id])).toEqual([{ version: 1 }]);
   });
 
   it("keeps a change the server cannot handle yet", async () => {

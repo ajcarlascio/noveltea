@@ -247,13 +247,17 @@ function pendingFor(db: SqliteAdapter, type: string, id: string): { id: number; 
   )[0];
 }
 
+/** The payload fields that name a label, status or field by id, whichever entity carries them. */
+const REFERENCE_FIELDS = ["label_id", "status_id", "field_id", "parent_id", "trashed_from_parent_id"];
+
 /**
  * Rewrites every local mention of one id as another: the columns that reference it, the
- * JSON queries that can name a label, status or field, and every queued payload.
+ * JSON queries that can name a label, status or field, and the references in every queued
+ * payload.
  *
- * Payloads are rewritten as text. Ids are UUIDs, so an occurrence of one is that id and
- * nothing else, and this reaches a reference in any payload of any type without a list
- * of where references live that would drift from the schema.
+ * A queued payload is rewritten in the fields that hold a reference — the ones above, and
+ * a collection's `query` object — and nowhere else. A document body is the author's text,
+ * and an id found in it is theirs to keep.
  */
 function repoint(db: SqliteAdapter, projectId: string, from: string, to: string): void {
   db.run("UPDATE binder_item SET label_id = ? WHERE label_id = ?;", [to, from]);
@@ -265,11 +269,18 @@ function repoint(db: SqliteAdapter, projectId: string, from: string, to: string)
       [from, to, projectId, from],
     );
   }
-  db.run(
-    `UPDATE pending_change SET payload = replace(payload, ?, ?)
-      WHERE project_id = ? AND instr(payload, ?) > 0;`,
-    [from, to, projectId, from],
+  const queued = db.query<{ id: number; payload: string }>(
+    "SELECT id, payload FROM pending_change WHERE project_id = ? AND instr(payload, ?) > 0;",
+    [projectId, from],
   );
+  for (const { id, payload } of queued) {
+    const body = JSON.parse(payload) as Record<string, unknown>;
+    for (const field of REFERENCE_FIELDS) if (body[field] === from) body[field] = to;
+    if (body.query !== undefined) {
+      body.query = JSON.parse(JSON.stringify(body.query).replaceAll(from, to)) as unknown;
+    }
+    db.run("UPDATE pending_change SET payload = ? WHERE id = ?;", [JSON.stringify(body), id]);
+  }
 }
 
 /**
