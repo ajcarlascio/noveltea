@@ -23,6 +23,8 @@ export interface SyncStatus {
   /** True when the wifi-only setting is holding automatic syncs back right now. */
   heldForWifi: boolean;
   syncNow: () => void;
+  /** Clears `conflicts`, which otherwise accumulates until this is called. */
+  dismissConflicts: () => void;
 }
 
 export function useSync(projectId: string): SyncStatus {
@@ -55,6 +57,8 @@ export function useSync(projectId: string): SyncStatus {
   });
   const [running, setRunning] = useState(false);
   const [conflicts, setConflicts] = useState<SyncOutcome["conflicts"]>([]);
+  useEffect(() => setConflicts([]), [projectId]);
+  const dismissConflicts = useCallback(() => setConflicts([]), []);
   const [dropped, setDropped] = useState(0);
 
   const refresh = useCallback(async () => {
@@ -87,7 +91,13 @@ export function useSync(projectId: string): SyncStatus {
     setRunning(true);
     try {
       const outcome = await syncProject({ db, auth: authenticator }, projectId);
-      setConflicts(outcome.conflicts);
+      // Kept across runs: the next one, automatic or not, would otherwise wipe what the
+      // author has not yet read. A refused push is reported again by every run, so a
+      // conflict already listed is not added twice.
+      setConflicts((listed) => [
+        ...listed,
+        ...outcome.conflicts.filter((next) => !listed.some((old) => sameConflict(old, next))),
+      ]);
       setDropped(outcome.dropped);
     } finally {
       setRunning(false);
@@ -155,8 +165,12 @@ export function useSync(projectId: string): SyncStatus {
     metering,
     heldForWifi: settings.syncOnWifiOnly && !mayAutoSync(settings.syncOnWifiOnly, metering),
     syncNow,
+    dismissConflicts,
   };
 }
+
+const sameConflict = (a: SyncOutcome["conflicts"][number], b: SyncOutcome["conflicts"][number]) =>
+  a.entityType === b.entityType && a.entityId === b.entityId && a.conflictCopyId === b.conflictCopyId;
 
 /** "4 minutes ago", for a timestamp an author glances at. */
 export function describeWhen(iso: string | null, now = new Date()): string {

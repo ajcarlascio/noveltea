@@ -1,6 +1,8 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import { DatabaseContext } from "@/app/db/DatabaseContext";
+import type { DatabaseClient, DbStatus } from "@/db/client";
 import { AuthProvider } from "@/features/auth/AuthProvider";
 import type { Session } from "@/features/auth/session";
 import { ConflictsPanel } from "../ConflictsPanel";
@@ -34,9 +36,34 @@ const detail = {
   copyContent: doc("the lighthouse kept nobody's hours"),
 };
 
+/** A replica that reports how many conflict copies it holds, and tells when it changes. */
+function fakeReplica() {
+  const listeners = new Set<() => void>();
+  const state = { copies: 0 };
+  const db = {
+    query: () => Promise.resolve([{ n: state.copies }]),
+    subscribeToChanges: (listener: () => void) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  } as unknown as DatabaseClient;
+  return {
+    db,
+    /** A sync wrote something; `copies` is how many conflict copies are there now. */
+    change: (copies: number) => {
+      state.copies = copies;
+      for (const listener of listeners) listener();
+    },
+  };
+}
+
+const READY: DbStatus = { state: "ready", storage: "memory", appliedVersions: [], schemaVersion: 11 };
+
 function renderPanel(
   handler: (path: string, init?: RequestInit) => Promise<Response>,
   session: Session | null = SESSION,
+  replica = fakeReplica(),
+  onReview?: () => void,
 ) {
   const fetcher = vi.fn<typeof fetch>().mockImplementation((input, init) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
@@ -48,9 +75,11 @@ function renderPanel(
     return handler(url, init);
   });
   render(
-    <AuthProvider initialSession={session} fetcher={fetcher}>
-      <ConflictsPanel projectId="p1" />
-    </AuthProvider>,
+    <DatabaseContext.Provider value={{ db: replica.db, status: READY }}>
+      <AuthProvider initialSession={session} fetcher={fetcher}>
+        <ConflictsPanel projectId="p1" {...(onReview && { onReview })} />
+      </AuthProvider>
+    </DatabaseContext.Provider>,
   );
   return fetcher;
 }
@@ -176,5 +205,45 @@ describe("reviewing a pair", () => {
     // A conflict is not an emergency: the words are safe in both places.
     expect(await screen.findByText("Chapter One")).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Resolve a conflict" })).not.toBeInTheDocument();
+  });
+});
+
+describe("during a session", () => {
+  it("lists a copy that a sync made after the panel mounted, without a reload", async () => {
+    const replica = fakeReplica();
+    let listed: unknown[] = [];
+    renderPanel(() => ok(listed), SESSION, replica);
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Conflicts" })).not.toBeInTheDocument());
+
+    listed = [summary];
+    await act(async () => {
+      replica.change(1);
+      await Promise.resolve();
+    });
+
+    expect(await screen.findByText(/one document needs your attention/i)).toBeInTheDocument();
+  });
+
+  it("does not ask the server again for a change that is not a conflict copy", async () => {
+    const replica = fakeReplica();
+    const fetcher = renderPanel(() => ok([]), SESSION, replica);
+    await waitFor(() => expect(fetcher).toHaveBeenCalled());
+    const before = fetcher.mock.calls.length;
+
+    await act(async () => {
+      replica.change(0); // an autosave, say
+      await Promise.resolve();
+    });
+
+    expect(fetcher).toHaveBeenCalledTimes(before);
+  });
+
+  it("says when the author opens one, so the sync notice can stand down", async () => {
+    const onReview = vi.fn();
+    renderPanel((path) => (path.includes("/conflicts/c1") ? ok(detail) : ok([summary])), SESSION, fakeReplica(), onReview);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Review" }));
+
+    expect(onReview).toHaveBeenCalledTimes(1);
   });
 });

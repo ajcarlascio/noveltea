@@ -1,5 +1,6 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import type { Editor } from "@tiptap/core";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DatabaseContext } from "@/app/db/DatabaseContext";
 import { SettingsProvider } from "@/app/settings/SettingsProvider";
@@ -244,5 +245,48 @@ describe("the editor's own save, read back by the change handler", () => {
     type(editor, " x");
     await waitFor(() => expect(queued()).toHaveLength(1), { timeout: 3000 });
     expect(queued()[0]?.base_version).toBe(4);
+  });
+});
+
+describe("an author whose text became a conflict copy", () => {
+  /** What sync leaves behind: a copy of this document in the binder. */
+  const addCopy = () => {
+    const copy = COMMANDS.createBinderItem(db.adapter, {
+      projectId,
+      parentId: null,
+      type: "document",
+      title: "Chapter One (Conflicted Copy)",
+    }).id;
+    db.run("UPDATE binder_item SET conflict_of_id = ? WHERE id = ?;", [documentId, copy]);
+  };
+
+  it("is told, where they are writing, when the server's text replaces theirs", async () => {
+    await open();
+    addCopy();
+
+    await pull("theirs", 5);
+
+    expect(await screen.findByText(/kept as a conflict copy/i)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(screen.queryByText(/kept as a conflict copy/i)).not.toBeInTheDocument();
+  });
+
+  it("is not told about an ordinary edit from another device", async () => {
+    const editor = await open();
+
+    await pull("two", 5);
+
+    await waitFor(() => expect(editor.getText()).toBe("two"));
+    expect(screen.queryByText(/conflict copy/i)).not.toBeInTheDocument();
+  });
+
+  it("is not told again about a copy the editor already knew of", async () => {
+    addCopy();
+    const editor = await open();
+
+    await pull("two", 5);
+
+    await waitFor(() => expect(editor.getText()).toBe("two"));
+    expect(screen.queryByText(/conflict copy/i)).not.toBeInTheDocument();
   });
 });

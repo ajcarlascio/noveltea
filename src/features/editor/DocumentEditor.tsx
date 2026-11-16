@@ -35,6 +35,7 @@ export function DocumentEditor({ projectId, documentId }: { projectId: string; d
   const [state, setState] = useState<SaveState>("clean");
   const [error, setError] = useState<string | null>(null);
   const [words, setWords] = useState(0);
+  const [keptCopy, setKeptCopy] = useState(false);
 
   // Zero, not the mount time, so the first save of a session captures. What that
   // snapshot holds is the document as it was *before* this session's edits, which is
@@ -141,6 +142,7 @@ export function DocumentEditor({ projectId, documentId }: { projectId: string; d
         stateRef.current = "clean";
         base.current = row?.version ?? 0;
         lastSaved.current = null;
+        setKeptCopy(false);
         seen.current = row === null ? null : { version: row.version, text: JSON.stringify(row.content) };
       },
       (cause: unknown) => {
@@ -159,9 +161,18 @@ export function DocumentEditor({ projectId, documentId }: { projectId: string; d
   useEffect(() => {
     if (editor === null || loaded?.id !== documentId) return;
     let current = true;
+    // The copies this document already had, so a new one arriving with the server's text
+    // can be told from an old one. Sync makes the copy and returns the original together.
+    const copies = () =>
+      db
+        .query<{ id: string }>("SELECT id FROM binder_item WHERE conflict_of_id = ? AND deleted_at IS NULL;", [documentId])
+        .then((rows) => rows.map((row) => row.id));
+    const known = copies().then((ids) => new Set(ids));
     const unsubscribe = db.subscribeToChanges(() => {
-      void loadDocument(db, projectId, documentId).then((row) => {
+      void Promise.all([loadDocument(db, projectId, documentId), copies(), known]).then(([row, ids, knownCopies]) => {
         if (!current || row === null || editor.isDestroyed) return;
+        const copied = ids.some((id) => !knownCopies.has(id));
+        for (const id of ids) knownCopies.add(id);
         const text = JSON.stringify(row.content);
         const before = seen.current;
         seen.current = { version: row.version, text };
@@ -192,6 +203,8 @@ export function DocumentEditor({ projectId, documentId }: { projectId: string; d
         editor.chain().setMeta("addToHistory", false).setContent(row.content, { emitUpdate: false }).run();
         editor.commands.setTextSelection({ from, to });
         setWords(row.wordCount);
+        // The author's words are now in the copy; say so where they are looking.
+        if (copied) setKeptCopy(true);
       });
     });
     return () => {
@@ -226,6 +239,15 @@ export function DocumentEditor({ projectId, documentId }: { projectId: string; d
       {error !== null && (
         <p className="editor__error" role="alert">
           {error}
+        </p>
+      )}
+
+      {keptCopy && (
+        <p className="editor__notice" role="status">
+          This document changed on another device. Your version was kept as a conflict copy in the binder.
+          <button type="button" className="button" onClick={() => setKeptCopy(false)}>
+            Dismiss
+          </button>
         </p>
       )}
 

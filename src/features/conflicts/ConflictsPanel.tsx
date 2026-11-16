@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useDatabase } from "@/app/db/DatabaseContext";
 import { useAuth } from "@/features/auth/AuthContext";
 import { listConflicts, loadConflict, resolveConflict, type ConflictDetail, type ConflictSummary } from "./api";
 import { MergeView } from "./MergeView";
@@ -14,8 +15,9 @@ import "./ConflictsPanel.css";
  * Nothing here is possible without a server — conflicts only exist because two devices
  * synced — so the panel simply does not appear when signed out.
  */
-export function ConflictsPanel({ projectId }: { projectId: string }) {
+export function ConflictsPanel({ projectId, onReview }: { projectId: string; onReview?: () => void }) {
   const { authenticator } = useAuth();
+  const { db } = useDatabase();
   const [conflicts, setConflicts] = useState<ConflictSummary[]>([]);
   const [open, setOpen] = useState<ConflictDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -36,10 +38,32 @@ export function ConflictsPanel({ projectId }: { projectId: string }) {
     void refresh();
   }, [refresh]);
 
+  // A copy made mid-session arrives as a sync writes it, not as a reload. The list comes
+  // from the server, and the database changes on every keystroke's save, so it is read
+  // again only when the number of copies here moves.
+  useEffect(() => {
+    const count = () =>
+      db
+        .query<{ n: number }>(
+          "SELECT COUNT(*) AS n FROM binder_item WHERE project_id = ? AND conflict_of_id IS NOT NULL AND deleted_at IS NULL;",
+          [projectId],
+        )
+        .then(([row]) => row?.n ?? 0);
+    let last = count();
+    return db.subscribeToChanges(() => {
+      const before = last;
+      last = count();
+      void Promise.all([before, last]).then(([was, now]) => {
+        if (was !== now) void refresh();
+      });
+    });
+  }, [db, projectId, refresh]);
+
   if (!authenticator || (conflicts.length === 0 && open === null)) return null;
 
   const openPair = (copyId: string) => {
     if (!authenticator) return;
+    onReview?.();
     setError(null);
     void loadConflict(authenticator, copyId).then(setOpen, (cause: unknown) => {
       setError(cause instanceof Error ? cause.message : String(cause));
