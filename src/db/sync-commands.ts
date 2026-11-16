@@ -213,6 +213,31 @@ const UNIQUE_KEYS: Record<string, { columns: string[]; live: boolean }> = {
   collection_item: { columns: ["collection_id", "binder_item_id"], live: false },
 };
 
+function hasRow(db: SqliteAdapter, table: string, id: string): boolean {
+  return db.query(`SELECT 1 FROM ${table} WHERE id = ?;`, [id]).length > 0;
+}
+
+/** Puts the text a document's queue entry holds into the document's row. */
+function restoreQueuedBody(db: SqliteAdapter, id: string): void {
+  const raw = db.query<{ payload: string | null }>(
+    "SELECT payload FROM pending_change WHERE entity_type = 'document' AND entity_id = ?;",
+    [id],
+  )[0]?.payload;
+  if (raw === null || raw === undefined) return;
+  const body = JSON.parse(raw) as Record<string, unknown>;
+  db.run(
+    "UPDATE document SET content = ?, search_text = ?, word_count = ?, synopsis = ?, notes = ? WHERE id = ?;",
+    [
+      JSON.stringify(body.content),
+      toSqlValue(body.search_text),
+      typeof body.word_count === "number" ? body.word_count : 0,
+      toSqlValue(body.synopsis),
+      toSqlValue(body.notes),
+      id,
+    ],
+  );
+}
+
 function pendingFor(db: SqliteAdapter, type: string, id: string): { id: number; op: string } | undefined {
   return db.query<{ id: number; op: string }>(
     "SELECT id, op FROM pending_change WHERE entity_type = ? AND entity_id = ?;",
@@ -492,7 +517,9 @@ export const SYNC_COMMANDS = {
         continue;
       }
 
-      if (table === "document" && pendingFor(db, "document", change.entityId) !== undefined) {
+      const queuedBody =
+        table === "document" ? pendingFor(db, "document", change.entityId) : undefined;
+      if (queuedBody !== undefined && hasRow(db, "document", change.entityId)) {
         // Unpushed writing outranks the server's copy here. Overwriting the row would
         // leave the author's text only in the queue, where the next keystroke in an
         // editor that reloaded the server's text replaces it for good. The push that
@@ -569,6 +596,10 @@ export const SYNC_COMMANDS = {
           then();
         }
       }
+      // A queued body with no row of its own is one `settlePush` moved onto a conflict
+      // copy this device has only now heard of. The server's row is the copy's first
+      // version; the author's text is what the queue holds.
+      if (queuedBody !== undefined) restoreQueuedBody(db, change.entityId);
       applied += 1;
     }
 
@@ -671,6 +702,13 @@ export const SYNC_COMMANDS = {
    * Each accepted row's local version moves to the server's too, so the next edit is
    * based on the write that was accepted and not the one before it, which the server
    * would take for a stale write: a conflict copy of the author's own text.
+   *
+   * A document edited in flight whose push became a conflict has no accepted version to
+   * rebase on, and its old base is stale: the next push would conflict again and make a
+   * second copy of nearly the same text. Basing it on the server's version instead would
+   * overwrite text its author has never seen. The first copy holds the earlier text, so
+   * the entry moves onto it — the copy is the document this author is writing now — and
+   * the original, no longer queued, takes the server's text on the pull that follows.
    */
   settlePush: (
     db: SqliteAdapter,
@@ -678,6 +716,8 @@ export const SYNC_COMMANDS = {
       ids: number[];
       sent?: { id: number; payload: string | null }[];
       applied?: { entityType: string; entityId: string; version: number }[];
+      /** The conflict copies the server made, by the document each is a copy of. */
+      copies?: { entityId: string; conflictCopyId: string }[];
     },
   ): { cleared: number } => {
     const versions = new Map<string, number>();
@@ -689,6 +729,7 @@ export const SYNC_COMMANDS = {
       }
     }
 
+    const copies = new Map((input.copies ?? []).map((row) => [row.entityId, row.conflictCopyId]));
     const sent = new Map((input.sent ?? []).map((row) => [row.id, row.payload]));
     const cleared: number[] = [];
     for (const id of input.ids) {
@@ -702,6 +743,17 @@ export const SYNC_COMMANDS = {
         continue;
       }
       const version = versions.get(`${now.entity_type}:${now.entity_id}`);
+      const copy = now.entity_type === "document" ? copies.get(now.entity_id) : undefined;
+      if (copy !== undefined) {
+        // A copy is born at version 1.
+        db.run(
+          `UPDATE pending_change SET entity_id = ?, op = 'update', base_version = 1,
+                                     payload = json_set(payload, '$.id', ?)
+            WHERE id = ?;`,
+          [copy, copy, id],
+        );
+        continue;
+      }
       if (version === undefined) continue;
       db.run(
         `UPDATE pending_change SET base_version = ?, op = CASE op WHEN 'create' THEN 'update' ELSE op END

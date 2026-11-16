@@ -203,6 +203,11 @@ export async function syncProject(
         ids,
         sent: pending.map((row) => ({ id: row.id, payload: row.payload })),
         applied: push.applied,
+        copies: push.conflicts.flatMap((conflict) =>
+          conflict.entityType === "document" && conflict.conflictCopyId !== null
+            ? [{ entityId: conflict.entityId, conflictCopyId: conflict.conflictCopyId }]
+            : [],
+        ),
       });
       outcome.pushed = push.applied.length;
       outcome.conflicts = push.conflicts;

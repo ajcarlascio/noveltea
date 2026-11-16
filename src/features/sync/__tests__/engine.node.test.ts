@@ -682,6 +682,88 @@ describe("unsynced writing", () => {
     expect(db.adapter.query("SELECT version FROM document WHERE id = ?;", [chapter.id])).toEqual([{ version: 2 }]);
   });
 
+  /**
+   * The server's document rules, as `SyncService` applies them: a push whose base is the
+   * current version is taken; any other becomes a sibling copy, the original stays as it
+   * was, and goes back on the feed for the device that lost.
+   */
+  function documentServer(chapterId: string, held: { content: unknown; version: number }) {
+    const docs = new Map<string, { content: unknown; version: number }>([[chapterId, held]]);
+    const feed: Record<string, unknown>[] = [];
+    const log = (entityType: string, entityId: string, op: string, data: Record<string, unknown>) =>
+      feed.push({ id: feed.length + 1, entityType, entityId, op, data: { id: entityId, ...data } });
+    const doc = (id: string) => ({ id, content: docs.get(id)?.content, version: docs.get(id)?.version, created_at: "2026-02-01T00:00:00Z", updated_at: "2026-02-01T00:00:00Z" });
+    const copies: string[] = [];
+    log("document", chapterId, "update", doc(chapterId));
+
+    const { auth } = fakeAuth((path, init) => {
+      if ((init?.method ?? "GET") !== "POST") {
+        const since = Number(/since=(\d+)/.exec(path)?.[1] ?? 0);
+        return ok(pullBody({ changes: feed.filter((row) => (row.id as number) > since), latestId: feed.length }));
+      }
+      const body = JSON.parse(init?.body as string) as { changes: { entityId: string; baseVersion: number; data: { content: unknown } }[] };
+      const applied: unknown[] = [];
+      const conflicts: unknown[] = [];
+      for (const change of body.changes) {
+        const current = docs.get(change.entityId);
+        if (current?.version === change.baseVersion) {
+          docs.set(change.entityId, { content: change.data.content, version: current.version + 1 });
+          log("document", change.entityId, "update", doc(change.entityId));
+          applied.push({ entityId: change.entityId, entityType: "document", version: current.version + 1 });
+        } else if (current !== undefined) {
+          const copyId = `copy-${String(copies.length + 1)}`;
+          copies.push(copyId);
+          docs.set(copyId, { content: change.data.content, version: 1 });
+          log("binder_item", copyId, "create", binderRow(copyId, { type: "document", order_key: "n" }));
+          log("document", copyId, "create", doc(copyId));
+          log("document", change.entityId, "update", doc(change.entityId));
+          conflicts.push({ entityId: change.entityId, entityType: "document", reason: "version_mismatch", conflictCopyId: copyId, serverVersion: current.version, detail: null });
+        }
+      }
+      return ok(pushBody({ applied, conflicts, latestId: feed.length }));
+    });
+    return { auth, docs, copies };
+  }
+
+  it("makes one copy, not two, of a document edited while its push was a conflict", async () => {
+    // The edit made in flight merged into the entry that was sent, so the entry stayed,
+    // still based on the version the server had moved past: its next push conflicted
+    // again and made a second copy of nearly the same text. The first copy holds the
+    // earlier text, so the later text goes there, and the original is free to take the
+    // server's.
+    const chapter = COMMANDS.createBinderItem(db.adapter, { projectId, parentId: null, type: "document", title: "Chapter One" });
+    db.adapter.run("DELETE FROM pending_change;");
+    COMMANDS.saveDocument(db.adapter, { projectId, id: chapter.id, content: prose("first"), searchText: "first", wordCount: 1 });
+
+    const server = documentServer(chapter.id, { content: prose("theirs"), version: 2 });
+    const racing = {
+      ...server.auth,
+      fetch: (path: string, init?: RequestInit) => {
+        if ((init?.method ?? "GET") === "POST" && path.endsWith("/sync") && server.copies.length === 0) {
+          COMMANDS.saveDocument(db.adapter, { projectId, id: chapter.id, content: prose("first and more"), searchText: "first and more", wordCount: 3 });
+        }
+        return server.auth.fetch(path, init);
+      },
+    };
+
+    const first = await syncProject({ db: db.client, auth: racing }, projectId);
+    expect(first.conflicts).toHaveLength(1);
+    // The original already shows the server's text; the author's is queued on the copy.
+    expect(JSON.parse(bodyOf(chapter.id) ?? "null")).toEqual(prose("theirs"));
+    expect(JSON.parse(bodyOf("copy-1") ?? "null")).toEqual(prose("first and more"));
+    expect(queued().map((row) => [row.entity_id, row.op, row.base_version])).toEqual([["copy-1", "update", 1]]);
+
+    await syncProject({ db: db.client, auth: racing }, projectId);
+    await syncProject({ db: db.client, auth: racing }, projectId);
+
+    expect(server.copies).toEqual(["copy-1"]);
+    expect(server.docs.get(chapter.id)).toEqual({ content: prose("theirs"), version: 2 });
+    expect(server.docs.get("copy-1")).toEqual({ content: prose("first and more"), version: 2 });
+    expect(queued()).toHaveLength(0);
+    expect(JSON.parse(bodyOf(chapter.id) ?? "null")).toEqual(prose("theirs"));
+    expect(JSON.parse(bodyOf("copy-1") ?? "null")).toEqual(prose("first and more"));
+  });
+
   it("never pushes a label it dropped for want of the label's row as a removal", async () => {
     // An older server's rebuild names a label this device cannot hold, so the item lands
     // unlabelled. Its next rename must not tell every other device to clear the label.
