@@ -61,7 +61,7 @@ export default tseslint.config(
   },
   {
     // Node-side config files.
-    files: ["vite.config.ts", "eslint.config.js", "playwright.config.ts", "e2e/**", "tooling/**"],
+    files: ["vite.config.ts", "eslint.config.js", "playwright.config.ts", "playwright.fullstack.config.ts", "e2e/**", "tooling/**"],
     languageOptions: { globals: globals.node },
     // These run under Node by definition; they are never bundled into the app.
     rules: { "no-restricted-imports": "off" },

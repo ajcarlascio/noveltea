@@ -249,7 +249,19 @@ npm run lint                # eslint, zero warnings tolerated
 npm run build               # typecheck, then production bundle
 npm run test:e2e            # Playwright, against the production build
 npm run licenses            # dependency licence audit
+npm run test:fullstack      # two browsers against a real server, in Docker
 ```
+
+**The full-stack test.** `test:e2e` stubs the server, so it cannot notice a client that
+never asks the server for something. `npm run test:fullstack` builds Postgres, the API and
+the worker from the pinned `vendor/noveltea-server` submodule and the web client from this
+checkout (`deploy/fullstack.compose.yml`, project `nt-fullstack-test`, published only on
+`127.0.0.1:8197`; override with `NOVELTEA_FULLSTACK_PORT`), then runs
+`e2e/fullstack/` against it: one device writes and syncs, a second fresh device signs in to
+the same account and must find the project and the text, and an edit travels back. Needs
+Docker with Compose and `npx playwright install chromium`; the first run builds the Java
+API and takes several minutes. The stack is torn down with its volumes afterwards, or kept
+with `NOVELTEA_FULLSTACK_KEEP=1`.
 
 **Dependency licences: MIT, Apache-2.0 or BSD only.** No copyleft, and nothing needing
 payment to a vendor — this is distributed to people who must be able to run what they were

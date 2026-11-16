@@ -46,7 +46,7 @@ export default defineConfig({
     {
       name: "desktop",
       use: { ...devices["Desktop Chrome"] },
-      testIgnore: "**/mobile/**",
+      testIgnore: ["**/mobile/**", "**/fullstack/**"],
     },
     {
       // A coarse pointer and a phone viewport. Device descriptors set
@@ -61,7 +61,7 @@ export default defineConfig({
           {
             name: "webkit",
             use: { ...devices["Desktop Safari"] },
-            testIgnore: "**/mobile/**",
+            testIgnore: ["**/mobile/**", "**/fullstack/**"],
           },
           {
             name: "mobile-safari",

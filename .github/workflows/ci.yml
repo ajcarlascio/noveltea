@@ -53,6 +53,39 @@ jobs:
             test-results/
           retention-days: 7
 
+  fullstack:
+    name: Full stack (real server)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The server is built from the pinned submodule, so client and server are
+          # tested as the pair this commit says they are.
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      # Builds the images, waits for health, runs the spec, dumps compose logs if it
+      # failed, and tears the stack down with its volumes either way.
+      - name: Full-stack test
+        run: npm run test:fullstack
+
+      - name: Upload failure traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fullstack-traces
+          path: test-results/
+          retention-days: 7
+
   rust:
     name: Desktop shell (Rust)
     runs-on: ubuntu-latest
