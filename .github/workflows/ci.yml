@@ -8,6 +8,10 @@ on:
     # what ships and nothing had ever run against it.
     branches: [main, "0.*"]
 
+# No job writes to the repository; artifact upload uses the runner's own token.
+permissions:
+  contents: read
+
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -56,6 +60,7 @@ jobs:
   fullstack:
     name: Full stack (real server)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:

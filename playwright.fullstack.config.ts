@@ -17,6 +17,7 @@ export default defineConfig({
   timeout: 120_000,
   use: {
     baseURL: `http://localhost:${process.env.NOVELTEA_FULLSTACK_PORT ?? "8197"}`,
+    serviceWorkers: "block",
     trace: "retain-on-failure",
   },
   projects: [{ name: "fullstack", use: { ...devices["Desktop Chrome"] } }],

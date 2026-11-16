@@ -28,7 +28,21 @@ async function syncNow(page: Page) {
   await expect(page.getByText("Saved", { exact: true })).toBeVisible();
   const button = page.getByRole("button", { name: "Sync now" });
   await expect(button).toBeEnabled();
+  // "Last synced just now" stays true for a minute after any earlier sync, so it cannot
+  // prove THIS one finished. "Syncing…" can come and go faster than a poll, so a
+  // MutationObserver latches it, and we wait for it to have appeared and gone.
+  await page.evaluate(() => {
+    const w = window as unknown as { __syncSeen: boolean };
+    w.__syncSeen = false;
+    const look = () => {
+      if (document.body.textContent.includes("Syncing…")) w.__syncSeen = true;
+    };
+    new MutationObserver(look).observe(document.body, { subtree: true, childList: true, characterData: true });
+    look();
+  });
   await button.click();
+  await page.waitForFunction(() => (window as unknown as { __syncSeen: boolean }).__syncSeen);
+  await expect(page.getByText("Syncing…")).toHaveCount(0);
   await expect(page.getByText(/last synced just now/i)).toBeVisible();
   await expect(page.getByText(/changes? waiting/i)).toHaveCount(0);
   await expect(page.getByText(/did not finish/i)).toHaveCount(0);
@@ -46,9 +60,9 @@ test("a second device receives the account's work, and edits travel both ways", 
   await ready(a, "/projects");
   await a.getByRole("button", { name: "New project" }).click();
   await a.getByRole("link", { name: "Untitled project" }).first().click();
-  // The project's own title is not editable from here; the id is what ties devices
-  // together, and "Untitled project" is what the other device will list.
+  // The title is not editable from here, so the other device finds the project by id.
   await expect(a.getByRole("heading", { name: "Untitled project" })).toBeVisible();
+  const projectPath = new URL(a.url()).pathname;
   await a.getByRole("button", { name: "New document" }).click();
   await a.getByRole("treeitem").first().click();
   await writeManuscript(a, fromA);
@@ -61,7 +75,7 @@ test("a second device receives the account's work, and edits travel both ways", 
   await ready(b, "/projects");
   // The regression this test exists for: nothing local, so the project can only appear
   // if the client asks the server what the account has.
-  await b.getByRole("link", { name: "Untitled project" }).first().click({ timeout: 30_000 });
+  await b.locator(`a[href="${projectPath}"]`).click({ timeout: 30_000 });
   await expect(b).toHaveURL(projectUrl);
   await b.getByRole("treeitem").first().click();
   await expect(b.getByRole("textbox", { name: "Manuscript" })).toHaveText(fromA);
