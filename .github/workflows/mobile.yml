@@ -26,11 +26,16 @@ concurrency:
   group: mobile-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   android:
     name: Android
     if: inputs.platform == 'android'
     runs-on: ubuntu-latest
+    # A hung emulator would otherwise run to the six-hour default.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -105,7 +110,7 @@ jobs:
           arch: x86_64
           target: google_apis
           disable-animations: true
-          script: bash tooling/android-probe.sh "$(find src-tauri/gen/android/app/build/outputs -name "*.apk" | head -1)"
+          script: bash tooling/android-probe.sh "$(find src-tauri/gen/android/app/build/outputs -name "*universal*.apk" | sort | head -1)"
 
       - name: Verdict
         if: always()
@@ -129,6 +134,7 @@ jobs:
     if: inputs.platform == 'ios'
     # Xcode only exists on a macOS runner, and an iOS build cannot happen anywhere else.
     runs-on: macos-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:

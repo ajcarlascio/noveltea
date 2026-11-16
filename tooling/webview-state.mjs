@@ -22,8 +22,11 @@ async function evaluate(url) {
   const reply = new Promise((res) => { ws.onmessage = (m) => res(JSON.parse(m.data)); });
   ws.send(JSON.stringify({ id: 1, method: "Runtime.evaluate",
     params: { expression: EXPRESSION, returnByValue: true } }));
-  const msg = await reply;
-  ws.close();
+  // A page that never answers must not hang the job; the caller's loop tries again.
+  const msg = await Promise.race([
+    reply,
+    new Promise((_, rej) => setTimeout(() => rej(new Error("no reply from the page")), 10_000)),
+  ]).finally(() => ws.close());
   return JSON.parse(msg.result.result.value);
 }
 
