@@ -38,8 +38,7 @@ export function StorageWarning() {
       <p className="storage-warning" role="alert">
         <strong>This browser is not storing your work.</strong> Persistent storage is
         unavailable, so anything you write will be lost when you close this tab. The usual
-        causes are NovelTea already being open in another tab — close this one and write
-        there — or a private window.
+        cause is a private window.
       </p>
     );
   }

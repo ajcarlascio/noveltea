@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { REPLICA_LOCK } from "@/db/protocol";
 import "./StorageWarning.css";
 
@@ -10,7 +10,10 @@ import "./StorageWarning.css";
  * itself the moment the other tab lets go.
  */
 export function AnotherTab() {
+  const reloadRef = useRef<HTMLButtonElement>(null);
+
   useEffect(() => {
+    reloadRef.current?.focus();
     const abort = new AbortController();
     void navigator.locks
       ?.request(REPLICA_LOCK, { signal: abort.signal }, () => window.location.reload())
@@ -19,10 +22,10 @@ export function AnotherTab() {
   }, []);
 
   return (
-    <main className="another-tab" role="alert">
+    <main className="another-tab">
       <h1>NovelTea is already open in another tab or window</h1>
-      <p>Use that one, or close it and reload here.</p>
-      <button type="button" onClick={() => window.location.reload()}>
+      <p role="alert">Use that one, or close it and reload here.</p>
+      <button ref={reloadRef} type="button" onClick={() => window.location.reload()}>
         Reload
       </button>
     </main>

@@ -53,17 +53,19 @@ describe("StorageWarning", () => {
     act(() =>
       fake.reply({ kind: "ready", storage: "contended", appliedVersions: [], schemaVersion: 11 }),
     );
-    expect(screen.getByRole("alert")).toHaveTextContent(/already open in another tab/i);
-    expect(screen.getByRole("button", { name: /reload/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading")).toHaveTextContent(/already open in another tab/i);
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(screen.getByRole("main")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /reload/i })).toHaveFocus();
     expect(screen.queryByText(/not storing your work/i)).not.toBeInTheDocument();
   });
 
   it.each([
     [false, /plain http/i],
-    [true, /another tab/i],
+    [true, /private window/i],
   ])("names the real cause when isSecureContext is %s", (secure, expected) => {
     // Private browsing is not why a self-hosted http address has no storage, and it is
-    // not why a second tab has none either. The wrong reason is a wasted afternoon.
+    // a second tab has its own screen. The wrong reason is a wasted afternoon.
     Object.defineProperty(window, "isSecureContext", { value: secure, configurable: true });
     const fake = renderWarning();
     act(() =>
