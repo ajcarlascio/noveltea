@@ -1,6 +1,7 @@
 import type { SqliteAdapter, SqlValue } from "@noveltea/client-db";
 import { clearAccepted, enqueueChange, markAttempted, pendingChanges } from "@noveltea/client-db";
 import { between } from "@/data/order";
+import { queueValue, type MetadataValueRow } from "./metadata-commands";
 
 /**
  * The database half of sync: applying a pull, and settling a push.
@@ -201,6 +202,262 @@ function displaceLocalSibling(
   });
 }
 
+/**
+ * The natural keys a pulled row can collide on besides its id, per table. `live` keys are
+ * partial indexes over rows that are not tombstoned.
+ */
+const UNIQUE_KEYS: Record<string, { columns: string[]; live: boolean }> = {
+  taxonomy: { columns: ["project_id", "kind", "name"], live: true },
+  custom_metadata_field: { columns: ["project_id", "name"], live: true },
+  custom_metadata_value: { columns: ["binder_item_id", "field_id"], live: false },
+  collection_item: { columns: ["collection_id", "binder_item_id"], live: false },
+};
+
+function pendingFor(db: SqliteAdapter, type: string, id: string): { id: number; op: string } | undefined {
+  return db.query<{ id: number; op: string }>(
+    "SELECT id, op FROM pending_change WHERE entity_type = ? AND entity_id = ?;",
+    [type, id],
+  )[0];
+}
+
+/**
+ * Rewrites every local mention of one id as another: the columns that reference it, the
+ * JSON queries that can name a label, status or field, and every queued payload.
+ *
+ * Payloads are rewritten as text. Ids are UUIDs, so an occurrence of one is that id and
+ * nothing else, and this reaches a reference in any payload of any type without a list
+ * of where references live that would drift from the schema.
+ */
+function repoint(db: SqliteAdapter, projectId: string, from: string, to: string): void {
+  db.run("UPDATE binder_item SET label_id = ? WHERE label_id = ?;", [to, from]);
+  db.run("UPDATE binder_item SET status_id = ? WHERE status_id = ?;", [to, from]);
+  for (const [table, column] of [["collection", "query"], ["compile_preset", "include_query"]] as const) {
+    db.run(
+      `UPDATE ${table} SET ${column} = replace(${column}, ?, ?)
+        WHERE project_id = ? AND instr(${column}, ?) > 0;`,
+      [from, to, projectId, from],
+    );
+  }
+  db.run(
+    `UPDATE pending_change SET payload = replace(payload, ?, ?)
+      WHERE project_id = ? AND instr(payload, ?) > 0;`,
+    [from, to, projectId, from],
+  );
+}
+
+/**
+ * Folds a local metadata value into the server's value for the same item and field, in
+ * two halves: the local row is taken out first, to free the (item, field) pair, and its
+ * value is put onto the server's row once that row is in.
+ *
+ * The local value is unsynced writing, and data entities are last-write-wins on push, so
+ * it is what the author's push would have made the value anyway: it is copied onto the
+ * server's row and queued there. A pending clear, or no pending change, carries nothing.
+ */
+function takeValue(db: SqliteAdapter, localId: string): (projectId: string, serverId: string) => void {
+  const pending = pendingFor(db, "custom_metadata_value", localId);
+  const local = db.query<{ value: string | null }>(
+    "SELECT value FROM custom_metadata_value WHERE id = ?;",
+    [localId],
+  )[0];
+  db.run("DELETE FROM custom_metadata_value WHERE id = ?;", [localId]);
+  if (pending !== undefined) db.run("DELETE FROM pending_change WHERE id = ?;", [pending.id]);
+
+  return (projectId, serverId) => {
+    if (pending === undefined || pending.op === "delete" || local === undefined) return;
+    db.run("UPDATE custom_metadata_value SET value = ? WHERE id = ?;", [local.value, serverId]);
+    const row = db.query<MetadataValueRow>("SELECT * FROM custom_metadata_value WHERE id = ?;", [serverId])[0];
+    if (row) queueValue(db, projectId, row, "update");
+  };
+}
+
+/**
+ * Makes room for a pulled row whose natural key a different local row holds.
+ *
+ * The holder is one of three things, and each is resolved so that nothing the author
+ * wrote is lost and both devices end on the server's row:
+ *
+ * - **No pending change.** A stale row: removed as a pulled delete would remove it,
+ *   tombstoned where the table can be, so whatever still points at it stays valid. If
+ *   the server still has it under another key, its own row brings it back.
+ * - **A pending create** (any pending change, for values and collection items, which
+ *   the server only ever has one of per key). The author made locally what the server
+ *   already has: the server's row is adopted, every local reference and queued payload
+ *   is pointed at it, and the redundant create is dropped. A local metadata value is
+ *   copied onto the server's (see `takeValue`).
+ * - **A pending edit or delete of a label, status or field the server knows.** Two
+ *   server rows cannot be merged from here. A delete is taken as done; an edit keeps
+ *   its row under a disambiguated name, queued, for the author to rename or merge.
+ *
+ * @returns what to run once the pulled row is in, or null when nothing held the key.
+ */
+function makeRoom(
+  db: SqliteAdapter,
+  projectId: string,
+  table: string,
+  incomingId: string,
+  data: Record<string, unknown>,
+  now: string,
+): (() => void) | null {
+  const key = UNIQUE_KEYS[table];
+  if (key === undefined) return null;
+  const holder = db.query<{ id: string }>(
+    `SELECT id FROM ${table}
+      WHERE ${key.columns.map((column) => `${column} = ?`).join(" AND ")} AND id <> ?
+        ${key.live ? "AND deleted_at IS NULL" : ""};`,
+    [...key.columns.map((column) => toSqlValue(data[column])), incomingId],
+  )[0];
+  if (!holder) return null;
+
+  const noop = () => undefined;
+  const pending = pendingFor(db, table, holder.id);
+  const tombstone = () =>
+    db.run(`UPDATE ${table} SET deleted_at = ?, updated_at = ? WHERE id = ?;`, [now, now, holder.id]);
+
+  if (pending === undefined) {
+    if (key.live) tombstone();
+    else db.run(`DELETE FROM ${table} WHERE id = ?;`, [holder.id]);
+    return noop;
+  }
+
+  if (table === "custom_metadata_value") {
+    const give = takeValue(db, holder.id);
+    return () => give(projectId, incomingId);
+  }
+  if (table === "collection_item") {
+    db.run("DELETE FROM collection_item WHERE id = ?;", [holder.id]);
+    db.run("DELETE FROM pending_change WHERE id = ?;", [pending.id]);
+    return noop;
+  }
+
+  if (pending.op === "delete") {
+    tombstone();
+    return noop;
+  }
+
+  if (pending.op === "update") {
+    const name = typeof data.name === "string" ? data.name : "";
+    let suffix = 2;
+    let aside = `${name} (${String(suffix)})`;
+    const taken = (candidate: string) =>
+      db.query(
+        `SELECT 1 FROM ${table} WHERE ${key.columns.map((column) => `${column} = ?`).join(" AND ")}
+           AND deleted_at IS NULL;`,
+        key.columns.map((column) => (column === "name" ? candidate : toSqlValue(data[column]))),
+      ).length > 0;
+    while (taken(aside)) {
+      suffix += 1;
+      aside = `${name} (${String(suffix)})`;
+    }
+    db.run(`UPDATE ${table} SET name = ?, updated_at = ? WHERE id = ?;`, [aside, now, holder.id]);
+    db.run("UPDATE pending_change SET payload = json_set(payload, '$.name', ?) WHERE id = ?;", [
+      aside,
+      pending.id,
+    ]);
+    return noop;
+  }
+
+  // A pending create of a label, status or field the server already has. The name is
+  // freed first, and the row removed only once nothing points at it any more.
+  tombstone();
+  return () => {
+    if (table === "custom_metadata_field") {
+      const values = db.query<{ id: string; binder_item_id: string }>(
+        "SELECT id, binder_item_id FROM custom_metadata_value WHERE field_id = ?;",
+        [holder.id],
+      );
+      for (const value of values) {
+        const twin = db.query<{ id: string }>(
+          "SELECT id FROM custom_metadata_value WHERE binder_item_id = ? AND field_id = ?;",
+          [value.binder_item_id, incomingId],
+        )[0];
+        if (twin) takeValue(db, value.id)(projectId, twin.id);
+        else db.run("UPDATE custom_metadata_value SET field_id = ? WHERE id = ?;", [incomingId, value.id]);
+      }
+    }
+    db.run("DELETE FROM pending_change WHERE id = ?;", [pending.id]);
+    repoint(db, projectId, holder.id, incomingId);
+    db.run(`DELETE FROM ${table} WHERE id = ?;`, [holder.id]);
+  };
+}
+
+function isUniqueCollision(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /UNIQUE constraint failed/.test(message);
+}
+
+/**
+ * Queues a manual snapshot this device holds the content of as a create, for a server
+ * that has lost it. Returns false for one without content, which only the server had.
+ */
+function requeueSnapshot(db: SqliteAdapter, projectId: string, id: string): boolean {
+  const row = db.query<{
+    document_id: string;
+    content: string;
+    word_count: number;
+    label: string | null;
+    created_at: string;
+  }>(
+    "SELECT document_id, content, word_count, label, created_at FROM snapshot WHERE id = ? AND content IS NOT NULL;",
+    [id],
+  )[0];
+  if (!row) return false;
+  // The same payload captureSnapshot queues.
+  enqueueChange(db, {
+    projectId,
+    entityType: "snapshot",
+    entityId: id,
+    op: "create",
+    payload: {
+      id,
+      document_id: row.document_id,
+      content: JSON.parse(row.content) as unknown,
+      word_count: row.word_count,
+      label: row.label,
+      is_automatic: false,
+      created_at: row.created_at,
+    },
+  });
+  return true;
+}
+
+/**
+ * Every type `GET /sync/state` lists. A type the server listed nothing for still has to
+ * be pruned, so this is fixed here rather than read from the rows.
+ */
+const STATE_TYPES = [
+  "taxonomy",
+  "custom_metadata_field",
+  "collection",
+  "compile_preset",
+  "custom_metadata_value",
+  "collection_item",
+  "comment",
+  "snapshot",
+];
+
+/** State rows that reference a binder item or a document, and so go in after them. */
+const NEEDS_BINDER = new Set(["custom_metadata_value", "collection_item", "comment", "snapshot"]);
+
+export interface RebuildRow {
+  entityType: string;
+  entityId: string;
+  /** Null for a row the server listed but this client could not read: kept, not applied. */
+  data: Record<string, unknown> | null;
+}
+
+export interface RebuildInput {
+  projectId: string;
+  /** The rows of `GET /sync/state`, or null from a server that does not have it. */
+  state: RebuildRow[] | null;
+  binder: RebuildRow[];
+  documents: RebuildRow[];
+  /** Where the feed resumes: the resync answer's latestId and epoch. */
+  latestId: number;
+  syncEpoch: number;
+  now?: string;
+}
+
 export const SYNC_COMMANDS = {
   /**
    * Applies a page of changes and advances the cursor, together.
@@ -232,6 +489,17 @@ export const SYNC_COMMANDS = {
           db.run(`DELETE FROM ${table} WHERE id = ?;`, [change.entityId]);
         }
         applied += 1;
+        continue;
+      }
+
+      if (table === "document" && pendingFor(db, "document", change.entityId) !== undefined) {
+        // Unpushed writing outranks the server's copy here. Overwriting the row would
+        // leave the author's text only in the queue, where the next keystroke in an
+        // editor that reloaded the server's text replaces it for good. The push that
+        // follows sends it against its old base version: if the server moved on, the
+        // text becomes a conflict copy and the server re-feeds the original, which the
+        // pull after it applies, the queue now being empty. Documents only: every other
+        // type is last-write-wins on push, so the queued payload wins anyway.
         continue;
       }
 
@@ -286,9 +554,20 @@ export const SYNC_COMMANDS = {
         // The server's ordering is the accepted one, so the *local* row moves. Failing
         // the page instead would stall sync until the author noticed and reordered
         // something by hand.
-        if (!isSiblingOrderCollision(error)) throw error;
-        displaceLocalSibling(db, input.projectId, change.entityId, data, stamp);
-        upsert();
+        if (isSiblingOrderCollision(error)) {
+          displaceLocalSibling(db, input.projectId, change.entityId, data, stamp);
+          upsert();
+        } else {
+          // The same for every other natural key: a label, a field name, an item's value
+          // for a field, an item's place in a collection. Failing instead would fail
+          // every sync, before the push, until the author found the row by hand.
+          const then = isUniqueCollision(error)
+            ? makeRoom(db, input.projectId, table, change.entityId, data, stamp)
+            : null;
+          if (then === null) throw error;
+          upsert();
+          then();
+        }
       }
       applied += 1;
     }
@@ -355,7 +634,16 @@ export const SYNC_COMMANDS = {
   takePending: (
     db: SqliteAdapter,
     input: { projectId: string; limit?: number },
-  ): { id: number; entityType: string; entityId: string; op: string; baseVersion: number | null; data: unknown }[] => {
+  ): {
+    id: number;
+    entityType: string;
+    entityId: string;
+    op: string;
+    baseVersion: number | null;
+    data: unknown;
+    /** The queued text as taken, so `settlePush` can tell whether it changed in flight. */
+    payload: string | null;
+  }[] => {
     const rows = pendingChanges(db, input.projectId).slice(0, input.limit ?? 200);
     markAttempted(db, rows.map((row) => row.id));
 
@@ -366,13 +654,63 @@ export const SYNC_COMMANDS = {
       op: row.op,
       baseVersion: row.base_version,
       data: row.payload === null ? null : (JSON.parse(row.payload) as unknown),
+      payload: row.payload,
     }));
   },
 
-  /** Clears what the server accepted. Anything else stays queued for the next push. */
-  settlePush: (db: SqliteAdapter, input: { ids: number[] }): { cleared: number } => {
-    clearAccepted(db, input.ids);
-    return { cleared: input.ids.length };
+  /**
+   * Clears what the server accepted. Anything else stays queued for the next push.
+   *
+   * The push is a network round trip, and the author keeps writing during it. An edit
+   * made meanwhile merges into the very queue entry that was sent, so clearing that entry
+   * by id would drop the newer text from the queue; the next pull of that document would
+   * then overwrite it with nothing to say it was ever there. An entry whose payload is no
+   * longer the one `sent` stays queued, rebased onto the version the server just gave the
+   * write it builds on — a create the server now has goes on as an update.
+   *
+   * Each accepted row's local version moves to the server's too, so the next edit is
+   * based on the write that was accepted and not the one before it, which the server
+   * would take for a stale write: a conflict copy of the author's own text.
+   */
+  settlePush: (
+    db: SqliteAdapter,
+    input: {
+      ids: number[];
+      sent?: { id: number; payload: string | null }[];
+      applied?: { entityType: string; entityId: string; version: number }[];
+    },
+  ): { cleared: number } => {
+    const versions = new Map<string, number>();
+    for (const row of input.applied ?? []) {
+      versions.set(`${row.entityType}:${row.entityId}`, row.version);
+      const table = TABLES[row.entityType];
+      if (table !== undefined) {
+        db.run(`UPDATE ${table} SET version = MAX(version, ?) WHERE id = ?;`, [row.version, row.entityId]);
+      }
+    }
+
+    const sent = new Map((input.sent ?? []).map((row) => [row.id, row.payload]));
+    const cleared: number[] = [];
+    for (const id of input.ids) {
+      const now = db.query<{ entity_type: string; entity_id: string; payload: string | null }>(
+        "SELECT entity_type, entity_id, payload FROM pending_change WHERE id = ?;",
+        [id],
+      )[0];
+      if (now === undefined) continue;
+      if (!sent.has(id) || sent.get(id) === now.payload) {
+        cleared.push(id);
+        continue;
+      }
+      const version = versions.get(`${now.entity_type}:${now.entity_id}`);
+      if (version === undefined) continue;
+      db.run(
+        `UPDATE pending_change SET base_version = ?, op = CASE op WHEN 'create' THEN 'update' ELSE op END
+          WHERE id = ?;`,
+        [version, id],
+      );
+    }
+    clearAccepted(db, cleared);
+    return { cleared: cleared.length };
   },
 
   /** Records why a sync attempt failed, without touching the cursor. */
@@ -400,6 +738,12 @@ export const SYNC_COMMANDS = {
    *
    * Only the types in `keep` are touched. A type the server could not list — anything
    * but the binder, on a server without `/sync/state` — says nothing by its absence.
+   *
+   * A manual snapshot that holds its content here is never removed: rows pulled from the
+   * server never carry content, so one that does was taken on this device, and the
+   * server's silence means it lost it — a restore from an older backup, or a create it
+   * refused. Deleting it would destroy a draft nothing else holds. It is queued as a
+   * create again instead, so it reaches the server.
    *
    * Rows with a pending change are left alone. Those are local edits the server has
    * never seen — it cannot have listed them, and their absence says nothing about
@@ -430,6 +774,7 @@ export const SYNC_COMMANDS = {
 
       for (const { id } of db.query<{ id: string }>(rows, [input.projectId])) {
         if (keep.has(id) || pending.has(id)) continue;
+        if (type === "snapshot" && requeueSnapshot(db, input.projectId, id)) continue;
         if (tombstone) {
           db.run(`UPDATE ${table} SET deleted_at = ?, updated_at = ? WHERE id = ?;`, [stamp, stamp, id]);
         } else {
@@ -439,6 +784,71 @@ export const SYNC_COMMANDS = {
       }
     }
     return { removed };
+  },
+
+  /**
+   * Rebuilds a project from what the server listed, and moves the cursor, in one step.
+   *
+   * One command is one transaction (see `dispatch.ts`), and that is the point of this
+   * one: everything has been fetched before it runs, so a failure or a closed tab at any
+   * moment leaves the replica as it was or as the server has it, never pruned and not
+   * yet restored.
+   *
+   * In this order:
+   *
+   * 1. Rows of the state types the server did not list are pruned, first, because the
+   *    replica's unique indexes would otherwise refuse the server's row while a ghost
+   *    still holds its place — a value cleared and set again on another device comes
+   *    back under a new id for the same item and field.
+   * 2. Labels, statuses, metadata fields, collections and presets, so the binder items
+   *    that name them can.
+   * 3. The tree, then every document body.
+   * 4. Metadata values, collection items, comments and manual snapshots, now that what
+   *    they hang on is here.
+   * 5. Binder items the server did not list are pruned — otherwise an item deleted while
+   *    this client was away, whose delete row retention has since purged, would linger
+   *    forever with nothing left to say it is gone.
+   * 6. The cursor, at the resync answer's latestId: pulling from 0 would land below the
+   *    purge point again and ask for a resync forever.
+   *
+   * With no state (an older server) those types are neither restored nor pruned.
+   */
+  rebuildProject: (db: SqliteAdapter, input: RebuildInput): void => {
+    const { projectId, state } = input;
+    const now = input.now ?? new Date().toISOString();
+    const apply = (rows: RebuildRow[]) => {
+      const changes = rows.flatMap((row, index) =>
+        row.data === null ? [] : [{ id: index, op: "update", ...row, data: row.data }],
+      );
+      if (changes.length === 0) return;
+      SYNC_COMMANDS.applyPull(db, { projectId, changes, latestId: 0, syncEpoch: 0, advanceCursor: false, now });
+    };
+    const stateRows = (needsBinder: boolean) =>
+      (state ?? []).filter((row) => NEEDS_BINDER.has(row.entityType) === needsBinder);
+
+    if (state !== null) {
+      const keep: Record<string, string[]> = Object.fromEntries(STATE_TYPES.map((type) => [type, []]));
+      for (const row of state) keep[row.entityType]?.push(row.entityId);
+      SYNC_COMMANDS.pruneMissing(db, { projectId, keep, now });
+    }
+    apply(stateRows(false));
+    apply(input.binder);
+    apply(input.documents);
+    apply(stateRows(true));
+    SYNC_COMMANDS.pruneMissing(db, {
+      projectId,
+      keep: {
+        binder_item: [...input.binder, ...input.documents].map((row) => row.entityId),
+      },
+      now,
+    });
+    SYNC_COMMANDS.applyPull(db, {
+      projectId,
+      changes: [],
+      latestId: input.latestId,
+      syncEpoch: input.syncEpoch,
+      now,
+    });
   },
 
   /**

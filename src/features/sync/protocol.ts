@@ -21,6 +21,11 @@ export interface PullResponse {
   hasMore: boolean;
   resyncRequired: boolean;
   syncEpoch: number;
+  /**
+   * The server serves `GET /sync/state`. Advertised rather than probed: servers before
+   * it answer the unknown route with 500, which is also what a real failure looks like.
+   */
+  stateAvailable: boolean;
   /** Rows the server sent that this client could not parse and had to skip. */
   dropped: number;
 }
@@ -119,6 +124,7 @@ export function parsePullResponse(raw: unknown): PullResponse {
     hasMore: raw.hasMore === true,
     resyncRequired: raw.resyncRequired === true,
     syncEpoch: typeof raw.syncEpoch === "number" ? raw.syncEpoch : 1,
+    stateAvailable: raw.stateAvailable === true,
     dropped,
   };
 }

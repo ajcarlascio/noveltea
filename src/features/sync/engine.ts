@@ -1,4 +1,5 @@
 import type { DatabaseClient } from "@/db/client";
+import type { RebuildRow } from "@/db/sync-commands";
 import type { Authenticator } from "@/features/auth/authenticate";
 import {
   parsePullResponse,
@@ -121,55 +122,53 @@ export async function syncProject(
     let cursor = state.lastChangeId;
     let epoch = state.syncEpoch;
 
-    for (let page = 0; page < maxPages; page += 1) {
-      const response = await auth.fetch(
-        `/api/v1/projects/${projectId}/sync?since=${String(cursor)}&limit=${String(pageSize)}&epoch=${String(epoch)}`,
-      );
-      const pull = parsePullResponse(await json(response, "pull changes"));
+    const pullAll = async () => {
+      for (let page = 0; page < maxPages; page += 1) {
+        const response = await auth.fetch(
+          `/api/v1/projects/${projectId}/sync?since=${String(cursor)}&limit=${String(pageSize)}&epoch=${String(epoch)}`,
+        );
+        const pull = parsePullResponse(await json(response, "pull changes"));
 
-      if (pull.resyncRequired) {
-        // The cursor points into history the server can no longer explain: retention
-        // purged it, or the project was restored from an older backup.
-        //
-        // Rebuilt by converging on the server rather than by wiping first. Deleting
-        // everything and re-fetching would open a window in which the author's binder
-        // is empty, and would take unpushed local work with it if anything failed
-        // partway. Upserting reaches the same state without ever having less than
-        // both.
-        await rebuildFromServer(db, auth, projectId);
+        if (pull.resyncRequired) {
+          // The cursor points into history the server can no longer explain: retention
+          // purged it, or the project was restored from an older backup.
+          //
+          // Rebuilt by converging on the server rather than by wiping first. Deleting
+          // everything and re-fetching would open a window in which the author's binder
+          // is empty, and would take unpushed local work with it if anything failed
+          // partway. Upserting reaches the same state without ever having less than
+          // both. The cursor moves in the same transaction, to latestId, not to 0:
+          // pulling from 0 would land below the purge point again and ask for a resync
+          // forever.
+          await rebuildFromServer(db, auth, projectId, pull);
+          cursor = pull.latestId;
+          epoch = pull.syncEpoch;
+          outcome.resynced = true;
+          continue;
+        }
+
+        // Always applied, even for an empty page. A page with no rows still moves the
+        // feed position, and leaving that unwritten means re-asking for the same empty
+        // range on every sync, forever.
+        const applied = await db.command("applyPull", {
+          projectId,
+          changes: pull.changes,
+          latestId: pull.latestId,
+          syncEpoch: pull.syncEpoch,
+        });
+        outcome.pulled += applied.applied;
+        outcome.dropped += pull.dropped;
+        for (const type of applied.skipped) {
+          if (!outcome.skipped.includes(type)) outcome.skipped.push(type);
+        }
+
         cursor = pull.latestId;
         epoch = pull.syncEpoch;
-        outcome.resynced = true;
-        // Resuming *at* latestId, not at 0: pulling from 0 would land below the purge
-        // point again and ask for a resync forever.
-        await db.command("applyPull", {
-          projectId,
-          changes: [],
-          latestId: cursor,
-          syncEpoch: epoch,
-        });
-        continue;
+        if (!pull.hasMore) break;
       }
+    };
 
-      // Always applied, even for an empty page. A page with no rows still moves the
-      // feed position, and leaving that unwritten means re-asking for the same empty
-      // range on every sync, forever.
-      const applied = await db.command("applyPull", {
-        projectId,
-        changes: pull.changes,
-        latestId: pull.latestId,
-        syncEpoch: pull.syncEpoch,
-      });
-      outcome.pulled += applied.applied;
-      outcome.dropped += pull.dropped;
-      for (const type of applied.skipped) {
-        if (!outcome.skipped.includes(type)) outcome.skipped.push(type);
-      }
-
-      cursor = pull.latestId;
-      epoch = pull.syncEpoch;
-      if (!pull.hasMore) break;
-    }
+    await pullAll();
 
     // -- push ---------------------------------------------------------------------
     const pending = await db.command("takePending", { projectId, limit: pageSize });
@@ -200,9 +199,20 @@ export async function syncProject(
         .filter((row) => settled.has(`${row.entityType}:${row.entityId}`))
         .map((row) => row.id);
 
-      await db.command("settlePush", { ids });
+      await db.command("settlePush", {
+        ids,
+        sent: pending.map((row) => ({ id: row.id, payload: row.payload })),
+        applied: push.applied,
+      });
       outcome.pushed = push.applied.length;
       outcome.conflicts = push.conflicts;
+
+      // A document whose push became a conflict copy still shows this device's text,
+      // which a pull keeps while the change is queued. Now that the text is safe in the
+      // copy, the server has put its own version back on the feed; taking it straight
+      // away keeps the window in which the author could type over a superseded base as
+      // short as one round trip.
+      if (push.conflicts.some((conflict) => conflict.conflictCopyId !== null)) await pullAll();
     }
 
     return outcome;
@@ -216,115 +226,58 @@ export async function syncProject(
 }
 
 /**
- * Every type `GET /sync/state` lists. A type the server listed nothing for still has to
- * be pruned, so this is fixed here rather than read from the rows.
- */
-const STATE_TYPES = [
-  "taxonomy",
-  "custom_metadata_field",
-  "collection",
-  "compile_preset",
-  "custom_metadata_value",
-  "collection_item",
-  "comment",
-  "snapshot",
-];
-
-/** State rows that reference a binder item or a document, and so go in after them. */
-const NEEDS_BINDER = new Set(["custom_metadata_value", "collection_item", "comment", "snapshot"]);
-
-/**
  * Rebuilds a project from the server after a resync.
  *
- * Five steps, in this order:
+ * Everything is fetched first — the rest of the state from `GET /sync/state`, the tree
+ * from `GET /binder`, every document body from `GET /documents` — and only then handed
+ * to `rebuildProject`, which prunes, applies and moves the cursor in one transaction. A
+ * failed request, or the app closing, at any point before that leaves the replica
+ * exactly as it was: pruning first and fetching after would leave it gutted, for as long
+ * as the device stays offline.
  *
- * 1. Everything else the feed carries, from `GET /sync/state`. Rows of those types the
- *    server did not list are removed first, because the replica's unique indexes would
- *    otherwise refuse the server's row while a ghost still holds its place — a value
- *    cleared and set again on another device comes back under a new id for the same
- *    item and field. Then labels, statuses, metadata fields, collections and presets go
- *    in, so the binder items that name them can.
- * 2. The tree, from `GET /binder`.
- * 3. Every document body, from `GET /projects/{id}/documents`, paged. This endpoint
- *    exists only for this: the change feed carries content, but only on rows appended
- *    since a cursor, so a client rebuilding from nothing cannot otherwise recover a
- *    document nobody has edited recently.
- * 4. The rest of the state rows — metadata values, collection items, comments, manual
- *    snapshots — now that what they hang on is here.
- * 5. Binder items the server did not list are removed — otherwise an item deleted while
- *    this client was away, whose delete row retention has since purged, would linger
- *    forever with nothing left to say it is gone.
+ * `/sync/state` is used only when the resync answer says the server has it, and then any
+ * failure of it fails the sync, which retries with the cursor where it was. Guessing
+ * from its status instead would take a transient 500 for an older server and rebuild
+ * without labels, metadata or comments, never to fetch them again.
  *
- * On a server that predates `/sync/state` the rebuild is the tree and the bodies alone,
- * as it was before: those types are then neither restored nor pruned.
+ * ponytail: every document body is held in memory until the one write; fine for a
+ * novel. Stage pages in a table if a project's prose outgrows the tab's memory.
  */
 async function rebuildFromServer(
   db: DatabaseClient,
   auth: Authenticator,
   projectId: string,
+  answer: { latestId: number; syncEpoch: number; stateAvailable: boolean },
 ): Promise<void> {
-  const state = await fetchState(auth, projectId);
-  const stateRows = (needsBinder: boolean) =>
-    (state ?? []).flatMap((row) =>
-      row.data !== null && NEEDS_BINDER.has(row.entityType) === needsBinder
-        ? [{ ...row, data: row.data }]
-        : [],
-    );
-
-  if (state !== null) {
-    const keep: Record<string, string[]> = Object.fromEntries(STATE_TYPES.map((type) => [type, []]));
-    for (const row of state) keep[row.entityType]?.push(row.entityId);
-    await db.command("pruneMissing", { projectId, keep });
-  }
-  await applyRows(db, projectId, stateRows(false));
+  const state = answer.stateAvailable ? await fetchState(auth, projectId) : null;
 
   const response = await auth.fetch(`/api/v1/projects/${projectId}/binder`);
-  const flat = flattenBinder(await json(response, "read the binder"));
+  const binder = flattenBinder(await json(response, "read the binder")).map((node) => ({
+    entityType: "binder_item",
+    entityId: node.id,
+    data: { ...node, project_id: projectId },
+  }));
 
-  await applyRows(
-    db,
+  const documents = await fetchDocumentBodies(auth, projectId);
+
+  await db.command("rebuildProject", {
     projectId,
-    flat.map((node) => ({
-      entityType: "binder_item",
-      entityId: node.id,
-      data: { ...node, project_id: projectId },
-    })),
-  );
-
-  const documentIds = await fetchDocumentBodies(db, auth, projectId);
-
-  await applyRows(db, projectId, stateRows(true));
-
-  await db.command("pruneMissing", {
-    projectId,
-    keep: { binder_item: [...flat.map((node) => node.id), ...documentIds] },
+    state,
+    binder,
+    documents,
+    latestId: answer.latestId,
+    syncEpoch: answer.syncEpoch,
   });
 }
 
-interface Row {
-  entityType: string;
-  entityId: string;
-  data: Record<string, unknown>;
-}
-
 /**
- * The rows of `GET /sync/state`, or null from a server too old to have it.
- *
- * Too old means 404 or 500. Servers before this endpoint answer a route they do not have
- * with 500 `internal_error` — their catch-all handler swallows the not-found — and
- * failing on that would fail every rebuild against a server pinned to one, which is
- * worse than the rebuild they always had. The price is that a real 500 here also
- * degrades to it rather than failing the sync.
+ * The rows of `GET /sync/state`.
  *
  * A row whose data is unreadable keeps its id with null data: it is not applied, but it
  * is still listed, so the prune does not take it as a row the server has lost.
  */
-async function fetchState(
-  auth: Authenticator,
-  projectId: string,
-): Promise<(Omit<Row, "data"> & { data: Record<string, unknown> | null })[] | null> {
+async function fetchState(auth: Authenticator, projectId: string): Promise<RebuildRow[]> {
   const response = await auth.fetch(`/api/v1/projects/${projectId}/sync/state`);
-  if (response.status === 404 || response.status === 500) return null;
   const body = await json(response, "read the project's state");
   if (!Array.isArray(body)) throw new SyncFailed("The server's project state was not readable.");
 
@@ -337,13 +290,9 @@ async function fetchState(
   });
 }
 
-/** Walks every page of document bodies, returning the ids it applied. */
-async function fetchDocumentBodies(
-  db: DatabaseClient,
-  auth: Authenticator,
-  projectId: string,
-): Promise<string[]> {
-  const ids: string[] = [];
+/** Walks every page of document bodies. */
+async function fetchDocumentBodies(auth: Authenticator, projectId: string): Promise<RebuildRow[]> {
+  const rows: RebuildRow[] = [];
   let after: string | null = null;
 
   // Bounded for the same reason the pull loop is: a server that always says hasMore
@@ -357,52 +306,29 @@ async function fetchDocumentBodies(
     const payload = body as { documents?: unknown; nextCursor?: unknown; hasMore?: unknown };
     const documents = Array.isArray(payload.documents) ? payload.documents : [];
 
-    await applyRows(
-      db,
-      projectId,
-      documents.flatMap((row) => {
-        if (row === null || typeof row !== "object") return [];
-        const document = row as Record<string, unknown>;
-        if (typeof document.id !== "string") return [];
-        ids.push(document.id);
-        return [
-          {
-            entityType: "document",
-            entityId: document.id,
-            data: {
-              id: document.id,
-              content: document.content,
-              search_text: document.searchText ?? null,
-              word_count: typeof document.wordCount === "number" ? document.wordCount : 0,
-              version: typeof document.version === "number" ? document.version : 1,
-              created_at: document.updatedAt,
-              updated_at: document.updatedAt,
-            },
-          },
-        ];
-      }),
-    );
+    for (const row of documents) {
+      if (row === null || typeof row !== "object") continue;
+      const document = row as Record<string, unknown>;
+      if (typeof document.id !== "string") continue;
+      rows.push({
+        entityType: "document",
+        entityId: document.id,
+        data: {
+          id: document.id,
+          content: document.content,
+          search_text: document.searchText ?? null,
+          word_count: typeof document.wordCount === "number" ? document.wordCount : 0,
+          version: typeof document.version === "number" ? document.version : 1,
+          created_at: document.updatedAt,
+          updated_at: document.updatedAt,
+        },
+      });
+    }
 
     if (payload.hasMore !== true || typeof payload.nextCursor !== "string") break;
     after = payload.nextCursor;
   }
-  return ids;
-}
-
-/** Applies rows without moving the cursor: these did not come from the feed. */
-async function applyRows(
-  db: DatabaseClient,
-  projectId: string,
-  rows: Row[],
-): Promise<void> {
-  if (rows.length === 0) return;
-  await db.command("applyPull", {
-    projectId,
-    changes: rows.map((row, index) => ({ id: index, op: "update", ...row })),
-    latestId: 0,
-    syncEpoch: 0,
-    advanceCursor: false,
-  });
+  return rows;
 }
 
 interface FlatNode extends Record<string, unknown> {

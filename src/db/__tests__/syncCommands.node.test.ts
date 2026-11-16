@@ -495,3 +495,198 @@ describe("applyPull without a cursor", () => {
     expect(db.adapter.query("SELECT id FROM binder_item WHERE id = 'b1';")).toHaveLength(1);
   });
 });
+
+/** Server-shaped rows for every type, as a pull or a rebuild would apply them. */
+const stamp = "2026-03-01T00:00:00Z";
+const serverRow = (entityType: string, id: string, data: Record<string, unknown>) => ({
+  id: 0,
+  entityType,
+  entityId: id,
+  op: "update",
+  data: { id, version: 1, created_at: stamp, updated_at: stamp, ...data },
+});
+const pull = (...changes: ReturnType<typeof serverRow>[]) =>
+  COMMANDS.applyPull(db.adapter, { projectId, changes, latestId: 0, syncEpoch: 0, advanceCursor: false });
+const chapterRows = () => [
+  serverRow("binder_item", "d1", { project_id: projectId, parent_id: null, type: "document", title: "Chapter One", order_key: "m" }),
+  serverRow("document", "d1", { content: { type: "doc" } }),
+];
+
+describe("pruneMissing keeps every type's unsynced rows", () => {
+  const ROWS: Record<string, () => ReturnType<typeof serverRow>> = {
+    taxonomy: () => serverRow("taxonomy", "t1", { project_id: projectId, kind: "label", name: "Draft", color: null, order_key: "m", deleted_at: null }),
+    custom_metadata_field: () => serverRow("custom_metadata_field", "f1", { project_id: projectId, name: "POV", field_type: "text", options: null, order_key: "m", deleted_at: null }),
+    collection: () => serverRow("collection", "k1", { project_id: projectId, name: "Act I", query: null, is_smart: false, color: null, order_key: "m", deleted_at: null }),
+    compile_preset: () => serverRow("compile_preset", "p1", { project_id: projectId, name: "Manuscript", format: "md", included_binder_items: ["d1"], include_query: null, separator_rules: {}, deleted_at: null }),
+    comment: () => serverRow("comment", "c1", { project_id: projectId, document_id: "d1", parent_comment_id: null, body: "Tighten this", anchor: null, deleted_at: null }),
+    custom_metadata_value: () => serverRow("custom_metadata_value", "v1", { binder_item_id: "d1", field_id: "f1", value: "Ann" }),
+    collection_item: () => serverRow("collection_item", "i1", { collection_id: "k1", binder_item_id: "d1", order_key: "m" }),
+    snapshot: () => serverRow("snapshot", "n1", { project_id: projectId, document_id: "d1", word_count: 0, label: null, is_automatic: false }),
+  };
+  const present = (type: string, id: string) =>
+    db.adapter.query(`SELECT 1 FROM ${type} WHERE id = ?${type === "custom_metadata_value" || type === "collection_item" || type === "snapshot" ? "" : " AND deleted_at IS NULL"};`, [id]).length > 0;
+
+  for (const [type, make] of Object.entries(ROWS)) {
+    it(`keeps a ${type} with a pending change, and only that one`, () => {
+      pull(...chapterRows(), ROWS.custom_metadata_field!(), ROWS.collection!(), make());
+      const row = make();
+      db.adapter.run(
+        `INSERT INTO pending_change (project_id, entity_type, entity_id, op, payload, created_at, updated_at)
+         VALUES (?, ?, ?, 'update', '{}', ?, ?);`,
+        [projectId, type, row.entityId, stamp, stamp],
+      );
+
+      COMMANDS.pruneMissing(db.adapter, { projectId, keep: { [type]: [] } });
+      expect(present(type, row.entityId)).toBe(true);
+
+      // The same row without the pending change goes, or the line above proves nothing.
+      db.adapter.run("DELETE FROM pending_change;");
+      COMMANDS.pruneMissing(db.adapter, { projectId, keep: { [type]: [] } });
+      expect(present(type, row.entityId)).toBe(false);
+    });
+  }
+
+  it("never deletes a manual snapshot whose content only this device holds, and queues it again", () => {
+    // Pulled snapshots never carry content, so one that does was taken here; a server
+    // that does not list it has lost it. Deleting it would destroy the only copy.
+    pull(...chapterRows());
+    const taken = COMMANDS.captureSnapshot(db.adapter, { projectId, documentId: "d1", label: "Before the cut", automatic: false });
+    db.adapter.run("DELETE FROM pending_change;");
+
+    COMMANDS.pruneMissing(db.adapter, { projectId, keep: { snapshot: [] } });
+
+    expect(db.adapter.query("SELECT content IS NOT NULL AS held FROM snapshot WHERE id = ?;", [taken.id])).toEqual([{ held: 1 }]);
+    const [entry] = queued();
+    expect(entry).toMatchObject({ entity_type: "snapshot", entity_id: taken.id, op: "create" });
+    expect(JSON.parse(entry?.payload ?? "{}")).toMatchObject({ document_id: "d1", label: "Before the cut", content: { type: "doc" } });
+  });
+});
+
+describe("applyPull and an unpushed document", () => {
+  it("keeps the local body of a document with a pending change", () => {
+    pull(...chapterRows());
+    COMMANDS.saveDocument(db.adapter, { projectId, id: "d1", content: { type: "doc", content: [] }, searchText: "mine", wordCount: 1 });
+    const before = queued()[0];
+
+    pull(serverRow("document", "d1", { content: { type: "doc", attrs: { from: "elsewhere" } }, search_text: "theirs", version: 5 }));
+
+    // The push that follows is what reconciles them; see the engine's conflict tests.
+    expect(db.adapter.query("SELECT search_text, version FROM document WHERE id = 'd1';")).toEqual([{ search_text: "mine", version: 1 }]);
+    expect(queued()[0]).toEqual(before);
+
+    db.adapter.run("DELETE FROM pending_change;");
+    pull(serverRow("document", "d1", { content: { type: "doc" }, search_text: "theirs", version: 5 }));
+    expect(db.adapter.query("SELECT search_text FROM document WHERE id = 'd1';")).toEqual([{ search_text: "theirs" }]);
+  });
+});
+
+describe("applyPull and a local row holding the server's natural key", () => {
+  const live = (table: string) =>
+    db.adapter.query<{ id: string }>(`SELECT id FROM ${table} WHERE deleted_at IS NULL ORDER BY id;`).map((r) => r.id);
+  const SERVER_LABEL = "aaaaaaaa-0000-4000-8000-000000000001";
+  const serverLabel = (name = "Draft") =>
+    serverRow("taxonomy", SERVER_LABEL, { project_id: projectId, kind: "label", name, color: "#0033cc", order_key: "m", deleted_at: null });
+
+  it("adopts the server's label for one made here too, and points everything at it", () => {
+    pull(...chapterRows());
+    const mine = COMMANDS.createTaxonomy(db.adapter, { projectId, kind: "label", name: "Draft", color: null });
+    COMMANDS.setItemTaxonomy(db.adapter, { projectId, id: "d1", labelId: mine.id });
+    const smart = COMMANDS.createCollection(db.adapter, { projectId, name: "Drafts", color: null, query: { labelIds: [mine.id] } });
+
+    pull(serverLabel());
+
+    expect(live("taxonomy")).toEqual([SERVER_LABEL]);
+    expect(db.adapter.query("SELECT label_id FROM binder_item WHERE id = 'd1';")).toEqual([{ label_id: SERVER_LABEL }]);
+    expect(db.adapter.query<{ query: string }>("SELECT query FROM collection WHERE id = ?;", [smart.id])[0]?.query).toContain(SERVER_LABEL);
+    // The redundant create is gone; every queued payload that named it names the server's.
+    expect(queued().map((q) => q.entity_type).sort()).toEqual(["binder_item", "collection"]);
+    for (const entry of queued()) expect(entry.payload).not.toContain(mine.id);
+    expect(JSON.parse(queued().find((q) => q.entity_type === "binder_item")?.payload ?? "{}")).toMatchObject({ label_id: SERVER_LABEL });
+  });
+
+  it("sets aside a label the server knows and this device renamed onto the same name", () => {
+    pull(serverRow("taxonomy", "known", { project_id: projectId, kind: "label", name: "Old", color: null, order_key: "a", deleted_at: null }));
+    COMMANDS.updateTaxonomy(db.adapter, { projectId, id: "known", name: "Draft", color: null });
+
+    pull(serverLabel());
+
+    expect(db.adapter.query("SELECT id, name FROM taxonomy ORDER BY id;")).toEqual([
+      { id: SERVER_LABEL, name: "Draft" },
+      { id: "known", name: "Draft (2)" },
+    ]);
+    expect(JSON.parse(queued()[0]?.payload ?? "{}")).toMatchObject({ name: "Draft (2)" });
+  });
+
+  it("tombstones a stale label with nothing pending, keeping what points at it valid", () => {
+    pull(serverRow("taxonomy", "stale", { project_id: projectId, kind: "label", name: "Draft", color: null, order_key: "a", deleted_at: null }));
+    pull(serverLabel());
+    expect(live("taxonomy")).toEqual([SERVER_LABEL]);
+    expect(db.adapter.query("SELECT id FROM taxonomy WHERE id = 'stale';")).toHaveLength(1);
+  });
+
+  it("adopts the server's field, moving this device's values onto it", () => {
+    const SERVER_FIELD = "bbbbbbbb-0000-4000-8000-000000000001";
+    pull(...chapterRows());
+    const mine = COMMANDS.createMetadataField(db.adapter, { projectId, name: "POV", fieldType: "text" });
+    COMMANDS.setMetadataValue(db.adapter, { projectId, binderItemId: "d1", fieldId: mine.id, value: "Ann" });
+
+    pull(serverRow("custom_metadata_field", SERVER_FIELD, { project_id: projectId, name: "POV", field_type: "text", options: null, order_key: "m", deleted_at: null }));
+
+    expect(live("custom_metadata_field")).toEqual([SERVER_FIELD]);
+    expect(db.adapter.query("SELECT field_id, value FROM custom_metadata_value;")).toEqual([{ field_id: SERVER_FIELD, value: '"Ann"' }]);
+    expect(queued().map((q) => q.entity_type)).toEqual(["custom_metadata_value"]);
+    expect(JSON.parse(queued()[0]?.payload ?? "{}")).toMatchObject({ field_id: SERVER_FIELD, value: "Ann" });
+  });
+
+  it("keeps this device's value for an item and field the server has a value for", () => {
+    pull(...chapterRows(), serverRow("custom_metadata_field", "f1", { project_id: projectId, name: "POV", field_type: "text", options: null, order_key: "m", deleted_at: null }));
+    COMMANDS.setMetadataValue(db.adapter, { projectId, binderItemId: "d1", fieldId: "f1", value: "Ann" });
+
+    pull(serverRow("custom_metadata_value", "server-value", { binder_item_id: "d1", field_id: "f1", value: "Bea" }));
+
+    // Last write wins on push, so the unsynced value is the one the server will hold.
+    expect(db.adapter.query("SELECT id, value FROM custom_metadata_value;")).toEqual([{ id: "server-value", value: '"Ann"' }]);
+    expect(queued()).toHaveLength(1);
+    expect(queued()[0]).toMatchObject({ entity_id: "server-value", op: "update" });
+  });
+
+  it("drops a collection membership made here that the server already has", () => {
+    pull(...chapterRows(), serverRow("collection", "k1", { project_id: projectId, name: "Act I", query: null, is_smart: false, color: null, order_key: "m", deleted_at: null }));
+    COMMANDS.addToCollection(db.adapter, { projectId, collectionId: "k1", binderItemId: "d1" });
+
+    pull(serverRow("collection_item", "server-member", { collection_id: "k1", binder_item_id: "d1", order_key: "m" }));
+
+    expect(db.adapter.query("SELECT id FROM collection_item;")).toEqual([{ id: "server-member" }]);
+    expect(queued()).toHaveLength(0);
+  });
+});
+
+describe("queued tags", () => {
+  it("carries a label set earlier through a later rename", () => {
+    pull(...chapterRows(), serverRow("taxonomy", "t1", { project_id: projectId, kind: "label", name: "Draft", color: null, order_key: "m", deleted_at: null }));
+    COMMANDS.setItemTaxonomy(db.adapter, { projectId, id: "d1", labelId: "t1" });
+    COMMANDS.renameBinderItem(db.adapter, { projectId, id: "d1", title: "Renamed" });
+
+    const payload = JSON.parse(queued()[0]?.payload ?? "{}") as Record<string, unknown>;
+    expect(payload).toMatchObject({ title: "Renamed", label_id: "t1" });
+    // Only the tag the author touched.
+    expect(payload).not.toHaveProperty("status_id");
+  });
+});
+
+describe("settlePush", () => {
+  it("moves an accepted row's version to the server's", () => {
+    pull(...chapterRows());
+    COMMANDS.saveDocument(db.adapter, { projectId, id: "d1", content: { type: "doc" }, searchText: "x", wordCount: 1 });
+    const [taken] = COMMANDS.takePending(db.adapter, { projectId });
+
+    COMMANDS.settlePush(db.adapter, {
+      ids: [taken!.id],
+      sent: [{ id: taken!.id, payload: taken!.payload }],
+      applied: [{ entityType: "document", entityId: "d1", version: 2 }],
+    });
+
+    expect(queued()).toHaveLength(0);
+    expect(db.adapter.query("SELECT version FROM document WHERE id = 'd1';")).toEqual([{ version: 2 }]);
+  });
+});

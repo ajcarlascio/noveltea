@@ -395,26 +395,46 @@ describe("a resync restores everything the feed carries", () => {
   const purgedServer = (server: {
     state: unknown[] | number;
     binder?: unknown[];
-    documents?: unknown[];
+    documents?: unknown[] | number;
+    /** Whether the resync answer says /sync/state exists. Servers before it do not. */
+    advertised?: boolean;
   }) => {
     let pulls = 0;
+    const fail = (status: number) => Promise.resolve(new Response("", { status }));
     return fakeAuth((path) => {
       if (path.endsWith("/sync/state")) {
-        return typeof server.state === "number"
-          ? Promise.resolve(new Response("", { status: server.state }))
-          : ok(server.state);
+        return typeof server.state === "number" ? fail(server.state) : ok(server.state);
       }
       if (path.includes("/binder")) return ok(server.binder ?? []);
       if (path.includes("/documents")) {
+        if (typeof server.documents === "number") return fail(server.documents);
         return ok({ documents: server.documents ?? [], nextCursor: null, hasMore: false });
       }
       if (path.includes("/sync")) {
         pulls += 1;
-        return ok(pullBody({ resyncRequired: pulls === 1, latestId: 60, syncEpoch: 2 }));
+        return ok(
+          pullBody({
+            resyncRequired: pulls === 1,
+            latestId: 60,
+            syncEpoch: 2,
+            stateAvailable: server.advertised ?? true,
+          }),
+        );
       }
       return ok(pushBody());
     }).auth;
   };
+
+  /** Every row of every table, for "nothing changed" — sync_state aside, which records the failure. */
+  const everything = () =>
+    db.adapter
+      .query<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name <> 'sync_state' ORDER BY name;",
+      )
+      .map(({ name }) => ({
+        name,
+        rows: db.adapter.query(`SELECT * FROM ${name};`).map((row) => JSON.stringify(row)).sort(),
+      }));
 
   const ids = (table: string, where = "1") =>
     db.adapter.query<{ id: string }>(`SELECT id FROM ${table} WHERE ${where} ORDER BY id;`).map((r) => r.id);
@@ -504,18 +524,183 @@ describe("a resync restores everything the feed carries", () => {
     expect(queued().map((q) => q.entity_type).sort()).toEqual(["collection", "collection_item", "taxonomy"]);
   });
 
-  it("falls back to the tree and the bodies on a server without the endpoint", async () => {
+  it("falls back to the tree and the bodies on a server that does not advertise the endpoint", async () => {
     const kept = COMMANDS.createTaxonomy(db.adapter, { projectId, kind: "label", name: "Draft", color: null });
     db.adapter.run("DELETE FROM pending_change;");
 
-    for (const status of [404, 500]) {
-      db.adapter.run("UPDATE sync_state SET last_change_id = 0 WHERE project_id = ?;", [projectId]);
-      await syncProject({ db: db.client, auth: purgedServer({ state: status }) }, projectId);
+    const auth = purgedServer({ state: 500, advertised: false });
+    await syncProject({ db: db.client, auth }, projectId);
 
-      // It could not list labels, so its silence about this one says nothing.
-      expect(live("taxonomy")).toEqual([kept.id]);
-      expect(state().lastChangeId).toBe(60);
+    // It could not list labels, so its silence about this one says nothing.
+    expect(live("taxonomy")).toEqual([kept.id]);
+    expect(state().lastChangeId).toBe(60);
+  });
+
+  it("fails, and retries from the same cursor, when an advertised /sync/state fails", async () => {
+    // A transient 500 on a current server is not an old server. Taking it for one rebuilt
+    // without labels, metadata or comments and moved the cursor past any chance of them.
+    const kept = COMMANDS.createTaxonomy(db.adapter, { projectId, kind: "label", name: "Draft", color: null });
+    db.adapter.run("DELETE FROM pending_change;");
+    const before = everything();
+
+    for (const status of [404, 500]) {
+      await expect(
+        syncProject({ db: db.client, auth: purgedServer({ state: status }) }, projectId),
+      ).rejects.toThrow(new RegExp(String(status)));
+      expect(state().lastChangeId).toBe(0);
     }
+    expect(everything()).toEqual(before);
+
+    await syncProject({ db: db.client, auth: purgedServer({ state: [label(kept.id, "Draft")] }) }, projectId);
+    expect(live("taxonomy")).toEqual([kept.id]);
+    expect(state().lastChangeId).toBe(60);
+  });
+
+  it("leaves every table exactly as it was when a fetch fails partway", async () => {
+    // Pruning before fetching would leave a ghost-free but gutted replica: no values, no
+    // collection items, no manual snapshots, for as long as the device stays offline.
+    const chapter = COMMANDS.createBinderItem(db.adapter, { projectId, parentId: null, type: "document", title: "Chapter One" });
+    const field = COMMANDS.createMetadataField(db.adapter, { projectId, name: "POV", fieldType: "text" });
+    COMMANDS.setMetadataValue(db.adapter, { projectId, binderItemId: chapter.id, fieldId: field.id, value: "Ann" });
+    const collection = COMMANDS.createCollection(db.adapter, { projectId, name: "Act I", color: null, query: null });
+    COMMANDS.addToCollection(db.adapter, { projectId, collectionId: collection.id, binderItemId: chapter.id });
+    COMMANDS.createTaxonomy(db.adapter, { projectId, kind: "label", name: "Draft", color: null });
+    db.adapter.run("DELETE FROM pending_change;");
+    const before = everything();
+
+    // The server lists none of it, which would prune all of it, and then fails.
+    const auth = purgedServer({ state: [], binder: [], documents: 500 });
+    await expect(syncProject({ db: db.client, auth }, projectId)).rejects.toThrow(/500/);
+
+    expect(everything()).toEqual(before);
+    expect(state().lastChangeId).toBe(0);
+  });
+
+  it("leaves every table as it was when applying the rebuild fails", async () => {
+    // Everything is fetched by then; the prune, the rows and the cursor are one write.
+    const chapter = COMMANDS.createBinderItem(db.adapter, { projectId, parentId: null, type: "document", title: "Chapter One" });
+    const field = COMMANDS.createMetadataField(db.adapter, { projectId, name: "POV", fieldType: "text" });
+    COMMANDS.setMetadataValue(db.adapter, { projectId, binderItemId: chapter.id, fieldId: field.id, value: "Ann" });
+    db.adapter.run("DELETE FROM pending_change;");
+    const before = everything();
+
+    const auth = purgedServer({
+      state: [],
+      binder: [{ id: "bad", type: "not-a-type", title: "Refused by a CHECK", orderKey: "m", version: 1 }],
+    });
+    await expect(syncProject({ db: db.client, auth }, projectId)).rejects.toThrow();
+
+    expect(everything()).toEqual(before);
+    expect(state().lastChangeId).toBe(0);
+  });
+});
+
+describe("unsynced writing", () => {
+  const prose = (text: string) => ({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text }] }] });
+  const bodyOf = (id: string) =>
+    db.adapter.query<{ content: string }>("SELECT content FROM document WHERE id = ?;", [id])[0]?.content;
+
+  it("survives a rebuild over it: pushed intact, kept as a conflict copy, replaced by the server's only after", async () => {
+    // Applying the server's body over a document with a queued change left the author's
+    // text in the queue alone; an editor reopened on the replica showed the server's, and
+    // the next keystroke replaced the queued text for good.
+    const chapter = COMMANDS.createBinderItem(db.adapter, { projectId, parentId: null, type: "document", title: "Chapter One" });
+    db.adapter.run("DELETE FROM pending_change;");
+    COMMANDS.saveDocument(db.adapter, { projectId, id: chapter.id, content: prose("written offline"), searchText: "written offline", wordCount: 2 });
+
+    const server = prose("written elsewhere");
+    let pulls = 0;
+    let pushed: { baseVersion: number; data: { content: unknown } } | undefined;
+    let localAtPush: string | undefined;
+    const { auth } = fakeAuth((path, init) => {
+      if (path.endsWith("/sync/state")) return ok([]);
+      if (path.includes("/binder")) return ok([{ id: chapter.id, type: "document", title: "Chapter One", orderKey: "m", version: 2 }]);
+      if (path.includes("/documents")) {
+        return ok({
+          documents: [{ id: chapter.id, content: server, searchText: "written elsewhere", wordCount: 2, version: 2, updatedAt: "2026-02-01T00:00:00Z" }],
+          nextCursor: null,
+          hasMore: false,
+        });
+      }
+      if ((init?.method ?? "GET") === "POST") {
+        localAtPush = bodyOf(chapter.id);
+        pushed = (JSON.parse(init?.body as string) as { changes: NonNullable<typeof pushed>[] }).changes[0];
+        return ok(pushBody({
+          conflicts: [{ entityId: chapter.id, entityType: "document", reason: "version_mismatch", conflictCopyId: "copy-1", serverVersion: 2, detail: null }],
+        }));
+      }
+      pulls += 1;
+      if (pulls === 1) return ok(pullBody({ resyncRequired: true, latestId: 60, syncEpoch: 2, stateAvailable: true }));
+      if (pulls === 2) return ok(pullBody({ latestId: 60, syncEpoch: 2 }));
+      // What the server feeds after the conflict: the copy holding the pushed text, and the
+      // original put back on the feed for this device.
+      return ok(pullBody({
+        latestId: 63,
+        syncEpoch: 2,
+        changes: [
+          { id: 61, entityType: "binder_item", entityId: "copy-1", op: "create", data: binderRow("copy-1", { type: "document", order_key: "n", title: "Chapter One (Conflicted Copy)" }) },
+          { id: 62, entityType: "document", entityId: "copy-1", op: "create", data: { id: "copy-1", content: pushed?.data.content, version: 1, created_at: "2026-02-01T00:00:00Z", updated_at: "2026-02-01T00:00:00Z" } },
+          { id: 63, entityType: "document", entityId: chapter.id, op: "update", data: { id: chapter.id, content: server, version: 2, created_at: "2026-02-01T00:00:00Z", updated_at: "2026-02-01T00:00:00Z" } },
+        ],
+      }));
+    });
+
+    const outcome = await syncProject({ db: db.client, auth }, projectId);
+
+    expect(outcome.resynced).toBe(true);
+    // Through the rebuild, the replica still showed what the author wrote...
+    expect(JSON.parse(localAtPush ?? "null")).toEqual(prose("written offline"));
+    // ...and the push sent it against the version it was written on.
+    expect(pushed).toMatchObject({ baseVersion: 1, data: { content: prose("written offline") } });
+    // Once it was safe in the copy, the original took the server's text.
+    expect(JSON.parse(bodyOf(chapter.id) ?? "null")).toEqual(server);
+    expect(JSON.parse(bodyOf("copy-1") ?? "null")).toEqual(prose("written offline"));
+    expect(queued()).toHaveLength(0);
+    expect(state().lastChangeId).toBe(63);
+  });
+
+  it("stays queued when it is edited while its push is in flight", async () => {
+    // The edit merges into the entry being pushed; clearing that entry by id dropped it.
+    const chapter = COMMANDS.createBinderItem(db.adapter, { projectId, parentId: null, type: "document", title: "Chapter One" });
+    db.adapter.run("DELETE FROM pending_change;");
+    COMMANDS.saveDocument(db.adapter, { projectId, id: chapter.id, content: prose("first"), searchText: "first", wordCount: 1 });
+
+    const { auth } = fakeAuth((_path, init) => {
+      if ((init?.method ?? "GET") === "POST") {
+        COMMANDS.saveDocument(db.adapter, { projectId, id: chapter.id, content: prose("first and more"), searchText: "first and more", wordCount: 3 });
+        return ok(pushBody({ applied: [{ entityId: chapter.id, entityType: "document", version: 2 }] }));
+      }
+      return ok(pullBody());
+    });
+
+    await syncProject({ db: db.client, auth }, projectId);
+
+    const [entry] = queued();
+    expect(JSON.parse(entry?.payload ?? "null")).toMatchObject({ content: prose("first and more") });
+    // Based on the write the server just took, so the next push is not a stale one.
+    expect(entry?.base_version).toBe(2);
+    expect(db.adapter.query("SELECT version FROM document WHERE id = ?;", [chapter.id])).toEqual([{ version: 2 }]);
+  });
+
+  it("never pushes a label it dropped for want of the label's row as a removal", async () => {
+    // An older server's rebuild names a label this device cannot hold, so the item lands
+    // unlabelled. Its next rename must not tell every other device to clear the label.
+    const { auth } = fakeAuth((path) => {
+      if (path.includes("/binder")) {
+        return ok([{ id: "b1", type: "folder", title: "Labelled", orderKey: "m", version: 2, labelId: "label-from-elsewhere" }]);
+      }
+      if (path.includes("/documents")) return ok({ documents: [], nextCursor: null, hasMore: false });
+      return ok(pullBody({ resyncRequired: true, latestId: 9, syncEpoch: 2 }));
+    });
+    await syncProject({ db: db.client, auth }, projectId);
+    expect(db.adapter.query("SELECT label_id FROM binder_item WHERE id = 'b1';")).toEqual([{ label_id: null }]);
+
+    COMMANDS.renameBinderItem(db.adapter, { projectId, id: "b1", title: "Renamed" });
+
+    const payload = JSON.parse(queued()[0]?.payload ?? "{}") as Record<string, unknown>;
+    expect(payload.title).toBe("Renamed");
+    expect(payload).not.toHaveProperty("label_id");
+    expect(payload).not.toHaveProperty("status_id");
   });
 });
 

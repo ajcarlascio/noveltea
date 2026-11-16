@@ -125,7 +125,7 @@ function keyAtEnd(db: SqliteAdapter, projectId: string, kind: string): string {
  * `pending_change` holds one entry per entity and coalescing replaces the payload, so
  * a rename followed by a recolour would otherwise arrive as a recolour alone.
  */
-function queueTerm(db: SqliteAdapter, row: TaxonomyRow, op: "create" | "update" | "delete"): void {
+export function queueTerm(db: SqliteAdapter, row: TaxonomyRow, op: "create" | "update" | "delete"): void {
   enqueueChange(db, {
     projectId: row.project_id,
     entityType: "taxonomy",
@@ -221,7 +221,7 @@ export const TAXONOMY_COMMANDS = {
         stamp,
         item.id,
       ]);
-      queueItem(db, requireItem(db, input.projectId, item.id), "update");
+      queueItem(db, requireItem(db, input.projectId, item.id), "update", [column]);
     }
 
     db.run("UPDATE taxonomy SET deleted_at = ?, updated_at = ? WHERE id = ?;", [
@@ -250,7 +250,10 @@ export const TAXONOMY_COMMANDS = {
     );
 
     const row = requireItem(db, input.projectId, input.id);
-    queueItem(db, row, "update");
+    queueItem(db, row, "update", [
+      ...(input.labelId === undefined ? [] : (["label_id"] as const)),
+      ...(input.statusId === undefined ? [] : (["status_id"] as const)),
+    ]);
     return row;
   },
 

@@ -39,7 +39,18 @@ export function requireItem(db: SqliteAdapter, projectId: string, id: string): B
   return row;
 }
 
-/** The payload the server will be sent for this row. */
+/** The columns that name a taxonomy term. */
+export type TagColumn = "label_id" | "status_id";
+const TAG_COLUMNS: readonly TagColumn[] = ["label_id", "status_id"];
+
+/**
+ * The payload the server will be sent for this row — without its label and status.
+ *
+ * A pull drops a label or status this replica holds no row for (see `applyPull`), so a
+ * NULL here can mean "removed" or "never arrived". Sent with every rename, the second
+ * would read as the first and clear the tag on every device. They go only when the
+ * author set them; see `queueItem`.
+ */
 export function payloadOf(row: BinderItemRow): Record<string, unknown> {
   return {
     id: row.id,
@@ -49,25 +60,39 @@ export function payloadOf(row: BinderItemRow): Record<string, unknown> {
     title: row.title,
     order_key: row.order_key,
     icon: row.icon,
-    label_id: row.label_id,
-    status_id: row.status_id,
     trashed_from_parent_id: row.trashed_from_parent_id,
     deleted_at: row.deleted_at,
     updated_at: row.updated_at,
   };
 }
 
+/**
+ * @param tags the tag columns the author changed in this edit. A tag set earlier and
+ *   still waiting in the queue is carried over, since coalescing replaces the payload
+ *   and a rename after a relabel would otherwise push the rename alone.
+ */
 export function queueItem(
   db: SqliteAdapter,
   row: BinderItemRow,
   op: "create" | "update" | "delete",
+  tags: readonly TagColumn[] = [],
 ): void {
+  const payload = payloadOf(row);
+  const queued = db.query<{ payload: string | null }>(
+    "SELECT payload FROM pending_change WHERE entity_type = 'binder_item' AND entity_id = ?;",
+    [row.id],
+  )[0]?.payload;
+  const before = queued ? (JSON.parse(queued) as Record<string, unknown>) : {};
+  for (const column of TAG_COLUMNS) {
+    if (tags.includes(column) || column in before) payload[column] = row[column];
+  }
+
   enqueueChange(db, {
     projectId: row.project_id,
     entityType: "binder_item",
     entityId: row.id,
     op,
-    payload: op === "delete" ? undefined : payloadOf(row),
+    payload: op === "delete" ? undefined : payload,
     // The version this client last synced. Local edits deliberately do not bump
     // `version` — the server assigns it — so the current value is that number, and
     // enqueueChange keeps whichever base_version an existing pending row already had.
