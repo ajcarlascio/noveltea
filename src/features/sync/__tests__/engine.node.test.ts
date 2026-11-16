@@ -168,6 +168,28 @@ describe("a resync", () => {
     ]);
   });
 
+  it("rebuilds a labelled item whose label this device has never held", async () => {
+    // A new device always lands here once retention has purged any of the feed. The
+    // binder names the label by id and the server has no endpoint that lists labels,
+    // so the item must still arrive — its label_id references a row that cannot be
+    // fetched, and a foreign-key failure would fail every sync of the project.
+    const { auth } = fakeAuth((path) => {
+      if (path.includes("/binder")) {
+        return ok([{ id: "b1", type: "folder", title: "Labelled", orderKey: "m", version: 2, labelId: "label-from-elsewhere" }]);
+      }
+      if (path.includes("/sync")) {
+        return ok(pullBody({ resyncRequired: true, latestId: 9, syncEpoch: 2 }));
+      }
+      return ok(pushBody());
+    });
+
+    await syncProject({ db: db.client, auth }, projectId);
+
+    expect(db.adapter.query("SELECT title FROM binder_item WHERE id = 'b1';")).toEqual([
+      { title: "Labelled" },
+    ]);
+  });
+
   it("does not ask to be rebuilt over and over", async () => {
     // A purged server answers `resyncRequired` for *any* cursor below its purge
     // point, not just the first time. Resuming at 0 rather than at latestId walks

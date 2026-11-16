@@ -209,7 +209,18 @@ export const SYNC_COMMANDS = {
         continue;
       }
 
-      const data = change.data ?? {};
+      const data = { ...(change.data ?? {}) };
+      if (table === "binder_item") {
+        // A label or status this replica holds no row for cannot be referenced: the
+        // server offers no way to list labels, so after a rebuild the row may never
+        // arrive, and the foreign key would fail every sync of the project. The item
+        // matters more than its tag; the tag returns if its own row is ever pulled.
+        for (const key of ["label_id", "status_id"]) {
+          const ref = data[key];
+          if (typeof ref !== "string") continue;
+          if (db.query("SELECT 1 FROM taxonomy WHERE id = ?;", [ref]).length === 0) data[key] = null;
+        }
+      }
       const names = Object.keys(data).filter((key) => columns.has(key));
       if (!names.includes("id")) names.push("id");
 
