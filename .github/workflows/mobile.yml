@@ -86,6 +86,44 @@ jobs:
           path: src-tauri/gen/android/app/build/outputs/**/*.apk
           if-no-files-found: warn
 
+      # What the build alone cannot say: does the app start in an Android WebView, and which
+      # storage backend does it report? Runs an x86_64 emulator (the debug APK is universal,
+      # so it contains x86_64) — hardware acceleration needs KVM, which GitHub's runners
+      # have but do not grant to the runner user until this rule is applied.
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      # The step fails only if the APK cannot be installed or started. "Storage is in
+      # memory" is an answer, not a failure; it lands in the job summary instead.
+      - name: Run on an emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: bash tooling/android-probe.sh "$(find src-tauri/gen/android/app/build/outputs -name "*.apk" | head -1)"
+
+      - name: Verdict
+        if: always()
+        run: |
+          if [ -s probe/state.json ]; then
+            v=$(node -e 'const s=require("./probe/state.json");const d=s.dataset;console.log(`started: yes; data-db-status=${d.dbStatus}; data-db-storage=${d.dbStorage}; tauri=${s.hasTauri}; opfs=${s.hasOpfs}`)')
+          else
+            v="started: no ($(cat probe/verdict.txt 2>/dev/null || echo 'no state read'))"
+          fi
+          echo "Android: $v" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: noveltea-android-probe
+          path: probe/
+          if-no-files-found: warn
+
   ios:
     name: iOS
     if: inputs.platform == 'ios'
