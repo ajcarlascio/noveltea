@@ -1223,6 +1223,20 @@ describe("failure", () => {
     expect(after.lastChangeId).toBe(0);
   });
 
+  it("says so when the server holds the project's id for someone else", async () => {
+    const { auth } = fakeAuth(() => ok(pullBody()));
+    const taken: Authenticator = {
+      ...auth,
+      fetch: (path: string, init?: RequestInit) =>
+        path === "/api/v1/projects" && init?.method === "POST"
+          ? Promise.resolve(new Response("{}", { status: 409 }))
+          : auth.fetch(path, init),
+    };
+
+    await expect(syncProject({ db: db.client, auth: taken }, projectId)).rejects.toThrow(/another project/);
+    expect(state().lastError).toMatch(/another project/);
+  });
+
   it("does not clear the queue when the push fails", async () => {
     COMMANDS.createBinderItem(db.adapter, { projectId, parentId: null, type: "folder", title: "Act I" });
     const { auth } = fakeAuth((_path, init) =>
