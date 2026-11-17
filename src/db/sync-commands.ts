@@ -1,5 +1,5 @@
 import type { SqliteAdapter, SqlValue } from "@noveltea/client-db";
-import { clearAccepted, enqueueChange, markAttempted, pendingChanges } from "@noveltea/client-db";
+import { clearAccepted, enqueueChange, markAttempted, pendingChanges, type PendingChange } from "@noveltea/client-db";
 import { between } from "@/data/order";
 import { markTrashQueued, mintTrash, queueItem, requireItem } from "./binder-item";
 import { queueValue, type MetadataValueRow } from "./metadata-commands";
@@ -54,6 +54,97 @@ const PRUNABLE: Record<string, string> = {
                JOIN binder_item b ON b.id = s.document_id
               WHERE b.project_id = ? AND s.is_automatic = 0;`,
 };
+
+/**
+ * What the server checks a pushed change against, as [payload key, entity type it names].
+ * Each is read from `SyncService` (`applyBinderItem`, `applyDocument`, `applyComment`,
+ * `applySnapshot`) and `SyncEntitySpec`'s parent refs; nothing the server does not check
+ * is listed. A document's key is its own id: its body needs the item of the same id.
+ */
+const REFERENCES: Record<string, readonly (readonly [string, string])[]> = {
+  binder_item: [["parent_id", "binder_item"], ["label_id", "taxonomy"], ["status_id", "taxonomy"]],
+  document: [["id", "binder_item"]],
+  custom_metadata_value: [["binder_item_id", "binder_item"], ["field_id", "custom_metadata_field"]],
+  collection_item: [["collection_id", "collection"], ["binder_item_id", "binder_item"]],
+  comment: [["document_id", "binder_item"], ["parent_comment_id", "comment"]],
+  snapshot: [["document_id", "binder_item"]],
+};
+
+/**
+ * The queue in an order the server can apply, one change per transaction, as received.
+ *
+ * Coalescing keeps an entry's first position, so an item created early and moved into a
+ * folder made later sits ahead of that folder, and the server refuses it for a parent it
+ * has not seen: the entry is cleared and the item exists on this device alone. A stable
+ * topological sort fixes that: each entry waits for the entries in this queue that
+ * create what it names, and otherwise keeps its place. Any prefix is then safe to send,
+ * so a batch limit never strands a dependency behind its dependent.
+ *
+ * Deletes run the other way for the tree. The server tombstones a folder's whole
+ * subtree as it stands, so a child moved out in this queue must have moved first.
+ *
+ * A cycle cannot exist in a valid tree; the visited mark stops one from looping and
+ * leaves its members in queue order.
+ */
+function inPushOrder(rows: PendingChange[]): PendingChange[] {
+  const live = new Map<string, PendingChange>();
+  const moves: PendingChange[] = [];
+  for (const row of rows) {
+    if (row.op === "delete") continue;
+    live.set(`${row.entity_type}:${row.entity_id}`, row);
+    if (row.entity_type === "binder_item" && row.op === "update") moves.push(row);
+  }
+
+  const dependencies = (row: PendingChange): PendingChange[] => {
+    if (row.op === "delete") return row.entity_type === "binder_item" || row.entity_type === "document" ? moves : [];
+    const data = row.payload === null ? {} : (JSON.parse(row.payload) as Record<string, unknown>);
+    return (REFERENCES[row.entity_type] ?? []).flatMap(([key, type]) => {
+      const id = key === "id" ? row.entity_id : data[key];
+      const target = typeof id === "string" ? live.get(`${type}:${id}`) : undefined;
+      return target === undefined || target === row ? [] : [target];
+    });
+  };
+
+  const done = new Set<PendingChange>();
+  const ordered: PendingChange[] = [];
+  const visit = (row: PendingChange) => {
+    if (done.has(row)) return;
+    done.add(row);
+    for (const dependency of dependencies(row)) visit(dependency);
+    ordered.push(row);
+  };
+  rows.forEach(visit);
+  return ordered;
+}
+
+/**
+ * Takes a tombstoned label or status off this project's items, and off what is queued.
+ *
+ * The server refuses a binder item that names a term which is not live (`requireTaxonomyRef`),
+ * one `invalid_request` for the whole change, and a non-document refusal is cleared. A tag
+ * this device still held for a term another device deleted would therefore cost the rename,
+ * move or trash sent in the same entry, and leave the row tagged with a term that is gone.
+ * The server's own item keeps the dangling id when a term is soft-deleted (`ON DELETE SET
+ * NULL` never fires), so nothing is sent for the cleared column: the key leaves the queued
+ * payload, where absent means "unchanged", and an explicit null is not needed to say what
+ * the term's tombstone already says. Run after every pull and rebuild, whichever way the
+ * tombstone arrived: a delete row, a row carrying `deleted_at`, or a prune.
+ */
+function releaseDeadTags(db: SqliteAdapter, projectId: string): void {
+  for (const column of ["label_id", "status_id"]) {
+    const dead = `SELECT id FROM taxonomy WHERE project_id = ? AND deleted_at IS NOT NULL`;
+    db.run(`UPDATE binder_item SET ${column} = NULL WHERE project_id = ? AND ${column} IN (${dead});`, [
+      projectId,
+      projectId,
+    ]);
+    db.run(
+      `UPDATE pending_change SET payload = json_remove(payload, '$.${column}')
+        WHERE project_id = ? AND entity_type = 'binder_item' AND payload IS NOT NULL
+          AND json_extract(payload, '$.${column}') IN (${dead});`,
+      [projectId, projectId],
+    );
+  }
+}
 
 export interface ChangeRecord {
   id: number;
@@ -602,7 +693,17 @@ export const SYNC_COMMANDS = {
         // so an item's oldest row can name a label whose own row comes later in the
         // feed — and a server too old for `/sync/state` never sends it at all. The item
         // matters more than its tag; the tag returns with the later row that set it.
+        // A tag still waiting in the outbox is the author's newer word: keep the local
+        // column rather than let the server's older value (or the echo of a rename)
+        // erase it until the push lands. Dropping the key leaves the column out of the
+        // upsert. Rebuilds apply through here too.
+        const queued = db.query<{ payload: string | null }>(
+          "SELECT payload FROM pending_change WHERE entity_type = 'binder_item' AND entity_id = ?;",
+          [change.entityId],
+        )[0]?.payload;
+        const queuedKeys = queued ? (JSON.parse(queued) as Record<string, unknown>) : {};
         for (const key of ["label_id", "status_id"]) {
+          if (key in queuedKeys) delete data[key];
           const ref = data[key];
           if (typeof ref !== "string") continue;
           if (db.query("SELECT 1 FROM taxonomy WHERE id = ?;", [ref]).length === 0) data[key] = null;
@@ -666,6 +767,8 @@ export const SYNC_COMMANDS = {
       if (queuedBody !== undefined) restoreQueuedBody(db, change.entityId);
       applied += 1;
     }
+
+    releaseDeadTags(db, input.projectId);
 
     if (input.advanceCursor === false) return { applied, skipped: [...skipped] };
 
@@ -763,16 +866,7 @@ export const SYNC_COMMANDS = {
     /** The queued text as taken, so `settlePush` can tell whether it changed in flight. */
     payload: string | null;
   }[] => {
-    // The trash node first: what is trashed names it as its parent, and the server refuses
-    // a parent it has not heard of. Queue order alone would put a node minted by `ensureTrash`
-    // behind the moves already waiting.
-    const trash = db.query<{ id: string }>(
-      "SELECT id FROM binder_item WHERE project_id = ? AND type = 'trash';",
-      [input.projectId],
-    )[0]?.id;
-    const rows = pendingChanges(db, input.projectId)
-      .sort((a, b) => Number(b.entity_id === trash) - Number(a.entity_id === trash))
-      .slice(0, input.limit ?? 200);
+    const rows = inPushOrder(pendingChanges(db, input.projectId)).slice(0, input.limit ?? 200);
     markAttempted(db, rows.map((row) => row.id));
 
     return rows.map((row) => ({
@@ -860,6 +954,29 @@ export const SYNC_COMMANDS = {
     }
     clearAccepted(db, cleared);
     return { cleared: cleared.length };
+  },
+
+  /**
+   * Takes the tags off entries the server refused for naming a term it does not hold, so
+   * the rest of the change (a rename, a move, a trash) can be sent again.
+   *
+   * Only the tags the server named, and only where set: a null is the author clearing
+   * one, which the server never refuses. Only an entry still as it was sent: one edited since carries newer
+   * words, and keeps them. With the tags gone the entry cannot be refused for them again,
+   * so this is a single retry.
+   */
+  stripRefusedTags: (
+    db: SqliteAdapter,
+    input: { sent: { id: number; payload: string | null; keys: string[] }[] },
+  ): void => {
+    for (const { id, payload, keys } of input.sent) {
+      if (payload === null) continue;
+      const data = JSON.parse(payload) as Record<string, unknown>;
+      for (const key of ["label_id", "status_id"]) {
+        if (keys.includes(key) && typeof data[key] === "string") delete data[key];
+      }
+      db.run("UPDATE pending_change SET payload = ? WHERE id = ? AND payload = ?;", [JSON.stringify(data), id, payload]);
+    }
   },
 
   /** Records why a sync attempt failed, without touching the cursor. */

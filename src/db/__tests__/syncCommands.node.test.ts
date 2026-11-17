@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { enqueueChange, type PendingChange } from "@noveltea/client-db";
+import { enqueueChange, type EnqueueInput, type PendingChange } from "@noveltea/client-db";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { COMMANDS } from "@/db/commands";
 import { openTestDatabase, type TestDatabase } from "@/test/sqlite";
@@ -300,6 +300,149 @@ describe("applyPull", () => {
   });
 });
 
+describe("a pull over an unpushed tag", () => {
+  it("keeps the local label and leaves it queued", () => {
+    const doc = COMMANDS.createBinderItem(db.adapter, { projectId, parentId: null, type: "document", title: "One" });
+    const term = COMMANDS.createTaxonomy(db.adapter, { projectId, kind: "label", name: "POV", color: "#3d6b8e" });
+    COMMANDS.setItemTaxonomy(db.adapter, { projectId, id: doc.id, labelId: term.id });
+
+    // The server's older row for the same item: no label.
+    COMMANDS.applyPull(db.adapter, {
+      projectId,
+      changes: [
+        { id: 1, entityType: "binder_item", entityId: doc.id, op: "update", data: { ...doc, label_id: null } },
+      ],
+      latestId: 1,
+      syncEpoch: 1,
+    });
+
+    const row = db.adapter.query<{ label_id: string | null }>(
+      "SELECT label_id FROM binder_item WHERE id = ?;",
+      [doc.id],
+    )[0]!;
+    expect(row.label_id).toBe(term.id);
+    const payload = JSON.parse(queued().find((q) => q.entity_id === doc.id)!.payload!) as Record<string, unknown>;
+    expect(payload.label_id).toBe(term.id);
+  });
+});
+
+describe("a label another device deleted", () => {
+  /** A chapter tagged and then renamed, so one queued entry holds both; the label itself already synced. */
+  const taggedAndRenamed = () => {
+    const doc = COMMANDS.createBinderItem(db.adapter, { projectId, parentId: null, type: "document", title: "One" });
+    const label = COMMANDS.createTaxonomy(db.adapter, { projectId, kind: "label", name: "POV", color: "#3d6b8e" });
+    COMMANDS.setItemTaxonomy(db.adapter, { projectId, id: doc.id, labelId: label.id });
+    COMMANDS.renameBinderItem(db.adapter, { projectId, id: doc.id, title: "Renamed" });
+    db.adapter.run("DELETE FROM pending_change WHERE entity_type = 'taxonomy';");
+    return { doc, label };
+  };
+  const entry = (id: string) =>
+    JSON.parse(queued().find((q) => q.entity_id === id)!.payload!) as Record<string, unknown>;
+  const labelOf = (id: string) =>
+    db.adapter.query<{ label_id: string | null }>("SELECT label_id FROM binder_item WHERE id = ?;", [id])[0]!.label_id;
+  const tombstone = (id: string) => ({ id: 1, entityType: "taxonomy", entityId: id, op: "delete", data: null });
+
+  it("comes off the item and out of the queued change, which still carries the rename", () => {
+    const { doc, label } = taggedAndRenamed();
+    expect(entry(doc.id)).toMatchObject({ label_id: label.id, title: "Renamed" });
+
+    COMMANDS.applyPull(db.adapter, { projectId, changes: [tombstone(label.id)], latestId: 1, syncEpoch: 1 });
+
+    expect(labelOf(doc.id)).toBeNull();
+    const payload = entry(doc.id);
+    expect(payload).not.toHaveProperty("label_id");
+    expect(payload).toMatchObject({ title: "Renamed" });
+  });
+
+  it("leaves a different label, and an explicit clear, alone", () => {
+    const { doc, label } = taggedAndRenamed();
+    const other = COMMANDS.createTaxonomy(db.adapter, { projectId, kind: "label", name: "Plot", color: "#3d6b8e" });
+    COMMANDS.setItemTaxonomy(db.adapter, { projectId, id: doc.id, labelId: other.id });
+    const cleared = COMMANDS.createBinderItem(db.adapter, { projectId, parentId: null, type: "document", title: "Two" });
+    COMMANDS.setItemTaxonomy(db.adapter, { projectId, id: cleared.id, labelId: null });
+
+    COMMANDS.applyPull(db.adapter, { projectId, changes: [tombstone(label.id)], latestId: 1, syncEpoch: 1 });
+
+    expect(entry(doc.id)).toMatchObject({ label_id: other.id });
+    expect(entry(cleared.id)).toMatchObject({ label_id: null });
+  });
+
+  it("is dealt with for an entry that held nothing but the tag", () => {
+    const doc = COMMANDS.createBinderItem(db.adapter, { projectId, parentId: null, type: "document", title: "One" });
+    const label = COMMANDS.createTaxonomy(db.adapter, { projectId, kind: "label", name: "POV", color: "#3d6b8e" });
+    db.adapter.run("DELETE FROM pending_change;");
+    COMMANDS.setItemTaxonomy(db.adapter, { projectId, id: doc.id, labelId: label.id });
+
+    COMMANDS.applyPull(db.adapter, { projectId, changes: [tombstone(label.id)], latestId: 1, syncEpoch: 1 });
+
+    // What is left names nothing the server could refuse: the item's own current state.
+    expect(entry(doc.id)).not.toHaveProperty("label_id");
+    expect(labelOf(doc.id)).toBeNull();
+  });
+
+  it("is taken off by a rebuild that prunes it", () => {
+    const { doc, label } = taggedAndRenamed();
+
+    COMMANDS.rebuildProject(db.adapter, {
+      projectId,
+      state: [],
+      binder: [],
+      documents: [],
+      latestId: 5,
+      syncEpoch: 1,
+    });
+
+    expect(db.adapter.query("SELECT deleted_at FROM taxonomy WHERE id = ? AND deleted_at IS NOT NULL;", [label.id])).toHaveLength(1);
+    expect(labelOf(doc.id)).toBeNull();
+    expect(entry(doc.id)).not.toHaveProperty("label_id");
+    expect(entry(doc.id)).toMatchObject({ title: "Renamed" });
+  });
+});
+
+describe("stripRefusedTags", () => {
+  it("takes the set tags off an entry still as it was sent, and keeps a clear", () => {
+    const doc = COMMANDS.createBinderItem(db.adapter, { projectId, parentId: null, type: "document", title: "One" });
+    const label = COMMANDS.createTaxonomy(db.adapter, { projectId, kind: "label", name: "POV", color: "#3d6b8e" });
+    COMMANDS.setItemTaxonomy(db.adapter, { projectId, id: doc.id, labelId: label.id, statusId: null });
+    const [sent] = COMMANDS.takePending(db.adapter, { projectId }).filter((row) => row.entityType === "binder_item");
+
+    COMMANDS.stripRefusedTags(db.adapter, { sent: [{ id: sent!.id, payload: sent!.payload, keys: ["label_id", "status_id"] }] });
+
+    const payload = JSON.parse(queued().find((q) => q.entity_id === doc.id)!.payload!) as Record<string, unknown>;
+    expect(payload).not.toHaveProperty("label_id");
+    expect(payload).toHaveProperty("status_id", null);
+  });
+
+  it("leaves an entry the author has edited since", () => {
+    const doc = COMMANDS.createBinderItem(db.adapter, { projectId, parentId: null, type: "document", title: "One" });
+    const label = COMMANDS.createTaxonomy(db.adapter, { projectId, kind: "label", name: "POV", color: "#3d6b8e" });
+    COMMANDS.setItemTaxonomy(db.adapter, { projectId, id: doc.id, labelId: label.id });
+    const [sent] = COMMANDS.takePending(db.adapter, { projectId }).filter((row) => row.entityType === "binder_item");
+    COMMANDS.renameBinderItem(db.adapter, { projectId, id: doc.id, title: "Newer" });
+
+    COMMANDS.stripRefusedTags(db.adapter, { sent: [{ id: sent!.id, payload: sent!.payload, keys: ["label_id", "status_id"] }] });
+
+    const payload = JSON.parse(queued().find((q) => q.entity_id === doc.id)!.payload!) as Record<string, unknown>;
+    expect(payload).toMatchObject({ label_id: label.id, title: "Newer" });
+  });
+});
+
+describe("stripRefusedTags, for one tag of two", () => {
+  it("leaves the tag the server did not refuse", () => {
+    const doc = COMMANDS.createBinderItem(db.adapter, { projectId, parentId: null, type: "document", title: "One" });
+    const label = COMMANDS.createTaxonomy(db.adapter, { projectId, kind: "label", name: "POV", color: "#3d6b8e" });
+    const status = COMMANDS.createTaxonomy(db.adapter, { projectId, kind: "status", name: "Draft", color: "#3d6b8e" });
+    COMMANDS.setItemTaxonomy(db.adapter, { projectId, id: doc.id, labelId: label.id, statusId: status.id });
+    const [sent] = COMMANDS.takePending(db.adapter, { projectId }).filter((row) => row.entityType === "binder_item");
+
+    COMMANDS.stripRefusedTags(db.adapter, { sent: [{ id: sent!.id, payload: sent!.payload, keys: ["label_id"] }] });
+
+    const payload = JSON.parse(queued().find((q) => q.entity_id === doc.id)!.payload!) as Record<string, unknown>;
+    expect(payload).not.toHaveProperty("label_id");
+    expect(payload).toHaveProperty("status_id", status.id);
+  });
+});
+
 describe("takePending", () => {
   it("marks rows in flight before handing them over", () => {
     COMMANDS.createBinderItem(db.adapter, { projectId, parentId: null, type: "folder", title: "Act I" });
@@ -318,6 +461,105 @@ describe("takePending", () => {
     const [taken] = COMMANDS.takePending(db.adapter, { projectId });
     expect(taken).toMatchObject({ entityType: "binder_item", entityId: item.id, op: "create" });
     expect(taken!.data).toMatchObject({ title: "Act I" });
+  });
+
+  it("sends a term before an item created earlier that wears it", () => {
+    const doc = COMMANDS.createBinderItem(db.adapter, { projectId, parentId: null, type: "document", title: "One" });
+    const term = COMMANDS.createTaxonomy(db.adapter, { projectId, kind: "label", name: "POV", color: "#3d6b8e" });
+    COMMANDS.setItemTaxonomy(db.adapter, { projectId, id: doc.id, labelId: term.id });
+
+    const taken = COMMANDS.takePending(db.adapter, { projectId });
+    const order = taken.map((row) => row.entityType);
+    expect(order.indexOf("taxonomy")).toBeLessThan(order.indexOf("binder_item"));
+  });
+
+  describe("in an order the server can apply", () => {
+    const put = (
+      entityType: EnqueueInput["entityType"],
+      entityId: string,
+      payload: Record<string, unknown> = {},
+      op: EnqueueInput["op"] = "create",
+    ) => enqueueChange(db.adapter, { projectId, entityType, entityId, op, payload });
+    const order = (limit?: number) =>
+      COMMANDS.takePending(db.adapter, limit === undefined ? { projectId } : { projectId, limit }).map((row) => `${row.op[0]}:${row.entityId}`);
+
+    it("sends a folder before the document moved into it after both were made", () => {
+      const doc = COMMANDS.createBinderItem(db.adapter, { projectId, parentId: null, type: "document", title: "D" });
+      const folder = COMMANDS.createBinderItem(db.adapter, { projectId, parentId: null, type: "folder", title: "F" });
+      COMMANDS.moveBinderItem(db.adapter, { projectId, id: doc.id, parentId: folder.id, afterId: null });
+
+      expect(order()).toEqual([`c:${folder.id}`, `c:${doc.id}`]);
+    });
+
+    it("sends the trash node before an item trashed under it", () => {
+      put("binder_item", "gone", { parent_id: "trash" });
+      put("binder_item", "trash", { type: "trash", parent_id: null });
+      expect(order()).toEqual(["c:trash", "c:gone"]);
+    });
+
+    it("sends a field before a value, and an item before its value", () => {
+      put("custom_metadata_value", "v", { field_id: "f", binder_item_id: "i" });
+      put("custom_metadata_field", "f");
+      put("binder_item", "i");
+      expect(order()).toEqual(["c:i", "c:f", "c:v"]);
+    });
+
+    it("sends a collection and its item before the entry that joins them", () => {
+      put("collection_item", "ci", { collection_id: "c", binder_item_id: "i" });
+      put("collection", "c");
+      put("binder_item", "i");
+      expect(order()).toEqual(["c:c", "c:i", "c:ci"]);
+    });
+
+    it("sends a document's body after its item", () => {
+      put("document", "d", {}, "update");
+      put("binder_item", "d");
+      expect(order()).toEqual(["c:d", "u:d"]);
+    });
+
+    it("sends a thread before its reply, and the document before both", () => {
+      put("comment", "reply", { document_id: "d", parent_comment_id: "thread" });
+      put("comment", "thread", { document_id: "d" });
+      put("snapshot", "snap", { document_id: "d" });
+      put("binder_item", "d");
+      expect(order()).toEqual(["c:d", "c:thread", "c:reply", "c:snap"]);
+    });
+
+    it("sorts a three-level chain queued in reverse", () => {
+      put("binder_item", "c", { parent_id: "b" });
+      put("binder_item", "b", { parent_id: "a" });
+      put("binder_item", "a", { parent_id: null });
+      expect(order()).toEqual(["c:a", "c:b", "c:c"]);
+    });
+
+    it("sends a move out of a folder before the folder's delete", () => {
+      put("binder_item", "folder", {}, "delete");
+      put("binder_item", "child", { parent_id: null }, "update");
+      expect(order()).toEqual(["u:child", "d:folder"]);
+    });
+
+    it("keeps unrelated entries where they were", () => {
+      put("binder_item", "x");
+      put("taxonomy", "t");
+      put("binder_item", "child", { parent_id: "parent" });
+      put("collection", "c");
+      put("binder_item", "parent");
+      put("compile_preset", "p");
+      expect(order()).toEqual(["c:x", "c:t", "c:parent", "c:child", "c:c", "c:p"]);
+    });
+
+    it("never leaves a dependency for a later batch than its dependent", () => {
+      put("binder_item", "child", { parent_id: "parent" });
+      put("binder_item", "other");
+      put("binder_item", "parent");
+      expect(order(2)).toEqual(["c:parent", "c:child"]);
+    });
+
+    it("does not hang on a cycle", () => {
+      put("binder_item", "a", { parent_id: "b" });
+      put("binder_item", "b", { parent_id: "a" });
+      expect(order()).toHaveLength(2);
+    });
   });
 
   it("returns nothing when there is nothing queued", () => {

@@ -93,9 +93,12 @@ export async function adoptServerProjects(deps: SyncDeps): Promise<number> {
 }
 
 export async function syncProject(
-  { db, auth, maxPages = 100, pageSize = 200 }: SyncDeps,
+  deps: SyncDeps,
   projectId: string,
+  /** Set on the one repeat pass a refused tag earns; see below. */
+  repeated = false,
 ): Promise<SyncOutcome> {
+  const { db, auth, maxPages = 100, pageSize = 200 } = deps;
   const outcome: SyncOutcome = { pulled: 0, pushed: 0, conflicts: [], skipped: [], dropped: 0, resynced: false };
 
   try {
@@ -203,6 +206,32 @@ export async function syncProject(
         if (!shouldStayQueued(conflict)) settled.add(`${conflict.entityType}:${conflict.entityId}`);
       }
 
+      // A binder item refused for a tag the server does not hold is a label another device
+      // deleted after the pull above (the delete normally arrives first, and clears the tag
+      // from the item and the queue). Clearing the entry would lose its rename or move too,
+      // so it stays queued, minus the tags, and one more pass sends it. With the tags gone
+      // it cannot be refused for them again, and `repeated` keeps it to one pass.
+      //
+      // Only the tag the server named: its refusal says which field it would not take
+      // ("label_id does not refer to a label in this project"). An item refused for
+      // anything else keeps its tags, which are live and would otherwise be dropped from
+      // the server's copy while this device went on showing them.
+      const refusedTag = repeated
+        ? []
+        : pending.flatMap((row) => {
+            if (row.entityType !== "binder_item") return [];
+            const refusal = push.conflicts.find(
+              (c) => c.entityType === "binder_item" && c.entityId === row.entityId && c.reason === "invalid_request",
+            );
+            const keys = ["label_id", "status_id"].filter(
+              (key) =>
+                refusal?.detail?.startsWith(`${key} `) === true &&
+                typeof (row.data as Record<string, unknown>)[key] === "string",
+            );
+            return keys.length > 0 ? [{ ...row, keys }] : [];
+          });
+      for (const row of refusedTag) settled.delete(`binder_item:${row.entityId}`);
+
       const ids = pending
         .filter((row) => settled.has(`${row.entityType}:${row.entityId}`))
         .map((row) => row.id);
@@ -218,7 +247,24 @@ export async function syncProject(
         ),
       });
       outcome.pushed = push.applied.length;
-      outcome.conflicts = push.conflicts;
+      outcome.conflicts = push.conflicts.filter(
+        (c) => !refusedTag.some((row) => c.entityType === "binder_item" && c.entityId === row.entityId),
+      );
+      if (refusedTag.length > 0) {
+        await db.command("stripRefusedTags", {
+          sent: refusedTag.map((row) => ({ id: row.id, payload: row.payload, keys: row.keys })),
+        });
+        const again = await syncProject(deps, projectId, true);
+        // What stayed queued is sent again by that pass, and reported by it.
+        outcome.conflicts = outcome.conflicts.filter((c) => !shouldStayQueued(c));
+        outcome.pulled += again.pulled;
+        outcome.pushed += again.pushed;
+        outcome.dropped += again.dropped;
+        outcome.conflicts.push(...again.conflicts);
+        outcome.skipped.push(...again.skipped.filter((type) => !outcome.skipped.includes(type)));
+        outcome.resynced ||= again.resynced;
+        return outcome;
+      }
 
       // A document whose push became a conflict copy still shows this device's text,
       // which a pull keeps while the change is queued. Now that the text is safe in the
