@@ -3,9 +3,14 @@
 // Node 22 built-ins only. Prints one JSON object on stdout; always exits 0 unless the
 // debugger could not be reached at all, so the caller decides what counts as a failure.
 //
-//   node tooling/webview-state.mjs [port=9222] [timeoutSeconds=120]
+//   node tooling/webview-state.mjs [port=9222] [timeoutSeconds=120] [click] [expect]
+//
+// With `click`, presses the first button with that text once the database is ready. With
+// `expect`, waits for that text on the page and reports whether it appeared, as `found`.
 const port = process.argv[2] ?? "9222";
 const deadline = Date.now() + Number(process.argv[3] ?? 120) * 1000;
+const click = process.argv[4] ?? "";
+const expect = process.argv[5] ?? "";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const EXPRESSION = `JSON.stringify({
@@ -16,12 +21,18 @@ const EXPRESSION = `JSON.stringify({
   text: (document.body?.innerText ?? "").slice(0, 2000),
 })`;
 
-async function evaluate(url) {
+const CLICK = `JSON.stringify({ clicked: (() => {
+  const b = [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === ${JSON.stringify(click)});
+  b?.click();
+  return b !== undefined;
+})() })`;
+
+async function evaluate(url, expression = EXPRESSION) {
   const ws = new WebSocket(url);
   await new Promise((res, rej) => { ws.onopen = res; ws.onerror = () => rej(new Error("ws error")); });
   const reply = new Promise((res) => { ws.onmessage = (m) => res(JSON.parse(m.data)); });
   ws.send(JSON.stringify({ id: 1, method: "Runtime.evaluate",
-    params: { expression: EXPRESSION, returnByValue: true } }));
+    params: { expression, returnByValue: true } }));
   // A page that never answers must not hang the job; the caller's loop tries again.
   const msg = await Promise.race([
     reply,
@@ -31,6 +42,7 @@ async function evaluate(url) {
 }
 
 let last = null;
+let clicked = false;
 let failure = "no inspectable page";
 while (Date.now() < deadline) {
   try {
@@ -39,7 +51,16 @@ while (Date.now() < deadline) {
     if (page) {
       last = await evaluate(page.webSocketDebuggerUrl);
       const status = last.dataset.dbStatus;
-      if (status === "ready" || status === "error" || status === "failed") break;
+      if (status === "error" || status === "failed") break;
+      if (status === "ready") {
+        if (click !== "" && !clicked) clicked = (await evaluate(page.webSocketDebuggerUrl, CLICK)).clicked;
+        if (expect === "") {
+          if (click === "" || clicked) break;
+        } else if (last.text.includes(expect)) {
+          last.found = true;
+          break;
+        }
+      }
     }
   } catch (e) {
     failure = String(e);
@@ -47,4 +68,6 @@ while (Date.now() < deadline) {
   await sleep(3000);
 }
 if (last === null) { console.error(failure); process.exit(1); }
+if (expect !== "") last.found ??= false;
+if (click !== "") last.clicked = clicked;
 console.log(JSON.stringify(last, null, 2));
