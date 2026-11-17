@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DatabaseContext } from "@/app/db/DatabaseContext";
@@ -148,6 +148,86 @@ describe("writing a card", () => {
 
     await screen.findByRole("heading", { name: /Act One/ });
     expect(screen.queryByLabelText("Synopsis of Act One")).not.toBeInTheDocument();
+  });
+});
+
+describe("a summary arriving from another device while a card is open", () => {
+  /** A card that has synced at version 4, and another device's summary landing on it. */
+  const synced = (title: string) => {
+    const id = document(title);
+    db.adapter.run("UPDATE document SET synopsis = 'As it was.', version = 4 WHERE id = ?;", [id]);
+    db.adapter.run("DELETE FROM pending_change;");
+    return id;
+  };
+  const pull = (id: string, synopsis: string, version: number) =>
+    act(async () => {
+      await db.client.command("applyPull", {
+        projectId,
+        changes: [
+          {
+            id: version,
+            entityType: "document",
+            entityId: id,
+            op: "update",
+            data: {
+              id,
+              content: { type: "doc", content: [{ type: "paragraph" }] },
+              word_count: 0,
+              synopsis,
+              version,
+              created_at: "2026-01-01T00:00:00Z",
+              updated_at: "2026-02-01T00:00:00Z",
+            },
+          },
+        ],
+        latestId: version,
+        syncEpoch: 1,
+      });
+    });
+  const queued = () =>
+    db.adapter.query<{ base_version: number | null; payload: string }>(
+      "SELECT base_version, payload FROM pending_change WHERE entity_type = 'document';",
+    );
+
+  it("is not saved over by a field that was only looked at", async () => {
+    const id = synced("Scene One");
+    renderBoard();
+    await userEvent.click(await screen.findByLabelText("Synopsis of Scene One"));
+    await pull(id, "From the other device.", 5);
+    await userEvent.tab();
+
+    expect(queued()).toEqual([]);
+    expect(synopsisOf(id)).toBe("From the other device.");
+    await waitFor(() => expect(screen.getByLabelText("Synopsis of Scene One")).toHaveValue("From the other device."));
+  });
+
+  it("is a conflict with a summary rewritten meanwhile, not something it replaces", async () => {
+    const id = synced("Scene One");
+    renderBoard();
+    const field = await screen.findByLabelText("Synopsis of Scene One");
+    await userEvent.clear(field);
+    await userEvent.type(field, "Mine.");
+    await pull(id, "From the other device.", 5);
+    expect(field).toHaveValue("Mine.");
+    await userEvent.tab();
+
+    await waitFor(() => expect(queued()).toHaveLength(1));
+    // Sent against the version the author started from, so the server sees the clash.
+    expect(queued()[0]?.base_version).toBe(4);
+    expect(JSON.parse(queued()[0]!.payload)).toMatchObject({ synopsis: "Mine." });
+  });
+
+  it("is built on when it arrived before the author started", async () => {
+    const id = synced("Scene One");
+    renderBoard();
+    const field = await screen.findByLabelText("Synopsis of Scene One");
+    await pull(id, "From the other device.", 5);
+    await waitFor(() => expect(field).toHaveValue("From the other device."));
+    await userEvent.type(field, " And more.");
+    await userEvent.tab();
+
+    await waitFor(() => expect(queued()).toHaveLength(1));
+    expect(queued()[0]?.base_version).toBe(5);
   });
 });
 

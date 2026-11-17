@@ -215,6 +215,12 @@ export interface SaveSynopsisInput {
   id: string;
   /** Null, or blank, clears it. */
   synopsis: string | null;
+  /**
+   * The version of the document the card was written against, if the caller knows; see
+   * `SaveDocumentInput.baseVersion`. A card rewritten while another device's summary
+   * arrived underneath it is a conflict, not a newer summary.
+   */
+  baseVersion?: number | undefined;
 }
 
 /** Every syncable column on a document row, in one place so no reader can forget one. */
@@ -270,6 +276,15 @@ export function queueDocument(
     // last synced, which is what the server checks the push against.
     baseVersion: Math.min(baseVersion, row.version),
   });
+  // An entry already waiting keeps the base it was queued with, which can be newer than
+  // the one this writer saw: the editor saves after a pull, then a card that was open
+  // across that pull is saved. The older view wins, because a push that claims the newer
+  // version would replace what that writer never read. A create has no base, and stays so.
+  db.run(
+    `UPDATE pending_change SET base_version = MIN(base_version, ?)
+      WHERE project_id = ? AND entity_type = 'document' AND entity_id = ? AND base_version IS NOT NULL;`,
+    [Math.min(baseVersion, row.version), projectId, row.id],
+  );
 }
 
 export const COMMANDS = {
@@ -542,7 +557,7 @@ export const COMMANDS = {
     ]);
 
     const row = requireDocumentRow(db, input.id);
-    queueDocument(db, input.projectId, row);
+    queueDocument(db, input.projectId, row, input.baseVersion);
     return row;
   },
 

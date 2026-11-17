@@ -171,6 +171,9 @@ export function DocumentEditor({ projectId, documentId }: { projectId: string; d
     const unsubscribe = db.subscribeToChanges(() => {
       void Promise.all([loadDocument(db, projectId, documentId), copies(), known]).then(([row, ids, knownCopies]) => {
         if (!current || row === null || editor.isDestroyed) return;
+        // The heading is the binder item's title, which another device, or the binder
+        // beside this pane, can change while the document is open.
+        setLoaded((was) => (was !== null && was.title !== row.title ? { ...was, title: row.title } : was));
         const copied = ids.some((id) => !knownCopies.has(id));
         for (const id of ids) knownCopies.add(id);
         const text = JSON.stringify(row.content);

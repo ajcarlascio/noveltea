@@ -19,6 +19,8 @@ export interface IndexCard {
   synopsis: string | null;
   /** Documents only. */
   wordCount: number | null;
+  /** Documents only: the version last synced, which a save of the card is based on. */
+  version: number | null;
   /** Folders only: how many live children, so a folder card says what is behind it. */
   childCount: number | null;
   /** Resolved to names against the project's taxonomy by whoever draws the card. */
@@ -33,6 +35,7 @@ interface CardRow {
   order_key: string;
   synopsis: string | null;
   word_count: number | null;
+  version: number | null;
   child_count: number;
   label_id: string | null;
   status_id: string | null;
@@ -52,7 +55,7 @@ export async function loadCards(
     // `IS` rather than `=` so one query serves the top level and every folder: in
     // SQLite `IS` is the null-safe comparison, and `parent_id = NULL` matches nothing.
     `SELECT b.id, b.type, b.title, b.order_key, b.label_id, b.status_id,
-            d.synopsis, d.word_count,
+            d.synopsis, d.word_count, d.version,
             (SELECT COUNT(*) FROM binder_item c
               WHERE c.parent_id = b.id AND c.deleted_at IS NULL) AS child_count
        FROM binder_item b
@@ -72,6 +75,7 @@ export async function loadCards(
     orderKey: row.order_key,
     synopsis: row.type === "document" ? row.synopsis : null,
     wordCount: row.type === "document" ? row.word_count : null,
+    version: row.type === "document" ? row.version : null,
     childCount: row.type === "folder" ? row.child_count : null,
     labelId: row.label_id,
     statusId: row.status_id,
@@ -126,4 +130,5 @@ export const saveSynopsis = (
   projectId: string,
   id: string,
   synopsis: string | null,
-) => db.command("saveSynopsis", { projectId, id, synopsis });
+  baseVersion?: number,
+) => db.command("saveSynopsis", { projectId, id, synopsis, baseVersion });

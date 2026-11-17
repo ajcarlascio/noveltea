@@ -290,3 +290,16 @@ describe("an author whose text became a conflict copy", () => {
     expect(screen.queryByText(/conflict copy/i)).not.toBeInTheDocument();
   });
 });
+
+describe("the heading", () => {
+  it("follows a rename made while the document is open", async () => {
+    await open();
+    expect(screen.getByRole("heading", { name: "Chapter One" })).toBeInTheDocument();
+
+    await act(async () => {
+      await db.client.command("renameBinderItem", { projectId, id: documentId, title: "The Lamp" });
+    });
+
+    expect(await screen.findByRole("heading", { name: "The Lamp" })).toBeInTheDocument();
+  });
+});
