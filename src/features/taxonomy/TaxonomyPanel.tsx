@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useFieldDraft } from "@/ui/useFieldDraft";
 import {
   createTerm,
   deleteTerm,
@@ -157,13 +158,10 @@ function TermRow({
   onArm: () => void;
   onDisarm: () => void;
 }) {
-  const [name, setName] = useState(item.name);
-  const [editing, setEditing] = useState(false);
-
   // Follows the stored value, except while this row is the one being typed in —
   // where replacing what someone is halfway through writing is worse than showing
   // them a name a moment out of date.
-  if (!editing && name !== item.name) setName(item.name);
+  const { draft: name, setDraft: setName, enter, leave } = useFieldDraft(item.name);
 
   const save = (nextName: string, nextColor: string | null) => {
     if (nextName.trim() === "" || (nextName === item.name && nextColor === item.color)) return;
@@ -186,11 +184,11 @@ function TermRow({
         className="taxonomy__name"
         value={name}
         aria-label={`Name of ${item.name}`}
-        onFocus={() => setEditing(true)}
+        onFocus={enter}
         onChange={(event) => setName(event.target.value)}
         onBlur={() => {
-          setEditing(false);
-          save(name.trim(), item.color);
+          const typed = leave();
+          if (typed !== null) save(typed.trim(), item.color);
         }}
       />
 
