@@ -84,6 +84,18 @@ describe("saveDocument", () => {
     expect(queued()[0]!.base_version).toBe(4);
   });
 
+  it("lowers the base of an entry already waiting, for a writer who saw less", () => {
+    // The editor saved at version 5; a card that was open since version 4 is saved next.
+    db.adapter.run("UPDATE document SET version = 5 WHERE id = ?;", [documentId]);
+    save();
+    expect(queued()[0]!.base_version).toBe(5);
+
+    COMMANDS.saveSynopsis(db.adapter, { projectId, id: documentId, synopsis: "Mine.", baseVersion: 4 });
+
+    expect(queued()).toHaveLength(1);
+    expect(queued()[0]!.base_version).toBe(4);
+  });
+
   it("never queues a version the replica does not hold", () => {
     db.adapter.run("UPDATE document SET version = 5 WHERE id = ?;", [documentId]);
     save({ baseVersion: 9 });
