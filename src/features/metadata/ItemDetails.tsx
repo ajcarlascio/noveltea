@@ -1,4 +1,5 @@
 import { useEffect, useId, useState } from "react";
+import { useFieldDraft } from "@/ui/useFieldDraft";
 import { useDatabase } from "@/app/db/DatabaseContext";
 import {
   loadMetadataValues,
@@ -141,10 +142,8 @@ function Control({
       : typeof value === "number" || typeof value === "boolean"
         ? String(value)
         : "";
-  const [draft, setDraft] = useState(stored);
-  const [editing, setEditing] = useState(false);
+  const { draft, setDraft, enter, leave } = useFieldDraft(stored);
   // Follows the database except while this is the control being typed in.
-  if (!editing && draft !== stored) setDraft(stored);
 
   if (field.type === "select" || field.type === "boolean") {
     const options =
@@ -179,8 +178,9 @@ function Control({
   // Saved on leaving the field, not per keystroke: each save is a queue entry the next
   // sync carries, and a name is retyped several times before it is right.
   const commit = () => {
-    setEditing(false);
-    const trimmed = draft.trim();
+    const typed = leave();
+    if (typed === null) return;
+    const trimmed = typed.trim();
     if (trimmed === stored) return;
     if (trimmed === "") return onSave(null);
     if (field.type === "number") {
@@ -199,7 +199,7 @@ function Control({
       type={field.type === "number" ? "number" : field.type === "date" ? "date" : "text"}
       value={draft}
       disabled={disabled}
-      onFocus={() => setEditing(true)}
+      onFocus={enter}
       onChange={(event) => setDraft(event.target.value)}
       onBlur={commit}
     />

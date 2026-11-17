@@ -1,4 +1,5 @@
-import { useId, useState } from "react";
+import { useId } from "react";
+import { useFieldDraft } from "@/ui/useFieldDraft";
 import { saveGoals, type Goals } from "@/data/goals";
 import type { DatabaseClient } from "@/db/client";
 import "./goals.css";
@@ -66,9 +67,7 @@ function Target({
 }) {
   const id = useId();
   const stored = value === undefined ? "" : String(value);
-  const [draft, setDraft] = useState(stored);
-  const [editing, setEditing] = useState(false);
-  if (!editing && draft !== stored) setDraft(stored);
+  const { draft, setDraft, enter, leave } = useFieldDraft(stored);
 
   return (
     <div className="targets__field">
@@ -79,11 +78,12 @@ function Target({
         min="1"
         value={draft}
         placeholder={placeholder}
-        onFocus={() => setEditing(true)}
+        onFocus={enter}
         onChange={(event) => setDraft(event.target.value)}
         onBlur={() => {
-          setEditing(false);
-          const trimmed = draft.trim();
+          const typed = leave();
+          if (typed === null) return;
+          const trimmed = typed.trim();
           if (trimmed === stored) return;
           if (trimmed === "") {
             return void run((db) => saveGoals(db, projectId, { [field]: null }));

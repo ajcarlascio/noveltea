@@ -537,12 +537,16 @@ function RenameForm({
   onCancel: () => void;
 }) {
   const [value, setValue] = useState(node.title);
+  // The title when the form opened. Saving it back unchanged is not a rename, and after
+  // another device renamed the item meanwhile it would undo theirs.
+  const [opened] = useState(node.title);
   return (
     <form
       className="project__rename"
       onSubmit={(event) => {
         event.preventDefault();
-        onSubmit(value);
+        if (value === opened) onCancel();
+        else onSubmit(value);
       }}
     >
       <label htmlFor="rename-title">New title</label>

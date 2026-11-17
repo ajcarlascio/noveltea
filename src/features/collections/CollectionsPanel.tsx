@@ -1,4 +1,5 @@
 import { useEffect, useId, useState } from "react";
+import { useFieldDraft } from "@/ui/useFieldDraft";
 import { useDatabase } from "@/app/db/DatabaseContext";
 import {
   addToCollection,
@@ -124,13 +125,11 @@ function CollectionRow({
   run: (action: (db: DatabaseClient) => Promise<unknown>) => Promise<void>;
 }) {
   const { db } = useDatabase();
-  const [name, setName] = useState(collection.name);
-  const [editing, setEditing] = useState(false);
+  const { draft: name, setDraft: setName, enter, leave } = useFieldDraft(collection.name);
   const [confirming, setConfirming] = useState(false);
   const [holds, setHolds] = useState(false);
 
   // Follows the stored value except while this row is the one being typed in.
-  if (!editing && name !== collection.name) setName(collection.name);
 
   // Whether the selected item is already on this list, so one button can say which of
   // "add" and "remove" it does rather than an author guessing.
@@ -160,11 +159,12 @@ function CollectionRow({
           className="collections__name"
           value={name}
           aria-label={`Name of ${collection.name}`}
-          onFocus={() => setEditing(true)}
+          onFocus={enter}
           onChange={(event) => setName(event.target.value)}
           onBlur={() => {
-            setEditing(false);
-            const next = name.trim();
+            const typed = leave();
+            if (typed === null) return;
+            const next = typed.trim();
             if (next !== "" && next !== collection.name) {
               void run((client) => renameCollection(client, projectId, collection.id, next));
             }
@@ -254,9 +254,7 @@ function QueryEditor({
   const statusField = useId();
   const typeField = useId();
 
-  const [text, setText] = useState(query.text ?? "");
-  const [editing, setEditing] = useState(false);
-  if (!editing && text !== (query.text ?? "")) setText(query.text ?? "");
+  const { draft: text, setDraft: setText, enter, leave } = useFieldDraft(query.text ?? "");
 
   const save = (next: CollectionQuery) =>
     void run((db) => saveCollectionQuery(db, projectId, collection.id, next));
@@ -269,13 +267,13 @@ function QueryEditor({
           id={textField}
           value={text}
           placeholder="marlowe"
-          onFocus={() => setEditing(true)}
+          onFocus={enter}
           onChange={(event) => setText(event.target.value)}
           onBlur={() => {
-            setEditing(false);
             // Saved on leaving the field, not per keystroke: each save is a queue entry
             // the next sync carries, and a search term is retyped several times.
-            if (text !== (query.text ?? "")) save({ ...query, text });
+            const typed = leave();
+            if (typed !== null && typed !== (query.text ?? "")) save({ ...query, text: typed });
           }}
         />
       </div>

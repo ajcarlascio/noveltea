@@ -1,4 +1,5 @@
 import { useId, useState } from "react";
+import { useFieldDraft } from "@/ui/useFieldDraft";
 import {
   createMetadataField,
   deleteMetadataField,
@@ -144,15 +145,14 @@ function FieldRow({
   field: MetadataField;
   run: (action: (db: DatabaseClient) => Promise<unknown>) => Promise<void>;
 }) {
-  const [name, setName] = useState(field.name);
-  const [choices, setChoices] = useState(field.options.join(", "));
-  const [editing, setEditing] = useState<"name" | "choices" | null>(null);
   const [confirming, setConfirming] = useState(false);
 
   // Each follows the stored value except while it is the one being typed in.
-  if (editing !== "name" && name !== field.name) setName(field.name);
+  const nameField = useFieldDraft(field.name);
   const stored = field.options.join(", ");
-  if (editing !== "choices" && choices !== stored) setChoices(stored);
+  const choicesField = useFieldDraft(stored);
+  const name = nameField.draft;
+  const choices = choicesField.draft;
 
   return (
     <div className="fields__row">
@@ -160,11 +160,12 @@ function FieldRow({
         className="fields__name"
         value={name}
         aria-label={`Name of ${field.name}`}
-        onFocus={() => setEditing("name")}
-        onChange={(event) => setName(event.target.value)}
+        onFocus={nameField.enter}
+        onChange={(event) => nameField.setDraft(event.target.value)}
         onBlur={() => {
-          setEditing(null);
-          const next = name.trim();
+          const typed = nameField.leave();
+          if (typed === null) return;
+          const next = typed.trim();
           if (next !== "" && next !== field.name) {
             void run((db) => updateMetadataField(db, projectId, field.id, { name: next }));
           }
@@ -177,11 +178,12 @@ function FieldRow({
           className="fields__choices"
           value={choices}
           aria-label={`Choices for ${field.name}`}
-          onFocus={() => setEditing("choices")}
-          onChange={(event) => setChoices(event.target.value)}
+          onFocus={choicesField.enter}
+          onChange={(event) => choicesField.setDraft(event.target.value)}
           onBlur={() => {
-            setEditing(null);
-            const next = splitChoices(choices);
+            const typed = choicesField.leave();
+            if (typed === null) return;
+            const next = splitChoices(typed);
             if (next.length > 0 && next.join(", ") !== stored) {
               void run((db) => updateMetadataField(db, projectId, field.id, { options: next }));
             }
