@@ -215,6 +215,12 @@ export interface SaveSynopsisInput {
   id: string;
   /** Null, or blank, clears it. */
   synopsis: string | null;
+  /**
+   * The version of the document the card was written against, if the caller knows; see
+   * `SaveDocumentInput.baseVersion`. A card rewritten while another device's summary
+   * arrived underneath it is a conflict, not a newer summary.
+   */
+  baseVersion?: number | undefined;
 }
 
 /** Every syncable column on a document row, in one place so no reader can forget one. */
@@ -542,7 +548,7 @@ export const COMMANDS = {
     ]);
 
     const row = requireDocumentRow(db, input.id);
-    queueDocument(db, input.projectId, row);
+    queueDocument(db, input.projectId, row, input.baseVersion);
     return row;
   },
 
