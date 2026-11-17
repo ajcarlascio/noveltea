@@ -20,7 +20,7 @@ on:
         required: true
         default: android
         type: choice
-        options: [android, ios]
+        options: [android, ios, ios-device]
 
 concurrency:
   group: mobile-${{ github.ref }}
@@ -121,6 +121,8 @@ jobs:
             v="started: no ($(cat probe/verdict.txt 2>/dev/null || echo 'no state read'))"
           fi
           echo "Android: $v" | tee -a "$GITHUB_STEP_SUMMARY"
+          found() { [ -s "probe/$1" ] && node -p "require('./probe/$1').found === true ? 'yes' : 'no'" || echo "not read"; }
+          echo "Android: project written: $(found written.json); still there after the app was stopped and started: $(found restarted.json)" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -170,3 +172,66 @@ jobs:
           name: noveltea-ios-simulator
           path: src-tauri/gen/apple/build/arm64-sim/NovelTea.app
           if-no-files-found: warn
+
+  # An unsigned .ipa for a real device. It cannot be installed as it is: iOS runs nothing
+  # unsigned. It is what a sideloading tool (Sideloadly, AltStore) signs with the owner's
+  # own Apple ID on the way to the phone, which needs no paid developer account and no
+  # secret in this repository.
+  ios-device:
+    name: iOS device (unsigned)
+    if: inputs.platform == 'ios-device'
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: ios-device
+
+      - run: npm ci
+
+      - name: Initialise
+        run: npm run tauri ios init -- --ci
+
+      # Signing is switched off for every xcodebuild the CLI starts, through the one
+      # override file Xcode reads from the environment. The archive then succeeds and the
+      # export after it cannot (there is nothing to sign an export with), so the CLI's exit
+      # status is not the result: the archive is, and the next step fails without one.
+      - name: Build, unsigned
+        run: |
+          printf 'CODE_SIGNING_ALLOWED = NO\nCODE_SIGNING_REQUIRED = NO\nCODE_SIGN_IDENTITY =\nCODE_SIGN_ENTITLEMENTS =\n' > "$RUNNER_TEMP/unsigned.xcconfig"
+          XCODE_XCCONFIG_FILE="$RUNNER_TEMP/unsigned.xcconfig" npm run tauri ios build -- --target aarch64 \
+            || echo "::notice::tauri ios build exited non-zero; expected at the export step without a signing identity"
+
+      - name: Package
+        run: |
+          app=$(find src-tauri/gen/apple -path "*.xcarchive/Products/Applications/*.app" -maxdepth 8 -type d | head -1)
+          if [ -z "$app" ]; then
+            echo "::error::no archived .app was produced"
+            find src-tauri/gen/apple/build -maxdepth 4 2>/dev/null | head -50
+            exit 1
+          fi
+          mkdir -p ipa/Payload
+          cp -R "$app" ipa/Payload/
+          (cd ipa && zip -qry ../NovelTea-unsigned.ipa Payload)
+          ls -lh NovelTea-unsigned.ipa
+          echo "iOS device: unsigned .ipa built from $app" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: noveltea-ios-unsigned-ipa
+          path: NovelTea-unsigned.ipa
+          if-no-files-found: error
