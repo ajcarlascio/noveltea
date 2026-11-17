@@ -211,16 +211,25 @@ export async function syncProject(
       // from the item and the queue). Clearing the entry would lose its rename or move too,
       // so it stays queued, minus the tags, and one more pass sends it. With the tags gone
       // it cannot be refused for them again, and `repeated` keeps it to one pass.
+      //
+      // Only the tag the server named: its refusal says which field it would not take
+      // ("label_id does not refer to a label in this project"). An item refused for
+      // anything else keeps its tags, which are live and would otherwise be dropped from
+      // the server's copy while this device went on showing them.
       const refusedTag = repeated
         ? []
-        : pending.filter(
-            (row) =>
-              row.entityType === "binder_item" &&
-              push.conflicts.some(
-                (c) => c.entityType === "binder_item" && c.entityId === row.entityId && c.reason === "invalid_request",
-              ) &&
-              ["label_id", "status_id"].some((key) => typeof (row.data as Record<string, unknown>)[key] === "string"),
-          );
+        : pending.flatMap((row) => {
+            if (row.entityType !== "binder_item") return [];
+            const refusal = push.conflicts.find(
+              (c) => c.entityType === "binder_item" && c.entityId === row.entityId && c.reason === "invalid_request",
+            );
+            const keys = ["label_id", "status_id"].filter(
+              (key) =>
+                refusal?.detail?.startsWith(`${key} `) === true &&
+                typeof (row.data as Record<string, unknown>)[key] === "string",
+            );
+            return keys.length > 0 ? [{ ...row, keys }] : [];
+          });
       for (const row of refusedTag) settled.delete(`binder_item:${row.entityId}`);
 
       const ids = pending
@@ -243,7 +252,7 @@ export async function syncProject(
       );
       if (refusedTag.length > 0) {
         await db.command("stripRefusedTags", {
-          sent: refusedTag.map((row) => ({ id: row.id, payload: row.payload })),
+          sent: refusedTag.map((row) => ({ id: row.id, payload: row.payload, keys: row.keys })),
         });
         const again = await syncProject(deps, projectId, true);
         // What stayed queued is sent again by that pass, and reported by it.

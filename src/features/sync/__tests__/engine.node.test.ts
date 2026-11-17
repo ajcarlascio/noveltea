@@ -1153,7 +1153,7 @@ describe("pushing", () => {
         const [change] = changes;
         onPush(change!.data);
         if (typeof change!.data.label_id === "string") {
-          return ok(pushBody({ conflicts: [{ entityId: doc.id, entityType: "binder_item", reason: "invalid_request" }] }));
+          return ok(pushBody({ conflicts: [{ entityId: doc.id, entityType: "binder_item", reason: "invalid_request", conflictCopyId: null, serverVersion: null, detail: "label_id does not refer to a label in this project" }] }));
         }
         return ok(pushBody({ applied: [{ entityId: doc.id, entityType: "binder_item", version: 2 }] }));
       });
@@ -1194,11 +1194,11 @@ describe("pushing", () => {
       expect(queued()).toHaveLength(0);
     });
 
-    it("is retried once and no more when the server refuses it for another reason", async () => {
+    it("is retried once and no more when the server goes on refusing the tag", async () => {
       const { doc } = setup();
       const { auth, calls } = fakeAuth((_path, init) =>
         (init?.method ?? "GET") === "POST"
-          ? ok(pushBody({ conflicts: [{ entityId: doc.id, entityType: "binder_item", reason: "invalid_request" }] }))
+          ? ok(pushBody({ conflicts: [{ entityId: doc.id, entityType: "binder_item", reason: "invalid_request", conflictCopyId: null, serverVersion: null, detail: "label_id does not refer to a label in this project" }] }))
           : ok(pullBody()),
       );
 
@@ -1207,6 +1207,24 @@ describe("pushing", () => {
       expect(calls.filter((c) => c.method === "POST")).toHaveLength(2);
       expect(outcome.conflicts).toHaveLength(1);
       expect(queued()).toHaveLength(0);
+    });
+
+    it("keeps its tag, and is not sent again, when the server refuses it for another reason", async () => {
+      const { doc } = setup();
+      const sent: Record<string, unknown>[] = [];
+      const { auth, calls } = fakeAuth((_path, init) => {
+        if ((init?.method ?? "GET") !== "POST") return ok(pullBody());
+        const { changes } = JSON.parse(init?.body as string) as { changes: { data: Record<string, unknown> }[] };
+        sent.push(changes[0]!.data);
+        return ok(pushBody({ conflicts: [{ entityId: doc.id, entityType: "binder_item", reason: "invalid_request", conflictCopyId: null, serverVersion: null, detail: "order_key taken" }] }));
+      });
+
+      const outcome = await syncProject({ db: db.client, auth }, projectId);
+
+      // One push, with the tag: a live label is not stripped for someone else's refusal.
+      expect(calls.filter((c) => c.method === "POST")).toHaveLength(1);
+      expect(sent[0]).toHaveProperty("label_id");
+      expect(outcome.conflicts).toHaveLength(1);
     });
   });
 

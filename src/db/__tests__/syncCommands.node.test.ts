@@ -406,7 +406,7 @@ describe("stripRefusedTags", () => {
     COMMANDS.setItemTaxonomy(db.adapter, { projectId, id: doc.id, labelId: label.id, statusId: null });
     const [sent] = COMMANDS.takePending(db.adapter, { projectId }).filter((row) => row.entityType === "binder_item");
 
-    COMMANDS.stripRefusedTags(db.adapter, { sent: [{ id: sent!.id, payload: sent!.payload }] });
+    COMMANDS.stripRefusedTags(db.adapter, { sent: [{ id: sent!.id, payload: sent!.payload, keys: ["label_id", "status_id"] }] });
 
     const payload = JSON.parse(queued().find((q) => q.entity_id === doc.id)!.payload!) as Record<string, unknown>;
     expect(payload).not.toHaveProperty("label_id");
@@ -420,10 +420,26 @@ describe("stripRefusedTags", () => {
     const [sent] = COMMANDS.takePending(db.adapter, { projectId }).filter((row) => row.entityType === "binder_item");
     COMMANDS.renameBinderItem(db.adapter, { projectId, id: doc.id, title: "Newer" });
 
-    COMMANDS.stripRefusedTags(db.adapter, { sent: [{ id: sent!.id, payload: sent!.payload }] });
+    COMMANDS.stripRefusedTags(db.adapter, { sent: [{ id: sent!.id, payload: sent!.payload, keys: ["label_id", "status_id"] }] });
 
     const payload = JSON.parse(queued().find((q) => q.entity_id === doc.id)!.payload!) as Record<string, unknown>;
     expect(payload).toMatchObject({ label_id: label.id, title: "Newer" });
+  });
+});
+
+describe("stripRefusedTags, for one tag of two", () => {
+  it("leaves the tag the server did not refuse", () => {
+    const doc = COMMANDS.createBinderItem(db.adapter, { projectId, parentId: null, type: "document", title: "One" });
+    const label = COMMANDS.createTaxonomy(db.adapter, { projectId, kind: "label", name: "POV", color: "#3d6b8e" });
+    const status = COMMANDS.createTaxonomy(db.adapter, { projectId, kind: "status", name: "Draft", color: "#3d6b8e" });
+    COMMANDS.setItemTaxonomy(db.adapter, { projectId, id: doc.id, labelId: label.id, statusId: status.id });
+    const [sent] = COMMANDS.takePending(db.adapter, { projectId }).filter((row) => row.entityType === "binder_item");
+
+    COMMANDS.stripRefusedTags(db.adapter, { sent: [{ id: sent!.id, payload: sent!.payload, keys: ["label_id"] }] });
+
+    const payload = JSON.parse(queued().find((q) => q.entity_id === doc.id)!.payload!) as Record<string, unknown>;
+    expect(payload).not.toHaveProperty("label_id");
+    expect(payload).toHaveProperty("status_id", status.id);
   });
 });
 

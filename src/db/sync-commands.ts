@@ -960,16 +960,21 @@ export const SYNC_COMMANDS = {
    * Takes the tags off entries the server refused for naming a term it does not hold, so
    * the rest of the change (a rename, a move, a trash) can be sent again.
    *
-   * Only the tags that are set: a null is the author clearing one, which the server
-   * never refuses. Only an entry still as it was sent: one edited since carries newer
+   * Only the tags the server named, and only where set: a null is the author clearing
+   * one, which the server never refuses. Only an entry still as it was sent: one edited since carries newer
    * words, and keeps them. With the tags gone the entry cannot be refused for them again,
    * so this is a single retry.
    */
-  stripRefusedTags: (db: SqliteAdapter, input: { sent: { id: number; payload: string | null }[] }): void => {
-    for (const { id, payload } of input.sent) {
+  stripRefusedTags: (
+    db: SqliteAdapter,
+    input: { sent: { id: number; payload: string | null; keys: string[] }[] },
+  ): void => {
+    for (const { id, payload, keys } of input.sent) {
       if (payload === null) continue;
       const data = JSON.parse(payload) as Record<string, unknown>;
-      for (const key of ["label_id", "status_id"]) if (typeof data[key] === "string") delete data[key];
+      for (const key of ["label_id", "status_id"]) {
+        if (keys.includes(key) && typeof data[key] === "string") delete data[key];
+      }
       db.run("UPDATE pending_change SET payload = ? WHERE id = ? AND payload = ?;", [JSON.stringify(data), id, payload]);
     }
   },
